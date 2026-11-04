@@ -5,3 +5,6 @@ data
 pnpm-lock.yaml
 *.xlsx
 *.docx
+
+# File generato da pnpm data:import
+packages/engine/src/archetype-profiles.ts

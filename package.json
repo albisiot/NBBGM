@@ -14,8 +14,8 @@
     "lint": "eslint .",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
-    "data:import": "pnpm --filter @nbbgm/scripts import",
-    "sim:calibrate": "pnpm --filter @nbbgm/scripts calibrate"
+    "data:import": "pnpm --filter @nbbgm/scripts run import",
+    "sim:calibrate": "pnpm --filter @nbbgm/scripts run calibrate"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",

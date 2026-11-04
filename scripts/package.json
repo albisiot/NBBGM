@@ -5,10 +5,12 @@
   "description": "Script di sviluppo: import dei dati, calibrazione del motore.",
   "type": "module",
   "scripts": {
-    "typecheck": "tsc -p tsconfig.json"
+    "typecheck": "tsc -p tsconfig.json",
+    "import": "tsx src/import-data.ts"
   },
   "dependencies": {
-    "@nbbgm/engine": "workspace:*"
+    "@nbbgm/engine": "workspace:*",
+    "exceljs": "4.4.0"
   },
   "devDependencies": {
     "tsx": "^4.23.15"
