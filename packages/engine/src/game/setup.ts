@@ -32,17 +32,21 @@ export function autoSetup(
 ): TeamSetup {
   const healthy = roster.filter((p) => p.injury === null);
   if (healthy.length < 5) throw new Error(`${teamId}: meno di 5 giocatori disponibili`);
+  const ovr = new Map(healthy.map((p) => [p, overall(p)]));
   const ranked = [...healthy]
-    .map((p) => ({ p, o: overall(p) * (0.8 + 0.2 * (p.energy / 100)) }))
+    .map((p) => ({ p, o: (ovr.get(p) as number) * (0.8 + 0.2 * (p.energy / 100)) }))
     .sort((a, b) => b.o - a.o)
     .map((x) => x.p);
   const active = ranked.slice(0, 13);
 
-  // Quintetto: miglior assegnazione dei 5 slot tra i primi 8
+  // Quintetto: miglior assegnazione dei 5 slot tra i primi 8 (valori per slot calcolati una volta)
   const pool = active.slice(0, 8);
-  let best: Player[] = [];
+  const fit = pool.map((p) => SLOT_ROLES.map((r) => (ovr.get(p) as number) * roleFit(p, r)));
+  let best: number[] = [];
   let bestScore = -1;
-  const pick = (slot: number, used: Set<number>, chosen: Player[], score: number) => {
+  const chosen: number[] = [];
+  const used = new Array<boolean>(pool.length).fill(false);
+  const pick = (slot: number, score: number) => {
     if (slot === 5) {
       if (score > bestScore) {
         bestScore = score;
@@ -51,26 +55,26 @@ export function autoSetup(
       return;
     }
     for (let i = 0; i < pool.length; i++) {
-      if (used.has(i)) continue;
-      const p = pool[i] as Player;
-      used.add(i);
-      chosen.push(p);
-      pick(slot + 1, used, chosen, score + overall(p) * roleFit(p, SLOT_ROLES[slot] as Role));
+      if (used[i]) continue;
+      used[i] = true;
+      chosen.push(i);
+      pick(slot + 1, score + (fit[i]![slot] as number));
       chosen.pop();
-      used.delete(i);
+      used[i] = false;
     }
   };
-  pick(0, new Set(), [], 0);
+  pick(0, 0);
+  const starters = best.map((i) => pool[i] as Player);
 
-  const bench = active.filter((p) => !best.includes(p));
-  const order = [...best].sort((a, b) => overall(b) - overall(a)).concat(bench);
+  const bench = active.filter((p) => !starters.includes(p));
+  const order = [...starters].sort((a, b) => (ovr.get(b) as number) - (ovr.get(a) as number)).concat(bench);
   const minutes: Record<string, number> = {};
   order.forEach((p, i) => {
     minutes[p.id] = ROTATION_MINUTES[i] ?? 0;
   });
   // Con meno di 10 giocatori i minuti mancanti vanno ai titolari
   let missing = 240 - Object.values(minutes).reduce((a, b) => a + b, 0);
-  for (let i = 0; missing > 0; i = (i + 1) % best.length, missing--) {
+  for (let i = 0; missing > 0; i = (i + 1) % starters.length, missing--) {
     const id = (order[i] as Player).id;
     minutes[id] = (minutes[id] ?? 0) + 1;
   }
@@ -78,7 +82,7 @@ export function autoSetup(
   return {
     teamId,
     players: active,
-    starters: best.map((p) => p.id) as TeamSetup['starters'],
+    starters: starters.map((p) => p.id) as TeamSetup['starters'],
     minutes,
     tactics,
   };

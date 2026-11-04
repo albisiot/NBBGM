@@ -88,7 +88,7 @@ export const DEFAULT_PARAMS = {
   benchRecovery: 2.2,
   fatigueThreshold: 70,
   fatigueMaxPenalty: 0.15,
-  subEnergy: 60,
+  subEnergy: 50,
   subMinutesSlack: 150,
   subCheckSeconds: 40,
 

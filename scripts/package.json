@@ -7,7 +7,8 @@
   "scripts": {
     "typecheck": "tsc -p tsconfig.json",
     "import": "tsx src/import-data.ts",
-    "calibrate": "tsx src/calibrate.ts"
+    "calibrate": "tsx src/calibrate.ts",
+    "seasons": "tsx src/seasons.ts"
   },
   "dependencies": {
     "@nbbgm/engine": "workspace:*",

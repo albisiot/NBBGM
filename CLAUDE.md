@@ -13,10 +13,23 @@ Riassunto del documento di design (versione 2.4, 4 novembre 2026). È la fonte d
 
 ## Stato del lavoro
 
-- Fasi 1-3 completate (ramo `fasi-1-3`).
+- Fasi 1-4 completate (ramo `fasi-1-3`). La logica di stagione sta in `packages/engine/src/season/`.
 - `pnpm data:import` legge `NBA_2026-27_valutazioni_v2.xlsx` e `NBA_2026-27_contratti.xlsx` dalla radice e scrive `data/league-2026-27.json` e `data/import-report.md`; aggiorna `packages/engine/src/archetype-profiles.ts`.
 - `pnpm sim:calibrate [partite]` gioca 1.000 partite (o il numero dato) e confronta le medie con gli intervalli della sezione Calibrazione. I parametri del motore stanno in `packages/engine/src/game/params.ts`.
-- Da fare nella Fase 4: recupero dell'energia tra un turno e l'altro (il motore restituisce l'energia di fine partita), Potenziale del file da riportare sulla scala dell'overall.
+- `pnpm sim:seasons [stagioni] [--veloce]` gioca 10 stagioni complete e controlla le metriche di lungo periodo; con `--veloce` usa una partita finta (2 secondi a stagione) per provare crescita ed economia.
+
+## Scelte prese nella Fase 4 (non erano nel documento)
+
+- **Livello della lega costante:** a ogni offseason, dopo crescita e draft, le abilità di tutti si spostano di poco perché la media dell'overall dei migliori 150 torni a quella di partenza (`normalizeTalent`). L'ordine tra i giocatori non cambia. Resistenza, Grinta, Freddezza e Leadership non si spostano: non entrano nell'overall.
+- **Potenziale del file:** riportato sulla scala dell'overall con una retta ricavata dai giocatori tra 28 e 33 anni, che sono al loro massimo (`calibratePotential`).
+- **Energia tra i turni:** recupero di 12 punti a Resistenza 50 (`ENERGY_RECOVERY`), cambio per stanchezza sotto 50: un titolare a 35 minuti resta sopra 85 a inizio gara, uno a 42 scende sotto 75.
+- **Curva di crescita:** picco a 27 anni, calo dal 28° (`ageCurve`).
+- **Bot in rosso:** se sono sopra la tassa provano a cedere un contratto pesante a chi ha spazio sotto il cap, aggiungendo se serve una scelta (`botSalaryDump`).
+- **Two-way:** contratti di un anno, rinnovati di stagione in stagione con i giovani svincolati.
+- **Scala rookie:** ricavata dai contratti reali dei rookie 2026 (`CONFIG_2026_27.rookieScale`); minimi per anzianità dalla tabella 2026-27.
+- **Rose iniziali:** alla creazione della lega le rose oltre 15 standard o 3 two-way si tagliano come in offseason.
+- **Niente dinastie a forza di scambi:** negli scambi tra bot le due squadre più forti non comprano veterani.
+- **Da decidere (bilanci):** con ricavi pari alla soglia della tassa e senza eccezioni salariali, dopo qualche stagione nessuno paga la tassa e i saldi crescono di centinaia di milioni. Possibili correttivi: ricavi più bassi o una mid-level exception.
 
 ## Visione
 
