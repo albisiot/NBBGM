@@ -1,0 +1,16 @@
+{
+  "name": "@nbbgm/scripts",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Script di sviluppo: import dei dati, calibrazione del motore.",
+  "type": "module",
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json"
+  },
+  "dependencies": {
+    "@nbbgm/engine": "workspace:*"
+  },
+  "devDependencies": {
+    "tsx": "^4.23.15"
+  }
+}

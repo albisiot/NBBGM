@@ -1,0 +1,14 @@
+{
+  "name": "@nbbgm/engine",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Motore partita e logica di lega di NBBGM: TypeScript puro, nessuna dipendenza.",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "typecheck": "tsc -p tsconfig.json"
+  }
+}

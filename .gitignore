@@ -1,0 +1,13 @@
+node_modules/
+dist/
+coverage/
+*.tsbuildinfo
+.env
+.env.*
+!.env.example
+
+# Dati dei giocatori reali e documenti di lavoro: non vanno nel repo (vedi CLAUDE.md)
+data/
+*.xlsx
+*.docx
+~$*
