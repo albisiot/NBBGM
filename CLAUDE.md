@@ -9,6 +9,14 @@ Riassunto del documento di design (versione 2.4, 4 novembre 2026). È la fonte d
 - I file dati con i giocatori reali (`*.xlsx`) e i documenti (`*.docx`) restano fuori dal repo; i dati generati vanno in `data/`, anch'essa esclusa.
 - Scrivi i test prima di dichiarare finita una parte. Comandi: `pnpm test`, `pnpm build`, `pnpm typecheck`, `pnpm lint`, `pnpm format:check`.
 - Testi dell'interfaccia e commenti in italiano.
+- Nel motore non usare globali di Node o del browser (es. `structuredClone`): la build usa solo la libreria standard.
+
+## Stato del lavoro
+
+- Fasi 1-3 completate (ramo `fasi-1-3`).
+- `pnpm data:import` legge `NBA_2026-27_valutazioni_v2.xlsx` e `NBA_2026-27_contratti.xlsx` dalla radice e scrive `data/league-2026-27.json` e `data/import-report.md`; aggiorna `packages/engine/src/archetype-profiles.ts`.
+- `pnpm sim:calibrate [partite]` gioca 1.000 partite (o il numero dato) e confronta le medie con gli intervalli della sezione Calibrazione. I parametri del motore stanno in `packages/engine/src/game/params.ts`.
+- Da fare nella Fase 4: recupero dell'energia tra un turno e l'altro (il motore restituisce l'energia di fine partita), Potenziale del file da riportare sulla scala dell'overall.
 
 ## Visione
 

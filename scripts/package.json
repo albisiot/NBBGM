@@ -6,7 +6,8 @@
   "type": "module",
   "scripts": {
     "typecheck": "tsc -p tsconfig.json",
-    "import": "tsx src/import-data.ts"
+    "import": "tsx src/import-data.ts",
+    "calibrate": "tsx src/calibrate.ts"
   },
   "dependencies": {
     "@nbbgm/engine": "workspace:*",
