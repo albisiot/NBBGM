@@ -1,12 +1,13 @@
 # Supabase
 
-Database di NBBGM: tabelle, sicurezza e funzioni dei turni.
+Database di NBBGM: tabelle, sicurezza, funzioni dei turni e delle leghe, Edge Functions e impostazioni di accesso.
 
 ## Progetto
 
 - **NBBGM** (`sojimrnmsrbntgfsgxmj`), regione Central EU (Frankfurt), piano Free.
 - Impostazioni scelte alla creazione: Data API attiva, "Automatically expose new tables" spento (i permessi li danno le migrazioni), "Enable automatic RLS" attivo come rete di sicurezza.
 - Le migrazioni sono applicate e le tabelle `base_*` contengono i giocatori reali 2026-27.
+- La CLI va usata con l'account Owner (mondiali2014): con il ruolo Developer non si cambiano le impostazioni Auth.
 
 ## CLI
 
@@ -19,6 +20,7 @@ npx.cmd --yes supabase@3.0.0 db push --remote --dry-run
 npx.cmd --yes supabase@3.0.0 db push --remote
 npx.cmd --yes supabase@3.0.0 db advisors --remote --type all
 npx.cmd --yes supabase@3.0.0 db query --remote -f data/base.sql
+npx.cmd --yes supabase@3.0.0 functions deploy create-league --use-api
 ```
 
 Senza `--remote` i comandi `db` puntano al database locale di Docker.
@@ -32,6 +34,7 @@ Senza `--remote` i comandi `db` puntano al database locale di Docker.
 | `20261105090200_turns.sql`               | `set_ready`, `round_all_ready`, `close_round`, `reclaim_round` e `apply_turn`.                                                                     |
 | `20261105100000_private_helpers.sql`     | Le funzioni delle policy passano nello schema `private`, che l'API non espone; `coach_ready` e `round_all_ready` solo per il server.               |
 | `20261105100100_foreign_key_indexes.sql` | Un indice per ogni chiave esterna.                                                                                                                 |
+| `20261105110000_leagues.sql`             | `insert_league` (solo server), `league_preview` e `join_league` per entrare con il codice invito.                                                  |
 
 `supabase db advisors` lascia solo avvisi voluti: `player_hidden` e `base_*` hanno la RLS senza policy (chiuse al client), `set_ready` è una funzione security definer chiamabile dal manager (è il pulsante Pronto e controlla da sé che la squadra sia sua), e gli indici risultano non usati finché il database è vuoto.
 
@@ -41,6 +44,17 @@ Senza `--remote` i comandi `db` puntano al database locale di Docker.
 - **Commissario:** in più cambia nome, scadenza, ritmo e pausa della lega.
 - **Senza login:** niente.
 - **Server** (`service_role`, Edge Functions): tutto il resto. Solo lui chiude il turno (`close_round`) e scrive il risultato (`apply_turn`), e solo lui legge `player_hidden` e i dati di partenza.
+
+## Edge Functions
+
+- **create-league** (`functions/create-league/index.ts`): `POST { name, team, settings }` con il JWT dell'utente. Controlla l'utente con `auth.getUser`, legge i dati di partenza, crea la lega con il motore e la scrive con `insert_league`. `verify_jwt` è spento in `config.toml` perché il controllo lo fa la funzione. Il motore viene caricato da `packages/engine` insieme alla funzione (`--use-api`, senza Docker).
+- Il codice comune a funzioni e script sta in `functions/_shared/league.ts`.
+
+## Accesso (Auth)
+
+- Codice di 6 cifre via email (niente link magico) e Google. Le email partono dallo SMTP di Gmail configurato nella dashboard; il modello è `templates/codice.html`.
+- Impostazioni applicate al progetto: Site URL `http://localhost:5173`, Redirect URLs `http://localhost:5173/**` e `http://192.168.1.51:5173/**`, `otp_length = 6`, modelli `magic_link` e `confirmation` con oggetto "Il tuo codice NBBGM". Per cambiarle si usa `config push --workdir <cartella>` con un `config.toml` che dichiara solo quei valori: i valori non dichiarati restano com'erano. Il `config.toml` di questa cartella è per il database locale e non va spinto per intero.
+- Da fare: provider Google (client OAuth con redirect `https://sojimrnmsrbntgfsgxmj.supabase.co/auth/v1/callback`) e, con la pubblicazione su GitHub Pages, il nuovo Site URL.
 
 ## apply_turn
 

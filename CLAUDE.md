@@ -13,7 +13,9 @@ Riassunto del documento di design (versione 2.4, 4 novembre 2026). È la fonte d
 
 ## Stato del lavoro
 
-- Fasi 1-5 completate (ramo `fasi-1-3`). La logica di stagione sta in `packages/engine/src/season/`; database e sicurezza in `supabase/migrations/` (vedi `supabase/README.md`).
+- Fasi 1-6 completate (ramo `fasi-1-3`); della Fase 6 manca solo la prova del login con codice da iPhone. La logica di stagione sta in `packages/engine/src/season/`; database e sicurezza in `supabase/migrations/` (vedi `supabase/README.md`).
+- App: `pnpm dev` (o `pnpm dev:lan` per provarla dal telefono sulla stessa Wi-Fi). Legge URL e chiave publishable da `apps/web/.env.local` (modello in `.env.example`).
+- Edge Function `create-league` in `supabase/functions/`; il codice comune a Edge Function e script (dati di partenza <-> motore, righe per `insert_league`) sta in `supabase/functions/_shared/league.ts`. Si pubblica con `npx.cmd --yes supabase@3.0.0 functions deploy create-league --use-api`.
 - `pnpm db:seed` scrive `supabase/seed.sql` (lega di prova generata, utenti anna, bruno e carla `@nbbgm.test`) e `data/base.sql` (giocatori reali per le tabelle `base_*`); nessuno dei due va nel repo. I test del database girano su PGlite (`scripts/test/db.test.ts`), senza Docker.
 - Progetto Supabase **NBBGM** (`sojimrnmsrbntgfsgxmj`, Francoforte): migrazioni applicate, giocatori reali caricati nelle tabelle `base_*`. Si lavora con la CLI (`npx.cmd --yes supabase@3.0.0 ...`, comandi in `supabase/README.md`), non con il connettore.
 - `pnpm data:import` legge `NBA_2026-27_valutazioni_v2.xlsx` e `NBA_2026-27_contratti.xlsx` dalla radice e scrive `data/league-2026-27.json` e `data/import-report.md`; aggiorna `packages/engine/src/archetype-profiles.ts`.
@@ -42,6 +44,16 @@ Riassunto del documento di design (versione 2.4, 4 novembre 2026). È la fonte d
 - **apply_turn:** riceve righe con i nomi delle colonne, sezione per sezione; rifiuta sezioni sconosciute, righe di altre leghe e partite già giocate, e non scrive nulla se qualcosa non torna.
 - **Funzioni delle policy nello schema `private`:** non sono chiamabili dall'API. Dal client si chiama solo `set_ready`. Ogni funzione nuova va chiusa (`revoke execute ... from public, anon, authenticated`) e aperta solo a chi serve.
 - **Permessi espliciti:** il progetto ha "Automatically expose new tables" spento; le migrazioni danno i permessi a ogni ruolo, server compreso, e i test controllano che siano gli stessi con il flag acceso o spento.
+
+## Scelte prese nella Fase 6 (non erano nel documento)
+
+- **Creazione della lega:** la fa la Edge Function `create-league` con il motore (circa 70 ms) e la scrive `insert_league` in una sola transazione. Per ora solo rose reali: il draft iniziale è visibile ma disattivato fino alla Fase 7.
+- **Codice invito:** 6 caratteri senza 0, O, 1, I e L; si scrive in qualunque modo (minuscole, spazi, trattini). Con il codice si vedono nome della lega e squadre libere (`league_preview`); `join_league` dà la squadra al primo che la chiede.
+- **Una squadra per lega:** chi entra prende una squadra libera, finora del bot; non c'è ancora un modo per cambiarla o lasciare la lega.
+- **Email con il codice:** 6 cifre, mandate da Gmail (SMTP del progetto, mittente NBBGM `<mondiali2014@gmail.com>`, 30 email all'ora). Il modello sta in `supabase/templates/codice.html`. Sul piano Free i modelli si cambiano solo con uno SMTP personalizzato.
+- **Impostazioni Auth del progetto:** si applicano con `config push` da una cartella temporanea con un `config.toml` minimo, che dichiara solo i valori da cambiare (Site URL, Redirect URLs, lunghezza del codice, modelli). Serve il login della CLI come Owner (mondiali2014). Il `config.toml` del repo è per il database locale: non va spinto per intero sul progetto.
+- **Login con Google:** il codice c'è, ma il provider va ancora configurato (client OAuth di Google con redirect `https://sojimrnmsrbntgfsgxmj.supabase.co/auth/v1/callback`).
+- **Dopo il login con Google** il client usa il flusso PKCE: il codice torna come `?code=...` e non si scontra con l'HashRouter.
 
 ## Visione
 

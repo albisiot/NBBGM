@@ -1,1 +1,11 @@
 @import 'tailwindcss';
+
+/* Colori di base per le pagine senza intestazione (accesso); il tema segue quello del sistema */
+@layer base {
+  html {
+    -webkit-text-size-adjust: 100%;
+  }
+  body {
+    @apply bg-slate-50 text-slate-900 antialiased dark:bg-slate-900 dark:text-slate-100;
+  }
+}

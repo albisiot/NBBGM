@@ -12,3 +12,5 @@ packages/engine/src/archetype-profiles.ts
 # File della CLI di Supabase
 supabase/.temp
 supabase/.branches
+# Modelli delle email: si applicano al progetto così come sono
+supabase/templates

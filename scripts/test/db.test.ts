@@ -87,7 +87,11 @@ describe('permessi', () => {
     const userFunctions = rows
       .filter((r) => r.kind === 'function' && r.role === 'authenticated')
       .map((r) => r.name);
-    expect(userFunctions).toEqual(['set_ready(uuid,boolean)']);
+    expect(userFunctions).toEqual([
+      'join_league(text,text)',
+      'league_preview(text)',
+      'set_ready(uuid,boolean)',
+    ]);
     // Il client scrive solo dove serve al manager
     const writes = rows
       .filter((r) => r.kind === 'table' && r.role === 'authenticated' && r.priv !== 'SELECT')
