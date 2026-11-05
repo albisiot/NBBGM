@@ -10,7 +10,9 @@ import { JoinLeaguePage } from './pages/JoinLeaguePage.tsx';
 import { LeaguePage } from './pages/LeaguePage.tsx';
 import { LeaguesPage } from './pages/LeaguesPage.tsx';
 import { LoginPage } from './pages/LoginPage.tsx';
+import { PlayerPage } from './pages/PlayerPage.tsx';
 import { ProfilePage } from './pages/ProfilePage.tsx';
+import { RosterPage } from './pages/RosterPage.tsx';
 
 function Routed() {
   const { session, loading } = useAuth();
@@ -31,6 +33,8 @@ function Routed() {
         <Route path="entra/:code" element={<JoinLeaguePage />} />
         <Route path="lega/:id" element={<LeaguePage />} />
         <Route path="lega/:id/draft" element={<DraftPage />} />
+        <Route path="lega/:id/squadra" element={<RosterPage />} />
+        <Route path="lega/:id/giocatore/:pid" element={<PlayerPage />} />
         <Route path="profilo" element={<ProfilePage />} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Route>

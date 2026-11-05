@@ -1,3 +1,4 @@
+import type { SavedSettings } from '../game/setup.ts';
 import type { Tactics } from '../game/types.ts';
 import type { Contract, DeadMoney, Player, Team } from '../types.ts';
 import type { SeasonConfig } from './config.ts';
@@ -43,6 +44,8 @@ export interface TeamState extends Team {
   balance: number;
   /** Per ogni stagione passata, se ha pagato la luxury tax (la più recente in fondo). */
   taxHistory: boolean[];
+  /** Impostazioni salvate dal manager (solo squadre umane): le legge la simulazione al posto del bot. */
+  settings?: SavedSettings | null;
 }
 
 export interface DraftPick {

@@ -13,9 +13,9 @@ Riassunto del documento di design (versione 2.4, 4 novembre 2026). È la fonte d
 
 ## Stato del lavoro
 
-- Fasi 1-7 completate (ramo `fasi-1-3`); della Fase 6 manca solo la prova del login con codice da iPhone. La logica di stagione sta in `packages/engine/src/season/`; database e sicurezza in `supabase/migrations/` (vedi `supabase/README.md`).
+- Fasi 1-8 completate (ramo `fasi-1-3`); della Fase 6 manca solo la prova del login con codice da iPhone. La logica di stagione sta in `packages/engine/src/season/`; database e sicurezza in `supabase/migrations/` (vedi `supabase/README.md`).
 - App: `pnpm dev` (o `pnpm dev:lan` per provarla dal telefono sulla stessa Wi-Fi). Legge URL e chiave publishable da `apps/web/.env.local` (modello in `.env.example`).
-- Edge Functions `create-league` e `draft` in `supabase/functions/`; il codice comune a Edge Function e script (dati di partenza <-> motore, righe per `insert_league`) sta in `supabase/functions/_shared/league.ts`. Si pubblicano con `npx.cmd --yes supabase@3.0.0 functions deploy create-league draft --use-api`.
+- Edge Functions `create-league` e `draft` in `supabase/functions/`; il codice comune a Edge Function e script sta in `supabase/functions/_shared/`: `league.ts` (dati di partenza <-> motore, righe per `insert_league`), `draft.ts` (draft iniziale) e `state.ts` (stato della lega dal database al motore, con `league_state`). Si pubblicano con `npx.cmd --yes supabase@3.0.0 functions deploy create-league draft --use-api`.
 - `pnpm db:seed` scrive `supabase/seed.sql` (lega di prova generata, utenti anna, bruno e carla `@nbbgm.test`) e `data/base.sql` (giocatori reali per le tabelle `base_*`); nessuno dei due va nel repo. I test del database girano su PGlite (`scripts/test/db.test.ts`), senza Docker.
 - Progetto Supabase **NBBGM** (`sojimrnmsrbntgfsgxmj`, Francoforte): migrazioni applicate, giocatori reali caricati nelle tabelle `base_*`. Si lavora con la CLI (`npx.cmd --yes supabase@3.0.0 ...`, comandi in `supabase/README.md`), non con il connettore.
 - `pnpm data:import` legge `NBA_2026-27_valutazioni_v2.xlsx` e `NBA_2026-27_contratti.xlsx` dalla radice e scrive `data/league-2026-27.json` e `data/import-report.md`; aggiorna `packages/engine/src/archetype-profiles.ts`.
@@ -64,6 +64,15 @@ Riassunto del documento di design (versione 2.4, 4 novembre 2026). È la fonte d
 - **Avvio:** lo decide il commissario. In modalità lista il server fa tutte le scelte subito; dal vivo i bot scelgono all'istante e il tempo corre per gli umani. Il commissario può chiudere con le liste in qualsiasi momento.
 - **Tempo dal vivo:** lo fanno rispettare le app aperte, che allo scadere chiedono al server di scegliere. Se nessuno ha l'app aperta il draft aspetta; il controllo ogni minuto dal server arriva con pg_cron nella Fase 9.
 - **Liste:** le vede solo il loro manager e si cambiano fino alla fine del draft; si salvano a ogni modifica.
+
+## Scelte prese nella Fase 8 (non erano nel documento)
+
+- **Impostazioni salvate nella simulazione:** le squadre umane giocano con `team_settings` (`setupFromSettings` nel motore). Se manca qualcuno (ceduto, tagliato, infortunato) il bot sostituisce solo lui: nello slot da titolare il migliore per quel ruolo, che ne eredita i minuti; i minuti di chi manca dalla panchina vanno agli altri della rotazione, fino a 48. A referto al massimo 13, prima chi ha minuti.
+- **Chi non ha mai salvato** gioca con le scelte del bot (`autoSetup`), come le squadre senza manager.
+- **Stato dal database:** `league_state` (solo server) dà in una lettura tutto quello che serve al motore; `leagueStateFromRows` lo trasforma in `LeagueState`. Nel motore le squadre hanno per id la sigla, i giocatori il loro uuid. Play-in e playoff non sono ancora salvati (Fase 10).
+- **Stime della scheda giocatore** (`player_scouting`): costanza in attacco e in difesa ed etica del lavoro in 5 livelli per i propri giocatori e in 3 per gli altri; distretti a rischio sotto 70 di durabilità per i propri, sotto 55 per gli altri. Il potenziale è la stima che vedono anche i bot. I numeri dei valori nascosti non arrivano mai al client.
+- **Pulsante Auto** e overall sono calcolati nell'app con il motore, dalle sole abilità visibili.
+- **Allenatore:** si attiva dalla schermata roster (fino al prossimo turno, a fine fase, a una data o senza limite); cosa fa al passaggio di turno arriva con la Fase 9.
 
 ## Visione
 

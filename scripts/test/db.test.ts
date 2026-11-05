@@ -90,6 +90,7 @@ describe('permessi', () => {
     expect(userFunctions).toEqual([
       'join_league(text,text)',
       'league_preview(text)',
+      'player_scouting(uuid)',
       'set_ready(uuid,boolean)',
     ]);
     // Il client scrive solo dove serve al manager

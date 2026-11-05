@@ -81,9 +81,12 @@ export function LeaguePage() {
         <Card>
           <p className="text-sm text-slate-500 dark:text-slate-400">La tua squadra</p>
           <p className="text-xl font-semibold">{mine.fullName}</p>
-          <p className="mt-2 text-sm text-slate-600 dark:text-slate-300">
-            Quintetto, minuti e tattiche arrivano con la schermata roster.
-          </p>
+          <Link
+            to={`/lega/${league.id}/squadra`}
+            className="mt-3 inline-flex min-h-11 items-center rounded-lg bg-orange-600 px-4 text-sm font-semibold text-white hover:bg-orange-700"
+          >
+            Gestisci la squadra
+          </Link>
         </Card>
       )}
 

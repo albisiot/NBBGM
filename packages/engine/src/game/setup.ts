@@ -87,3 +87,131 @@ export function autoSetup(
     tactics,
   };
 }
+
+/** Impostazioni salvate dal manager (tabella team_settings). */
+export interface SavedSettings {
+  /** Titolari negli slot PG, SG, SF, PF, C. */
+  starters: readonly string[];
+  /** Minuti obiettivo per id; la somma salvata fa 240. */
+  minutes: Readonly<Record<string, number>>;
+  tactics: Partial<Tactics>;
+}
+
+const MAX_MINUTES = 48;
+const MAX_ACTIVE = 13;
+
+const TACTIC_VALUES: { [K in keyof Tactics]: readonly Tactics[K][] } = {
+  pace: ['slow', 'normal', 'fast'],
+  focus: ['perimeter', 'balanced', 'inside'],
+  defense: ['man', 'zone'],
+  intensity: ['low', 'medium', 'high'],
+};
+
+/** Tattiche salvate, con i valori non validi riportati a quelli di default. */
+export function validTactics(t: Partial<Tactics> | undefined): Tactics {
+  const out = { ...DEFAULT_TACTICS };
+  for (const k of Object.keys(TACTIC_VALUES) as (keyof Tactics)[]) {
+    const v = t?.[k];
+    if (v !== undefined && (TACTIC_VALUES[k] as readonly string[]).includes(v))
+      (out as Record<string, string>)[k] = v;
+  }
+  return out;
+}
+
+/**
+ * Le impostazioni salvate applicate ai giocatori disponibili (sani e a disposizione). Se manca qualcuno, perché
+ * ceduto, tagliato o infortunato, il bot corregge solo gli slot mancanti: un titolare assente lo sostituisce il
+ * migliore per quello slot tra chi non è titolare, e il sostituto ne eredita i minuti; i minuti di chi manca
+ * dalla panchina passano agli altri della rotazione, fino a 48 a testa. A referto al massimo 13, prima chi ha
+ * minuti. Senza almeno 5 disponibili decide il bot da solo.
+ */
+export function setupFromSettings(
+  teamId: string,
+  roster: readonly Player[],
+  saved: SavedSettings,
+): TeamSetup {
+  const tactics = validTactics(saved.tactics);
+  const healthy = roster.filter((p) => p.injury === null);
+  if (healthy.length < 5) return autoSetup(teamId, roster, tactics);
+  const byId = new Map(healthy.map((p) => [p.id, p]));
+  const ovr = new Map(healthy.map((p) => [p.id, overall(p)]));
+  const minutes = new Map<string, number>();
+  for (const p of healthy) {
+    const m = saved.minutes[p.id];
+    if (typeof m === 'number' && m > 0) minutes.set(p.id, Math.min(MAX_MINUTES, Math.round(m)));
+  }
+
+  // Titolari: si tengono quelli disponibili, gli slot vuoti li riempie il bot
+  const starters: (string | null)[] = SLOT_ROLES.map((_, i) => {
+    const id = saved.starters[i];
+    return id !== undefined && byId.has(id) ? id : null;
+  });
+  const unique = new Set<string>();
+  starters.forEach((id, i) => {
+    if (id === null) return;
+    if (unique.has(id)) starters[i] = null;
+    else unique.add(id);
+  });
+  starters.forEach((id, i) => {
+    if (id !== null) return;
+    const slot = SLOT_ROLES[i] as Role;
+    const candidates = healthy.filter((p) => !starters.includes(p.id));
+    const best = candidates.reduce<Player | null>(
+      (b, p) =>
+        b === null ||
+        (ovr.get(p.id) as number) * roleFit(p, slot) > (ovr.get(b.id) as number) * roleFit(b, slot)
+          ? p
+          : b,
+      null,
+    ) as Player;
+    starters[i] = best.id;
+    // Il sostituto eredita i minuti del titolare che manca
+    const missing = saved.starters[i];
+    const inherited = missing !== undefined && !byId.has(missing) ? (saved.minutes[missing] ?? 0) : 0;
+    minutes.set(best.id, Math.min(MAX_MINUTES, (minutes.get(best.id) ?? 0) + Math.round(inherited)));
+  });
+  const starterIds = starters as string[];
+
+  // A referto: titolari, poi chi ha più minuti, poi i migliori, fino a 13
+  const ranked = [...healthy].sort(
+    (a, b) =>
+      (minutes.get(b.id) ?? 0) - (minutes.get(a.id) ?? 0) ||
+      (ovr.get(b.id) as number) - (ovr.get(a.id) as number),
+  );
+  const active = [
+    ...starterIds.map((id) => byId.get(id) as Player),
+    ...ranked.filter((p) => !starterIds.includes(p.id)),
+  ].slice(0, MAX_ACTIVE);
+  const activeIds = new Set(active.map((p) => p.id));
+  for (const id of [...minutes.keys()]) if (!activeIds.has(id)) minutes.delete(id);
+
+  // I minuti tornano a 240: quelli che mancano a chi è già in rotazione (prima i migliori), poi agli altri
+  let total = [...minutes.values()].reduce((a, b) => a + b, 0);
+  const byQuality = [...active].sort((a, b) => (ovr.get(b.id) as number) - (ovr.get(a.id) as number));
+  const inRotation = byQuality.filter((p) => (minutes.get(p.id) ?? 0) > 0);
+  const order = [...inRotation, ...byQuality.filter((p) => !inRotation.includes(p))];
+  for (let guard = 0; total < 240 && guard < 240 * MAX_ACTIVE; guard++) {
+    const p = order[guard % order.length] as Player;
+    const m = minutes.get(p.id) ?? 0;
+    if (m < MAX_MINUTES) {
+      minutes.set(p.id, m + 1);
+      total++;
+    }
+  }
+  for (let guard = 0; total > 240 && guard < 240 * MAX_ACTIVE; guard++) {
+    const p = order[order.length - 1 - (guard % order.length)] as Player;
+    const m = minutes.get(p.id) ?? 0;
+    if (m > 0) {
+      minutes.set(p.id, m - 1);
+      total--;
+    }
+  }
+
+  return {
+    teamId,
+    players: active,
+    starters: starterIds as unknown as TeamSetup['starters'],
+    minutes: Object.fromEntries(active.map((p) => [p.id, minutes.get(p.id) ?? 0])),
+    tactics,
+  };
+}

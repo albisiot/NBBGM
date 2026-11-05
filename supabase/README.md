@@ -36,10 +36,11 @@ Senza `--remote` i comandi `db` puntano al database locale di Docker.
 | `20261105100100_foreign_key_indexes.sql` | Un indice per ogni chiave esterna.                                                                                                                 |
 | `20261105110000_leagues.sql`             | `insert_league` (solo server), `league_preview` e `join_league` per entrare con il codice invito.                                                  |
 | `20261105120000_initial_draft.sql`       | Draft iniziale: tabelle, liste dei preferiti (solo del manager), `draft_snapshot` e `apply_draft_picks` (solo server), `insert_league` esteso.     |
+| `20261105130000_roster.sql`              | `league_state` (solo server: lo stato della lega per il motore) e `player_scouting` (stime dei valori nascosti per la scheda giocatore).           |
 
 `supabase db advisors` lascia solo avvisi voluti:
 
-- `set_ready`, `league_preview` e `join_league` sono security definer e chiamabili dal manager: sono le sue azioni dall'API e controllano da sé chi chiama.
+- `set_ready`, `league_preview`, `join_league` e `player_scouting` sono security definer e chiamabili dal manager: sono le sue azioni dall'API e controllano da sé chi chiama.
 - `player_hidden` e `base_*` hanno la RLS senza policy: sono chiuse al client.
 - La protezione delle password compromesse non serve: non si usano password.
 - Gli indici risultano non usati finché il database è quasi vuoto.
@@ -55,7 +56,7 @@ Senza `--remote` i comandi `db` puntano al database locale di Docker.
 
 - **create-league** (`functions/create-league/index.ts`): `POST { name, team, settings }` con il JWT dell'utente. Controlla l'utente con `auth.getUser`, legge i dati di partenza, crea la lega con il motore e la scrive con `insert_league`. `verify_jwt` è spento in `config.toml` perché il controllo lo fa la funzione. Il motore viene caricato da `packages/engine` insieme alla funzione (`--use-api`, senza Docker).
 - **draft** (`functions/draft/index.ts`): `POST { league_id, action, player_id? }` con `action` tra `start` (commissario), `pick` (il manager di turno, dal vivo), `tick` (tempo scaduto) e `to-list` (commissario: chiude con le liste). Legge lo stato con `draft_snapshot`, fa decidere al motore (`planDraft`) e scrive con `apply_draft_picks`.
-- Il codice comune a funzioni e script sta in `functions/_shared/league.ts` e `functions/_shared/draft.ts`.
+- Il codice comune a funzioni e script sta in `functions/_shared/`: `league.ts`, `draft.ts` e `state.ts` (stato della lega dal database al motore).
 
 ## Accesso (Auth)
 

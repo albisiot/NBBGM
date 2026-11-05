@@ -1,5 +1,5 @@
 import { ARCHETYPE_PROFILES } from '../archetype-profiles.ts';
-import { autoSetup } from '../game/setup.ts';
+import { autoSetup, setupFromSettings } from '../game/setup.ts';
 import { simulateGame } from '../game/simulate.ts';
 import { DEFAULT_TACTICS, type GameResult, type TeamSetup } from '../game/types.ts';
 import { generateDraftClass } from '../generator.ts';
@@ -162,6 +162,8 @@ function setupFor(state: LeagueState, teamId: string, regular: boolean): TeamSet
   let players: Player[] = eligible(state, teamId, regular);
   // Con troppi infortunati gioca anche chi non è al meglio
   if (players.length < 8) players = roster(state, teamId).map((p) => ({ ...p, injury: null }));
+  // Le squadre umane giocano con le impostazioni salvate; il bot corregge solo gli slot che non valgono più
+  if (team?.human && team.settings) return setupFromSettings(teamId, players, team.settings);
   return autoSetup(teamId, players, team?.tactics);
 }
 
