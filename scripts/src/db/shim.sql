@@ -1,6 +1,6 @@
 -- Quel poco di Supabase che serve per provare le migrazioni su PGlite (Postgres in WebAssembly):
--- i ruoli anon, authenticated e service_role, lo schema auth con users e uid(), e i permessi di default
--- che Supabase dà sulle tabelle e funzioni di public.
+-- i ruoli anon, authenticated e service_role e lo schema auth con users e uid(). I permessi di default
+-- delle tabelle (flag "Automatically expose new tables") li aggiunge testdb.ts, se richiesti.
 
 create role anon nologin noinherit;
 create role authenticated nologin noinherit;
@@ -33,7 +33,5 @@ as $$
 $$;
 grant execute on function auth.uid() to anon, authenticated, service_role;
 
-grant usage on schema public to anon, authenticated, service_role;
-alter default privileges in schema public grant all on tables to anon, authenticated, service_role;
-alter default privileges in schema public grant all on sequences to anon, authenticated, service_role;
-alter default privileges in schema public grant all on functions to anon, authenticated, service_role;
+-- Sulle funzioni nuove restano solo i permessi di Postgres (EXECUTE a tutti tramite PUBLIC): è quello che
+-- si vede nel progetto NBBGM, confrontato con supabase db query.

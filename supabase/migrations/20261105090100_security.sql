@@ -53,12 +53,20 @@ as $$
 $$;
 
 -- ---------------------------------------------------------------- permessi di base
--- Supabase dà a anon e authenticated tutti i permessi sulle tabelle di public: qui si parte da zero
--- e si concedono solo letture e le poche scritture che fa il manager.
+-- Con "Automatically expose new tables" attivo Supabase dà a anon e authenticated tutti i permessi sulle
+-- tabelle di public; spento (come nel progetto NBBGM) non li dà a nessuno, nemmeno al server. Qui si parte
+-- da zero in tutti e due i casi: il server ha tutto, il client solo letture e le poche scritture del manager.
 
 revoke all on all tables in schema public from anon, authenticated;
 revoke all on all sequences in schema public from anon, authenticated;
 alter default privileges in schema public revoke all on tables from anon, authenticated;
+alter default privileges in schema public revoke all on sequences from anon, authenticated;
+
+grant usage on schema public to anon, authenticated, service_role;
+grant all on all tables in schema public to service_role;
+grant all on all sequences in schema public to service_role;
+alter default privileges in schema public grant all on tables to service_role;
+alter default privileges in schema public grant all on sequences to service_role;
 
 grant select on
   public.profiles, public.leagues, public.league_members, public.seasons, public.teams, public.players,

@@ -48,6 +48,81 @@ describe('migrazioni e seed', () => {
   });
 });
 
+// Permessi di ogni ruolo su ogni tabella e funzione di public, colonne comprese
+const PRIVILEGES = `
+  select 'table' as kind, c.relname as name, r.role, p.priv
+  from pg_class c
+  join pg_namespace n on n.oid = c.relnamespace and n.nspname = 'public'
+  cross join (values ('anon'), ('authenticated'), ('service_role')) as r(role)
+  cross join (values ('SELECT'), ('INSERT'), ('UPDATE'), ('DELETE')) as p(priv)
+  where c.relkind = 'r'
+    and (has_table_privilege(r.role, c.oid, p.priv)
+      or (p.priv <> 'DELETE' and has_any_column_privilege(r.role, c.oid, p.priv)))
+  union all
+  select 'function', f.oid::regprocedure::text, r.role, 'EXECUTE'
+  from pg_proc f
+  join pg_namespace n on n.oid = f.pronamespace and n.nspname = 'public'
+  cross join (values ('anon'), ('authenticated'), ('service_role')) as r(role)
+  where has_function_privilege(r.role, f.oid, 'EXECUTE')
+  order by 1, 2, 3, 4`;
+
+describe('permessi', () => {
+  it('sono gli stessi con "Automatically expose new tables" acceso o spento', async () => {
+    const exposed = await createTestDb({ exposeNewTables: true });
+    const off = (await db.query(PRIVILEGES)).rows;
+    expect((await exposed.query(PRIVILEGES)).rows).toEqual(off);
+    await exposed.close();
+  });
+
+  it('il server ha tutto, anon nessuna tabella e nessuna funzione di gioco', async () => {
+    const rows = (await db.query<{ kind: string; name: string; role: string; priv: string }>(PRIVILEGES))
+      .rows;
+    const tables = await count(db, `select 1 from pg_tables where schemaname = 'public'`);
+    expect(rows.filter((r) => r.kind === 'table' && r.role === 'service_role')).toHaveLength(tables * 4);
+    expect(rows.filter((r) => r.kind === 'table' && r.role === 'anon')).toEqual([]);
+    // Postgres apre ogni funzione nuova a tutti: le migrazioni devono averle chiuse una per una
+    const anonFunctions = rows.filter((r) => r.kind === 'function' && r.role === 'anon').map((r) => r.name);
+    expect(anonFunctions).toEqual([]);
+    // Dall'API il manager chiama solo set_ready; le funzioni delle policy stanno nello schema private
+    const userFunctions = rows
+      .filter((r) => r.kind === 'function' && r.role === 'authenticated')
+      .map((r) => r.name);
+    expect(userFunctions).toEqual(['set_ready(uuid,boolean)']);
+    // Il client scrive solo dove serve al manager
+    const writes = rows
+      .filter((r) => r.kind === 'table' && r.role === 'authenticated' && r.priv !== 'SELECT')
+      .map((r) => `${r.name}:${r.priv}`);
+    expect(writes).toEqual([
+      'coach_delegations:DELETE',
+      'coach_delegations:INSERT',
+      'coach_delegations:UPDATE',
+      'free_agent_bids:DELETE',
+      'free_agent_bids:INSERT',
+      'free_agent_bids:UPDATE',
+      'leagues:UPDATE',
+      'profiles:UPDATE',
+      'team_settings:DELETE',
+      'team_settings:INSERT',
+      'team_settings:UPDATE',
+      'trade_offers:INSERT',
+    ]);
+  });
+
+  it('ogni chiave esterna ha un indice', async () => {
+    const unindexed = await db.query<{ name: string }>(`
+      select c.conname as name
+      from pg_constraint c
+      where c.contype = 'f' and c.connamespace = 'public'::regnamespace
+        and not exists (
+          select 1 from pg_index i
+          where i.indrelid = c.conrelid
+            and (i.indkey::int2[])[0:cardinality(c.conkey) - 1] @> c.conkey
+            and (i.indkey::int2[])[0:cardinality(c.conkey) - 1] <@ c.conkey
+        )`);
+    expect(unindexed.rows.map((r) => r.name)).toEqual([]);
+  });
+});
+
 describe('valori nascosti', () => {
   it('un membro legge giocatori e contratti della lega', async () => {
     await asUser(db, ANNA, async (tx) => {

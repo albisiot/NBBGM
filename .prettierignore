@@ -8,3 +8,7 @@ pnpm-lock.yaml
 
 # File generato da pnpm data:import
 packages/engine/src/archetype-profiles.ts
+
+# File della CLI di Supabase
+supabase/.temp
+supabase/.branches

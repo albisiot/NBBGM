@@ -14,10 +14,20 @@ export function migrationFiles(): string[] {
     .map((f) => join(MIGRATIONS_DIR, f));
 }
 
-/** Postgres vuoto con il necessario di Supabase e tutte le migrazioni, in ordine. */
-export async function createTestDb(): Promise<PGlite> {
+/**
+ * Postgres vuoto con il necessario di Supabase e tutte le migrazioni, in ordine. exposeNewTables imita il flag
+ * "Automatically expose new tables" del progetto (spento in NBBGM): acceso, Supabase dà tutti i permessi
+ * sulle tabelle nuove ad anon, authenticated e service_role.
+ */
+export async function createTestDb(opts: { exposeNewTables?: boolean } = {}): Promise<PGlite> {
   const db = await PGlite.create();
   await db.exec(readFileSync(new URL('./shim.sql', import.meta.url), 'utf8'));
+  if (opts.exposeNewTables) {
+    await db.exec(`
+      alter default privileges in schema public grant all on tables to anon, authenticated, service_role;
+      alter default privileges in schema public grant all on sequences to anon, authenticated, service_role;
+    `);
+  }
   for (const file of migrationFiles()) {
     try {
       await db.exec(readFileSync(file, 'utf8'));

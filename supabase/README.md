@@ -2,13 +2,38 @@
 
 Database di NBBGM: tabelle, sicurezza e funzioni dei turni.
 
+## Progetto
+
+- **NBBGM** (`sojimrnmsrbntgfsgxmj`), regione Central EU (Frankfurt), piano Free.
+- Impostazioni scelte alla creazione: Data API attiva, "Automatically expose new tables" spento (i permessi li danno le migrazioni), "Enable automatic RLS" attivo come rete di sicurezza.
+- Le migrazioni sono applicate e le tabelle `base_*` contengono i giocatori reali 2026-27.
+
+## CLI
+
+Si usa la CLI 3.0.0 con npx. In PowerShell `npx` è bloccato dalla politica di esecuzione degli script: si usa `npx.cmd`.
+
+```
+npx.cmd --yes supabase@3.0.0 login
+npx.cmd --yes supabase@3.0.0 link --project-ref sojimrnmsrbntgfsgxmj
+npx.cmd --yes supabase@3.0.0 db push --remote --dry-run
+npx.cmd --yes supabase@3.0.0 db push --remote
+npx.cmd --yes supabase@3.0.0 db advisors --remote --type all
+npx.cmd --yes supabase@3.0.0 db query --remote -f data/base.sql
+```
+
+Senza `--remote` i comandi `db` puntano al database locale di Docker.
+
 ## Migrazioni
 
-| File                          | Contenuto                                                                                                                                          |
-| ----------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `20261105090000_schema.sql`   | Le tabelle del modello dati (CLAUDE.md, Modello dati essenziale), più `league_members` e `dead_money`.                                             |
-| `20261105090100_security.sql` | RLS su ogni tabella, permessi minimi, `player_hidden` e `base_*` chiuse al client, controllo di quintetto e minuti, profilo per ogni nuovo utente. |
-| `20261105090200_turns.sql`    | `set_ready`, `round_all_ready`, `close_round`, `reclaim_round` e `apply_turn`.                                                                     |
+| File                                     | Contenuto                                                                                                                                          |
+| ---------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `20261105090000_schema.sql`              | Le tabelle del modello dati (CLAUDE.md, Modello dati essenziale), più `league_members` e `dead_money`.                                             |
+| `20261105090100_security.sql`            | RLS su ogni tabella, permessi minimi, `player_hidden` e `base_*` chiuse al client, controllo di quintetto e minuti, profilo per ogni nuovo utente. |
+| `20261105090200_turns.sql`               | `set_ready`, `round_all_ready`, `close_round`, `reclaim_round` e `apply_turn`.                                                                     |
+| `20261105100000_private_helpers.sql`     | Le funzioni delle policy passano nello schema `private`, che l'API non espone; `coach_ready` e `round_all_ready` solo per il server.               |
+| `20261105100100_foreign_key_indexes.sql` | Un indice per ogni chiave esterna.                                                                                                                 |
+
+`supabase db advisors` lascia solo avvisi voluti: `player_hidden` e `base_*` hanno la RLS senza policy (chiuse al client), `set_ready` è una funzione security definer chiamabile dal manager (è il pulsante Pronto e controlla da sé che la squadra sia sua), e gli indici risultano non usati finché il database è vuoto.
 
 ## Chi può fare cosa
 
@@ -24,8 +49,9 @@ La Edge Function simula il turno con il pacchetto engine e passa il risultato ad
 ## Seed e dati
 
 - `pnpm db:seed` scrive `supabase/seed.sql` (lega di prova con giocatori generati, tre utenti di test: anna, bruno e carla `@nbbgm.test`, su Boston, Lakers e Knicks) e, se c'è l'import dei file Excel, `data/base.sql` con i giocatori reali per le tabelle `base_*`. Nessuno dei due va nel repo.
-- `supabase db reset` (con Docker) applica le migrazioni e carica `seed.sql`.
+- `seed.sql` serve al database locale (`supabase db reset`, con Docker): nel progetto vero non va caricato.
+- `data/base.sql` si carica nel progetto con `db query --remote -f data/base.sql` e sostituisce il dataset 2026-27.
 
 ## Test
 
-`pnpm test` prova le migrazioni su PGlite (Postgres in WebAssembly) con lo stesso seed: `scripts/test/db.test.ts`. Non servono Docker né un progetto Supabase; `scripts/src/db/shim.sql` ricrea ruoli, `auth.users` e `auth.uid()` come in Supabase.
+`pnpm test` prova le migrazioni su PGlite (Postgres in WebAssembly) con lo stesso seed: `scripts/test/db.test.ts`. Non servono Docker né un progetto Supabase; `scripts/src/db/shim.sql` ricrea ruoli, `auth.users` e `auth.uid()` come in Supabase. I permessi di ogni ruolo su tabelle e funzioni sono stati confrontati con quelli del progetto vero e coincidono (169 voci, con "Automatically expose new tables" acceso o spento).
