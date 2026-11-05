@@ -16,7 +16,8 @@
     "format:check": "prettier --check .",
     "data:import": "pnpm --filter @nbbgm/scripts run import",
     "sim:calibrate": "pnpm --filter @nbbgm/scripts run calibrate",
-    "sim:seasons": "pnpm --filter @nbbgm/scripts run seasons"
+    "sim:seasons": "pnpm --filter @nbbgm/scripts run seasons",
+    "db:seed": "pnpm --filter @nbbgm/scripts run db-seed"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",

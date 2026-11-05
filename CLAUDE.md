@@ -13,7 +13,9 @@ Riassunto del documento di design (versione 2.4, 4 novembre 2026). È la fonte d
 
 ## Stato del lavoro
 
-- Fasi 1-4 completate (ramo `fasi-1-3`). La logica di stagione sta in `packages/engine/src/season/`.
+- Fasi 1-5 completate (ramo `fasi-1-3`). La logica di stagione sta in `packages/engine/src/season/`; database e sicurezza in `supabase/migrations/` (vedi `supabase/README.md`).
+- `pnpm db:seed` scrive `supabase/seed.sql` (lega di prova generata, utenti anna, bruno e carla `@nbbgm.test`) e `data/base.sql` (giocatori reali per le tabelle `base_*`); nessuno dei due va nel repo. I test del database girano su PGlite (`scripts/test/db.test.ts`), senza Docker.
+- Le migrazioni non sono ancora applicate a un progetto Supabase vero.
 - `pnpm data:import` legge `NBA_2026-27_valutazioni_v2.xlsx` e `NBA_2026-27_contratti.xlsx` dalla radice e scrive `data/league-2026-27.json` e `data/import-report.md`; aggiorna `packages/engine/src/archetype-profiles.ts`.
 - `pnpm sim:calibrate [partite]` gioca 1.000 partite (o il numero dato) e confronta le medie con gli intervalli della sezione Calibrazione. I parametri del motore stanno in `packages/engine/src/game/params.ts`.
 - `pnpm sim:seasons [stagioni] [--veloce]` gioca 10 stagioni complete e controlla le metriche di lungo periodo; con `--veloce` usa una partita finta (2 secondi a stagione) per provare crescita ed economia.
@@ -30,6 +32,14 @@ Riassunto del documento di design (versione 2.4, 4 novembre 2026). È la fonte d
 - **Rose iniziali:** alla creazione della lega le rose oltre 15 standard o 3 two-way si tagliano come in offseason.
 - **Niente dinastie a forza di scambi:** negli scambi tra bot le due squadre più forti non comprano veterani.
 - **Ricavi:** 170 milioni di $ nel 2026-27 (il 3% sopra il cap), non più pari alla soglia della tassa: con quel valore i saldi crescevano di centinaia di milioni e il bilancio smetteva di contare. Crescono del 7% l'anno con il resto.
+
+## Scelte prese nella Fase 5 (non erano nel documento)
+
+- **Tabelle in più:** `league_members` (chi fa parte di una lega, base di tutta la RLS) e `dead_money` (stipendi residui dei tagliati). I giocatori ritirati restano in `players` con `retired` per lo storico delle statistiche.
+- **Scritture del client:** solo impostazioni, allenatore e offerte agli svincolati della propria squadra, proposte di scambio, nome del profilo e impostazioni della lega per il commissario. Tutto il resto passa dal server. A turno in chiusura nessuna modifica è accettata.
+- **Visibilità:** chi ha l'allenatore attivo lo vedono tutti; le offerte agli svincolati solo chi le fa; scambi e avvisi le squadre coinvolte; il bilancio la propria squadra, il commissario tutte.
+- **Seed della simulazione:** nasce in `close_round` e resta nel turno; `reclaim_round` riprende un turno fermo in chiusura da più di 5 minuti con lo stesso seed.
+- **apply_turn:** riceve righe con i nomi delle colonne, sezione per sezione; rifiuta sezioni sconosciute, righe di altre leghe e partite già giocate, e non scrive nulla se qualcosa non torna.
 
 ## Visione
 

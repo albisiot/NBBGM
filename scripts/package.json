@@ -8,13 +8,15 @@
     "typecheck": "tsc -p tsconfig.json",
     "import": "tsx src/import-data.ts",
     "calibrate": "tsx src/calibrate.ts",
-    "seasons": "tsx src/seasons.ts"
+    "seasons": "tsx src/seasons.ts",
+    "db-seed": "tsx src/db/build-seed.ts"
   },
   "dependencies": {
     "@nbbgm/engine": "workspace:*",
     "exceljs": "4.4.0"
   },
   "devDependencies": {
+    "@electric-sql/pglite": "0.5.10",
     "tsx": "^4.23.15"
   }
 }
