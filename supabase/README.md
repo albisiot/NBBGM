@@ -76,6 +76,7 @@ Senza `--remote` i comandi `db` puntano al database locale di Docker.
 ## GitHub Actions
 
 - `.github/workflows/supabase.yml` pubblica migrazioni ed Edge Functions quando cambiano su `main` (o a mano, da Actions). Serve il segreto del repository `SUPABASE_ACCESS_TOKEN` (token personale, da supabase.com > Account preferences > Access Tokens) e la variabile `SUPABASE_PROJECT_REF`: con `--remote=<progetto>` la CLI usa i permessi del token, senza la password del database. Senza il segreto il job avvisa e non pubblica nulla: si continua con la CLI da qui.
+- Il token è dell'account mondiali2014 (Owner), limitato al progetto NBBGM con i soli permessi che servono: Project Settings in lettura, Database in lettura e scrittura, Database Config in lettura, Edge Functions in lettura e scrittura, Production Branches in lettura. Quando scade se ne crea uno uguale (supabase.com > Account preferences > Access Tokens) e si sostituisce il segreto su GitHub.
 
 ## Turni, pg_net e pg_cron
 
