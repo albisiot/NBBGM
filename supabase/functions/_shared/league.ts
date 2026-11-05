@@ -1,10 +1,19 @@
 // Passaggi tra il database e il motore, comuni alla Edge Function create-league (Deno) e agli script (Node):
 // dati di partenza (tabelle base_*) <-> LeagueData del motore, e LeagueState -> righe per insert_league.
 // Nessuna dipendenza oltre al pacchetto engine; gli import usano l'estensione .ts come vuole Deno.
-import { autoSetup, roster, TEAMS } from '../../../packages/engine/src/index.ts';
+import {
+  autoSetup,
+  INITIAL_DRAFT_ROUNDS,
+  minimumSalaryFor,
+  overall,
+  roster,
+  snakeOrder,
+  TEAMS,
+} from '../../../packages/engine/src/index.ts';
 import type {
   Contract,
   DeadMoney,
+  DraftMode,
   Hidden,
   LeagueData,
   LeagueState,
@@ -210,6 +219,42 @@ export interface LeaguePayloadOptions {
   inviteCode?: string;
   /** Salva per le squadre umane le impostazioni del pulsante Auto. */
   withTeamSettings?: boolean;
+  /**
+   * Draft iniziale (rose vuote, createLeagueState con emptyRosters): i contratti del file diventano quelli che i
+   * giocatori firmano con chi li sceglie.
+   */
+  initialDraft?: { mode: DraftMode; pickSeconds: number; contracts: readonly Contract[] };
+}
+
+/** Ordine delle chiamate e giocatori in palio: tutti tranne i two-way, con il contratto del file o il minimo. */
+export function initialDraftSection(
+  state: LeagueState,
+  d: NonNullable<LeaguePayloadOptions['initialDraft']>,
+  team: (code: string) => string,
+  player: (slug: string) => string,
+): Record<string, unknown> {
+  const contracts = new Map(d.contracts.map((c) => [c.playerId, c]));
+  const pool = state.players
+    .filter((p) => contracts.get(p.id)?.type !== 'two-way')
+    .map((p) => {
+      const c = contracts.get(p.id);
+      const signed = c && c.salaries.length > 0;
+      return {
+        player_id: player(p.id),
+        overall: Math.round(overall(p) * 10) / 10,
+        contract_type: signed ? c.type : 'minimum',
+        salaries: signed ? c.salaries : [minimumSalaryFor(state.config, p.yearsInLeague)],
+        options: signed ? c.options : [null],
+        guaranteed: signed ? c.guaranteed : null,
+      };
+    });
+  const order = snakeOrder(
+    state.teams.map((t) => t.id),
+    INITIAL_DRAFT_ROUNDS,
+    state.seed,
+  );
+  if (pool.length < order.length) throw new Error(`Giocatori insufficienti per il draft: ${pool.length}`);
+  return { mode: d.mode, pick_seconds: d.pickSeconds, team_order: order.map(team), pool };
 }
 
 /** Stato del motore appena creato -> argomento di insert_league. */
@@ -341,5 +386,6 @@ export function leaguePayload(state: LeagueState, o: LeaguePayloadOptions): Reco
           };
         })
       : [],
+    initial_draft: o.initialDraft ? initialDraftSection(state, o.initialDraft, team, player) : undefined,
   };
 }

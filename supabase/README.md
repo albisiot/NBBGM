@@ -20,7 +20,7 @@ npx.cmd --yes supabase@3.0.0 db push --remote --dry-run
 npx.cmd --yes supabase@3.0.0 db push --remote
 npx.cmd --yes supabase@3.0.0 db advisors --remote --type all
 npx.cmd --yes supabase@3.0.0 db query --remote -f data/base.sql
-npx.cmd --yes supabase@3.0.0 functions deploy create-league --use-api
+npx.cmd --yes supabase@3.0.0 functions deploy create-league draft --use-api
 ```
 
 Senza `--remote` i comandi `db` puntano al database locale di Docker.
@@ -35,8 +35,14 @@ Senza `--remote` i comandi `db` puntano al database locale di Docker.
 | `20261105100000_private_helpers.sql`     | Le funzioni delle policy passano nello schema `private`, che l'API non espone; `coach_ready` e `round_all_ready` solo per il server.               |
 | `20261105100100_foreign_key_indexes.sql` | Un indice per ogni chiave esterna.                                                                                                                 |
 | `20261105110000_leagues.sql`             | `insert_league` (solo server), `league_preview` e `join_league` per entrare con il codice invito.                                                  |
+| `20261105120000_initial_draft.sql`       | Draft iniziale: tabelle, liste dei preferiti (solo del manager), `draft_snapshot` e `apply_draft_picks` (solo server), `insert_league` esteso.     |
 
-`supabase db advisors` lascia solo avvisi voluti: `player_hidden` e `base_*` hanno la RLS senza policy (chiuse al client), `set_ready` è una funzione security definer chiamabile dal manager (è il pulsante Pronto e controlla da sé che la squadra sia sua), e gli indici risultano non usati finché il database è vuoto.
+`supabase db advisors` lascia solo avvisi voluti:
+
+- `set_ready`, `league_preview` e `join_league` sono security definer e chiamabili dal manager: sono le sue azioni dall'API e controllano da sé chi chiama.
+- `player_hidden` e `base_*` hanno la RLS senza policy: sono chiuse al client.
+- La protezione delle password compromesse non serve: non si usano password.
+- Gli indici risultano non usati finché il database è quasi vuoto.
 
 ## Chi può fare cosa
 
@@ -48,7 +54,8 @@ Senza `--remote` i comandi `db` puntano al database locale di Docker.
 ## Edge Functions
 
 - **create-league** (`functions/create-league/index.ts`): `POST { name, team, settings }` con il JWT dell'utente. Controlla l'utente con `auth.getUser`, legge i dati di partenza, crea la lega con il motore e la scrive con `insert_league`. `verify_jwt` è spento in `config.toml` perché il controllo lo fa la funzione. Il motore viene caricato da `packages/engine` insieme alla funzione (`--use-api`, senza Docker).
-- Il codice comune a funzioni e script sta in `functions/_shared/league.ts`.
+- **draft** (`functions/draft/index.ts`): `POST { league_id, action, player_id? }` con `action` tra `start` (commissario), `pick` (il manager di turno, dal vivo), `tick` (tempo scaduto) e `to-list` (commissario: chiude con le liste). Legge lo stato con `draft_snapshot`, fa decidere al motore (`planDraft`) e scrive con `apply_draft_picks`.
+- Il codice comune a funzioni e script sta in `functions/_shared/league.ts` e `functions/_shared/draft.ts`.
 
 ## Accesso (Auth)
 

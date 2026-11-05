@@ -36,6 +36,8 @@ export interface LeagueDetail {
   roundNumber: number | null;
   roundKind: string | null;
   roundState: string | null;
+  draftState: 'waiting' | 'running' | 'done' | null;
+  draftMode: 'list' | 'live';
   teams: LeagueTeam[];
 }
 
@@ -53,7 +55,16 @@ export interface NewLeagueSettings {
   roster_mode: 'real' | 'draft';
   draft_mode: 'list' | 'live';
   rookie_source: 'generated' | 'real';
+  /** Secondi per scelta nel draft iniziale dal vivo. */
+  pick_seconds: number;
 }
+
+export const PICK_SECONDS_OPTIONS: { label: string; value: number }[] = [
+  { label: '30 secondi', value: 30 },
+  { label: '1 minuto', value: 60 },
+  { label: '90 secondi', value: 90 },
+  { label: '2 minuti', value: 120 },
+];
 
 // Le relazioni con più chiavi esterne vanno indicate per nome del vincolo
 const LEAGUE_STATUS =
@@ -97,7 +108,7 @@ export async function leagueDetail(id: string): Promise<LeagueDetail | null> {
   const { data, error } = await supabase
     .from('leagues')
     .select(
-      `id, name, invite_code, commissioner_id, deadline_minutes, max_pace_seconds, roster_mode, rookie_source, ${LEAGUE_STATUS}`,
+      `id, name, invite_code, commissioner_id, deadline_minutes, max_pace_seconds, roster_mode, draft_mode, rookie_source, ${LEAGUE_STATUS}, draft:initial_drafts(state)`,
     )
     .eq('id', id)
     .maybeSingle();
@@ -111,7 +122,9 @@ export async function leagueDetail(id: string): Promise<LeagueDetail | null> {
     deadline_minutes: number | null;
     max_pace_seconds: number;
     roster_mode: 'real' | 'draft';
+    draft_mode: 'list' | 'live';
     rookie_source: 'generated' | 'real';
+    draft: { state: 'waiting' | 'running' | 'done' } | { state: 'waiting' | 'running' | 'done' }[] | null;
   } & StatusRow;
   const teams = await supabase
     .from('teams')
@@ -141,6 +154,9 @@ export async function leagueDetail(id: string): Promise<LeagueDetail | null> {
     roundNumber: l.round?.number ?? null,
     roundKind: l.round?.kind ?? null,
     roundState: l.round?.state ?? null,
+    // Relazione uno a uno: PostgREST può restituire l'oggetto o un elenco di uno
+    draftState: (Array.isArray(l.draft) ? l.draft[0] : l.draft)?.state ?? null,
+    draftMode: l.draft_mode,
     teams: ((teams.data ?? []) as unknown as TeamRow[]).map((t) => ({
       id: t.id,
       code: t.code,

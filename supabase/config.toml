@@ -430,3 +430,7 @@ enabled = true
 # funziona anche con le nuove chiavi di firma dei JWT.
 [functions.create-league]
 verify_jwt = false
+
+# Edge Function draft: come create-league, il JWT lo controlla la funzione stessa.
+[functions.draft]
+verify_jwt = false

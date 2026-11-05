@@ -5,6 +5,7 @@ import { ErrorText, Spinner } from './components/ui.tsx';
 import { AuthProvider, useAuth } from './lib/auth.tsx';
 import { configured } from './lib/supabase.ts';
 import { CreateLeaguePage } from './pages/CreateLeaguePage.tsx';
+import { DraftPage } from './pages/DraftPage.tsx';
 import { JoinLeaguePage } from './pages/JoinLeaguePage.tsx';
 import { LeaguePage } from './pages/LeaguePage.tsx';
 import { LeaguesPage } from './pages/LeaguesPage.tsx';
@@ -29,6 +30,7 @@ function Routed() {
         <Route path="entra" element={<JoinLeaguePage />} />
         <Route path="entra/:code" element={<JoinLeaguePage />} />
         <Route path="lega/:id" element={<LeaguePage />} />
+        <Route path="lega/:id/draft" element={<DraftPage />} />
         <Route path="profilo" element={<ProfilePage />} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Route>

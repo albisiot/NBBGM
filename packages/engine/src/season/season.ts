@@ -89,10 +89,12 @@ export function createLeagueState(
     humanTeams?: readonly string[];
     potentialOnOverallScale?: boolean;
     potentialShrink?: number;
+    /** Rose vuote per il draft iniziale: tutti svincolati, nessun contratto né stipendio residuo. */
+    emptyRosters?: boolean;
   } = {},
 ): LeagueState {
   const config = structuredCopy(opts.config ?? CONFIG_2026_27);
-  const players = structuredCopy(data.players);
+  const players = structuredCopy(data.players).map((p) => (opts.emptyRosters ? { ...p, teamId: null } : p));
   if (!opts.potentialOnOverallScale) calibratePotential(players, opts.potentialShrink ?? POTENTIAL_SHRINK);
   const state: LeagueState = {
     seed,
@@ -108,8 +110,8 @@ export function createLeagueState(
       taxHistory: [],
     })),
     players: players.map((p) => toPlayerState(seed, p)),
-    contracts: structuredCopy(data.contracts),
-    deadMoney: structuredCopy(data.deadMoney),
+    contracts: opts.emptyRosters ? [] : structuredCopy(data.contracts),
+    deadMoney: opts.emptyRosters ? [] : structuredCopy(data.deadMoney),
     picks: initialPicks(
       data.teams.map((t) => t.id),
       config.year + 1,
@@ -122,9 +124,12 @@ export function createLeagueState(
     history: [],
     talentReference: 0,
   };
-  // Prima della prima giornata le rose fuori misura si tagliano come in offseason
-  enforceRosterLimits(state);
-  fillMinimumRosters(state, null);
+  // Prima della prima giornata le rose fuori misura si tagliano come in offseason; con il draft iniziale le
+  // rose le fanno le scelte
+  if (!opts.emptyRosters) {
+    enforceRosterLimits(state);
+    fillMinimumRosters(state, null);
+  }
   state.talentReference = talentLevel(state.players);
   updateStrategies(state);
   return state;

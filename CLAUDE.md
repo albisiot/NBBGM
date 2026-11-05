@@ -13,9 +13,9 @@ Riassunto del documento di design (versione 2.4, 4 novembre 2026). È la fonte d
 
 ## Stato del lavoro
 
-- Fasi 1-6 completate (ramo `fasi-1-3`); della Fase 6 manca solo la prova del login con codice da iPhone. La logica di stagione sta in `packages/engine/src/season/`; database e sicurezza in `supabase/migrations/` (vedi `supabase/README.md`).
+- Fasi 1-7 completate (ramo `fasi-1-3`); della Fase 6 manca solo la prova del login con codice da iPhone. La logica di stagione sta in `packages/engine/src/season/`; database e sicurezza in `supabase/migrations/` (vedi `supabase/README.md`).
 - App: `pnpm dev` (o `pnpm dev:lan` per provarla dal telefono sulla stessa Wi-Fi). Legge URL e chiave publishable da `apps/web/.env.local` (modello in `.env.example`).
-- Edge Function `create-league` in `supabase/functions/`; il codice comune a Edge Function e script (dati di partenza <-> motore, righe per `insert_league`) sta in `supabase/functions/_shared/league.ts`. Si pubblica con `npx.cmd --yes supabase@3.0.0 functions deploy create-league --use-api`.
+- Edge Functions `create-league` e `draft` in `supabase/functions/`; il codice comune a Edge Function e script (dati di partenza <-> motore, righe per `insert_league`) sta in `supabase/functions/_shared/league.ts`. Si pubblicano con `npx.cmd --yes supabase@3.0.0 functions deploy create-league draft --use-api`.
 - `pnpm db:seed` scrive `supabase/seed.sql` (lega di prova generata, utenti anna, bruno e carla `@nbbgm.test`) e `data/base.sql` (giocatori reali per le tabelle `base_*`); nessuno dei due va nel repo. I test del database girano su PGlite (`scripts/test/db.test.ts`), senza Docker.
 - Progetto Supabase **NBBGM** (`sojimrnmsrbntgfsgxmj`, Francoforte): migrazioni applicate, giocatori reali caricati nelle tabelle `base_*`. Si lavora con la CLI (`npx.cmd --yes supabase@3.0.0 ...`, comandi in `supabase/README.md`), non con il connettore.
 - `pnpm data:import` legge `NBA_2026-27_valutazioni_v2.xlsx` e `NBA_2026-27_contratti.xlsx` dalla radice e scrive `data/league-2026-27.json` e `data/import-report.md`; aggiorna `packages/engine/src/archetype-profiles.ts`.
@@ -54,6 +54,16 @@ Riassunto del documento di design (versione 2.4, 4 novembre 2026). È la fonte d
 - **Impostazioni Auth del progetto:** si applicano con `config push` da una cartella temporanea con un `config.toml` minimo, che dichiara solo i valori da cambiare (Site URL, Redirect URLs, lunghezza del codice, modelli). Serve il login della CLI come Owner (mondiali2014). Il `config.toml` del repo è per il database locale: non va spinto per intero sul progetto.
 - **Login con Google:** attivo, con un client OAuth del progetto Google Cloud `NBBGM-pro` (redirect `https://sojimrnmsrbntgfsgxmj.supabase.co/auth/v1/callback`). L'app Google è in stato Test: entra con Google solo chi è tra gli utenti di prova (fino a 100, si aggiungono in Google Auth Platform → Pubblico); gli altri usano il codice via email. Per pubblicarla Google chiede home page e informativa privacy su un dominio nostro: si potrà fare con GitHub Pages (Fase 13). Chi entra con Google e con il codice usando la stessa email ritrova lo stesso account.
 - **Dopo il login con Google** il client usa il flusso PKCE: il codice torna come `?code=...` e non si scontra con l'HashRouter.
+
+## Scelte prese nella Fase 7 (non erano nel documento)
+
+- **Draft iniziale:** 13 giri a serpentina con il primo giro sorteggiato (`snakeOrder`), 390 scelte. In palio ci sono i giocatori con contratto standard: i two-way restano fuori e partono svincolati con i non scelti, così ogni squadra chiude con 13 contratti standard e nessun two-way.
+- **Contratti:** chi viene scelto firma il contratto del file con la squadra che lo prende; chi non ha contratto (o ha stipendi sconosciuti) firma il minimo per un anno. In una lega draft non ci sono stipendi residui di giocatori tagliati.
+- **Scelta automatica** (bot, modalità lista, tempo scaduto): il primo disponibile della lista del manager; senza lista, il migliore del ruolo più scoperto rispetto a 3 PG, 3 SG, 3 SF, 2 PF e 2 C (`autoDraftPick`).
+- **Chi decide:** il motore (`planDraft`) nella Edge Function `draft`; `apply_draft_picks` scrive le scelte solo se il draft è ancora alla chiamata attesa, quindi due richieste insieme non scelgono due volte.
+- **Avvio:** lo decide il commissario. In modalità lista il server fa tutte le scelte subito; dal vivo i bot scelgono all'istante e il tempo corre per gli umani. Il commissario può chiudere con le liste in qualsiasi momento.
+- **Tempo dal vivo:** lo fanno rispettare le app aperte, che allo scadere chiedono al server di scegliere. Se nessuno ha l'app aperta il draft aspetta; il controllo ogni minuto dal server arriva con pg_cron nella Fase 9.
+- **Liste:** le vede solo il loro manager e si cambiano fino alla fine del draft; si salvano a ogni modifica.
 
 ## Visione
 

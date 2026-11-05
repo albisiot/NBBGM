@@ -5,7 +5,13 @@ import { useNavigate } from 'react-router';
 import { TeamPicker } from '../components/TeamPicker.tsx';
 import { Button, Card, Choice, ErrorText, PageTitle, TextInput } from '../components/ui.tsx';
 import { friendlyError } from '../lib/errors.ts';
-import { createLeague, DEADLINE_OPTIONS, PACE_OPTIONS, type NewLeagueSettings } from '../lib/leagues.ts';
+import {
+  createLeague,
+  DEADLINE_OPTIONS,
+  PACE_OPTIONS,
+  PICK_SECONDS_OPTIONS,
+  type NewLeagueSettings,
+} from '../lib/leagues.ts';
 
 export function CreateLeaguePage() {
   const navigate = useNavigate();
@@ -17,6 +23,7 @@ export function CreateLeaguePage() {
     roster_mode: 'real',
     draft_mode: 'list',
     rookie_source: 'generated',
+    pick_seconds: 60,
   });
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -30,7 +37,9 @@ export function CreateLeaguePage() {
     setError(null);
     try {
       const r = await createLeague({ name: name.trim(), team, settings });
-      navigate(`/lega/${r.league_id}?nuova=1`);
+      navigate(
+        settings.roster_mode === 'draft' ? `/lega/${r.league_id}/draft` : `/lega/${r.league_id}?nuova=1`,
+      );
     } catch (err) {
       setError(friendlyError(err));
       setBusy(false);
@@ -62,11 +71,39 @@ export function CreateLeaguePage() {
             {
               label: 'Draft di tutti i giocatori',
               value: 'draft',
-              disabled: true,
-              note: 'Arriva con la prossima versione.',
+              note: '13 giri a serpentina con ordine sorteggiato. Ognuno tiene il contratto del file.',
             },
           ]}
         />
+        {settings.roster_mode === 'draft' && (
+          <>
+            <Choice
+              label="Modalità del draft"
+              value={settings.draft_mode}
+              onChange={(v) => set('draft_mode', v)}
+              options={[
+                {
+                  label: 'Lista',
+                  value: 'list',
+                  note: 'Ognuno ordina i preferiti; all’avvio il server fa tutte le scelte in pochi secondi.',
+                },
+                {
+                  label: 'Dal vivo',
+                  value: 'live',
+                  note: 'Si sceglie a turno con un tempo per scelta; puoi passare alla lista in qualsiasi momento.',
+                },
+              ]}
+            />
+            {settings.draft_mode === 'live' && (
+              <Choice
+                label="Tempo per scelta"
+                value={settings.pick_seconds}
+                onChange={(v) => set('pick_seconds', v)}
+                options={PICK_SECONDS_OPTIONS}
+              />
+            )}
+          </>
+        )}
       </Card>
 
       <Card>

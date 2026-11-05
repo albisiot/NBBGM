@@ -1,7 +1,7 @@
 // Pagina della lega: codice invito, squadre con i loro manager (o il bot) e impostazioni. Formazione,
 // partite e mercato arrivano con le fasi successive.
 import { useEffect, useState } from 'react';
-import { useParams, useSearchParams } from 'react-router';
+import { Link, useParams, useSearchParams } from 'react-router';
 import { Button, Card, ErrorText, PageTitle, Spinner } from '../components/ui.tsx';
 import { LAST_LEAGUE_KEY } from '../components/Layout.tsx';
 import { useUserId } from '../lib/auth.tsx';
@@ -55,6 +55,27 @@ export function LeaguePage() {
           bot
         </p>
       </Card>
+
+      {league.draftState && (
+        <Card className="space-y-2">
+          <p className="text-sm text-slate-500 dark:text-slate-400">
+            Draft iniziale · {league.draftMode === 'live' ? 'dal vivo' : 'modalità lista'}
+          </p>
+          <p className="text-lg font-semibold">
+            {league.draftState === 'waiting'
+              ? 'In attesa di partire'
+              : league.draftState === 'running'
+                ? 'In corso'
+                : 'Concluso'}
+          </p>
+          <Link
+            to={`/lega/${league.id}/draft`}
+            className="inline-flex min-h-11 items-center rounded-lg bg-orange-600 px-4 text-sm font-semibold text-white hover:bg-orange-700"
+          >
+            {league.draftState === 'done' ? 'Vedi le rose' : 'Vai al draft'}
+          </Link>
+        </Card>
+      )}
 
       {mine && (
         <Card>

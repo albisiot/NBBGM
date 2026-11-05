@@ -18,6 +18,7 @@ export * from './season/bots.ts';
 export * from './season/config.ts';
 export * from './season/development.ts';
 export * from './season/finance.ts';
+export * from './season/initialDraft.ts';
 export * from './season/freeAgency.ts';
 export * from './season/picks.ts';
 export * from './season/postseason.ts';

@@ -2,6 +2,7 @@
 // chiama, che ne diventa commissario e guida la squadra scelta. Le altre 29 squadre restano ai bot.
 //
 // POST { name, team, settings? }  ->  { league_id, invite_code }
+// settings.roster_mode 'draft': rose vuote e draft iniziale (settings.draft_mode, settings.pick_seconds).
 import { createClient } from 'npm:@supabase/supabase-js@2.118.0';
 import { createLeagueState, TEAMS } from '../../../packages/engine/src/index.ts';
 import {
@@ -44,17 +45,19 @@ function serverKey(): string {
 }
 
 /** Impostazioni della lega dalla richiesta, con i controlli dei valori ammessi. */
-function readSettings(raw: unknown): LeagueSettings {
+function readSettings(raw: unknown): LeagueSettings & { pick_seconds: number } {
   const s = {
     ...DEFAULT_SETTINGS,
+    pick_seconds: 60,
     ...(typeof raw === 'object' && raw !== null ? raw : {}),
-  } as LeagueSettings;
+  } as LeagueSettings & { pick_seconds: number };
   if (s.deadline_minutes !== null && !(Number.isInteger(s.deadline_minutes) && s.deadline_minutes > 0))
     throw new RequestError('Scadenza dei turni non valida');
   if (!(Number.isInteger(s.max_pace_seconds) && s.max_pace_seconds >= 0))
     throw new RequestError('Ritmo massimo non valido');
-  if (s.roster_mode !== 'real')
-    throw new RequestError('Il draft iniziale arriva con la Fase 7: per ora rose reali');
+  if (!['real', 'draft'].includes(s.roster_mode)) throw new RequestError('Rose iniziali non valide');
+  if (!(Number.isInteger(s.pick_seconds) && s.pick_seconds >= 10 && s.pick_seconds <= 600))
+    throw new RequestError('Tempo per scelta non valido');
   if (!['list', 'live'].includes(s.draft_mode)) throw new RequestError('Modalità del draft non valida');
   if (!['generated', 'real'].includes(s.rookie_source))
     throw new RequestError('Origine dei rookie non valida');
@@ -64,6 +67,7 @@ function readSettings(raw: unknown): LeagueSettings {
     roster_mode: s.roster_mode,
     draft_mode: s.draft_mode,
     rookie_source: s.rookie_source,
+    pick_seconds: s.pick_seconds,
   };
 }
 
@@ -105,13 +109,18 @@ Deno.serve(async (req) => {
     };
     if (rows.players.length === 0) throw new Error(`Nessun giocatore nel dataset ${BASE_DATASET}`);
 
-    const state = createLeagueState(leagueFromBaseRows(rows), crypto.randomUUID(), { humanTeams: [team] });
+    // Con il draft iniziale le rose partono vuote e i contratti del file passano a chi sceglie i giocatori
+    const data = leagueFromBaseRows(rows);
+    const draft = settings.roster_mode === 'draft';
+    const state = createLeagueState(data, crypto.randomUUID(), { humanTeams: [team], emptyRosters: draft });
+    const { pick_seconds: pickSeconds, ...leagueSettings } = settings;
     const payload = leaguePayload(state, {
       id: keyedIds(() => crypto.randomUUID()),
       name,
       commissionerId: auth.user.id,
       owners: { [team]: auth.user.id },
-      settings,
+      settings: leagueSettings,
+      initialDraft: draft ? { mode: settings.draft_mode, pickSeconds, contracts: data.contracts } : undefined,
     });
     const { data, error } = await admin.rpc('insert_league', { p_league: payload });
     if (error) throw new Error(`Scrittura della lega: ${error.message}`);
