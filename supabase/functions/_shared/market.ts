@@ -13,6 +13,7 @@ import {
   minimumSalaryFor,
   renewalOffer,
   salaryRun,
+  snapToAsk,
   validateTrade,
 } from '../../../packages/engine/src/index.ts';
 import type { LeagueState, OffseasonStage, Trade } from '../../../packages/engine/src/index.ts';
@@ -76,14 +77,15 @@ export function checkMarketAction(
       const p = state.players.find((x) => x.id === action.player_id);
       if (!p || p.teamId !== null || p.prospect) throw new MarketError('Il giocatore non è svincolato');
       const years = Number(action.years);
-      const salary = Math.round(Number(action.salary));
+      const ask = faRound === null ? inSeasonAsk(state, p) : askingSalary(state, p, faRound);
+      // La cifra mostrata dall'app (arrotondata ai 10.000 $) vale come la richiesta esatta
+      const salary = snapToAsk(Math.round(Number(action.salary)), ask);
       if (!Number.isInteger(years) || years < 1 || years > 5)
         throw new MarketError('Il contratto va da 1 a 5 anni');
       const min = minimumSalaryFor(state.config, p.yearsInLeague);
       const max = maxSalaryFor(state.config, p.yearsInLeague);
       if (!(salary >= min)) throw new MarketError(`Lo stipendio minimo per lui è ${millions(min)}`);
       if (salary > max) throw new MarketError(`Lo stipendio massimo per lui è ${millions(max)}`);
-      const ask = faRound === null ? inSeasonAsk(state, p) : askingSalary(state, p, faRound);
       if (salary < ask) throw new MarketError(`Chiede almeno ${millions(ask)} a stagione`);
       const check = canSign(state, me, p, salary);
       if (!check.ok) throw new MarketError(`Non puoi firmarlo: ${check.reason}`);

@@ -129,6 +129,31 @@ describe('Pronto', () => {
     expect(flags.rows).toHaveLength(0);
   });
 
+  it('il Pronto vale per il turno che il manager vede: su un turno già chiuso è rifiutato', async () => {
+    const now = await current();
+    const old = (
+      await db.query<{ id: string }>(
+        `select id from public.rounds where league_id = $1 and id <> $2 order by created_at desc limit 1`,
+        [LEAGUE, now.id],
+      )
+    ).rows[0]!.id;
+    const readyFor = (round: string) =>
+      asUser(
+        db,
+        ANNA,
+        async (tx) =>
+          (await tx.query<{ r: boolean }>('select public.set_ready($1, true, $2) as r', [BOS, round]))
+            .rows[0]!.r,
+      );
+    // L'app è ferma al turno vecchio: niente Pronto sul turno nuovo, che il manager non ha visto
+    await expect(readyFor(old)).rejects.toThrow(/turno è cambiato/);
+    const flags = await db.query('select * from public.ready_flags where round_id = $1', [now.id]);
+    expect(flags.rows).toHaveLength(0);
+    // Sul turno giusto vale; senza turno (app già installate) vale per il turno corrente
+    expect(await readyFor(now.id)).toBe(false);
+    expect(await ready(ANNA, BOS, false)).toBe(false);
+  });
+
   it('a turno in chiusura non si cambia nulla', async () => {
     await allReady();
     const claim = await serviceRpc(db).rpc<TurnClaim | null>('try_close_round', { p_league: LEAGUE });

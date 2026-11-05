@@ -8,6 +8,7 @@ import {
   nextConfig,
   renewalSalaries,
   salaryRun,
+  snapToAsk,
   typicalYears,
   type SeasonConfig,
 } from '@nbbgm/engine';
@@ -131,6 +132,20 @@ export const STAGE_LABEL: Record<string, string> = {
 /** Stipendi chiesti per il rinnovo (dalla stagione successiva), come li calcola il server. */
 export function renewalAsk(config: SeasonConfig, p: RosterPlayer): number[] {
   return renewalSalaries(config, p);
+}
+
+/** Cifra proposta di default per un'offerta: la richiesta in milioni con due decimali ("1,45"). */
+export function offerInput(ask: number): string {
+  return (ask / 1e6).toFixed(2).replace('.', ',');
+}
+
+/**
+ * Stipendio del primo anno da quello che scrive il manager in milioni ("1,45" o "1.45"); null se non è una cifra.
+ * Come fa il server, la cifra mostrata (arrotondata ai 10.000 $) vale come la richiesta esatta.
+ */
+export function offerSalary(input: string, ask: number): number | null {
+  const x = Math.round(Number(input.trim().replace(',', '.')) * 1e6);
+  return Number.isFinite(x) && x > 0 ? snapToAsk(x, ask) : null;
 }
 
 /** Stipendi con aumento del 5% l'anno, come li firma il server. */

@@ -2,6 +2,7 @@
 import {
   DEFAULT_TACTICS,
   overall,
+  setupFromSettings,
   validTactics,
   type Hidden,
   type InjurySeverity,
@@ -202,6 +203,37 @@ export async function teamSettings(teamId: string): Promise<SavedTeamSettings | 
   return { starters: data.starters, minutes: data.minutes, tactics: validTactics(data.tactics) };
 }
 
+/**
+ * Impostazioni salvate riportate alla rosa attuale. Chi non è più in squadra (ceduto, tagliato, non rinnovato)
+ * lo sostituisce il bot come farà il motore alla partita (setupFromSettings): il titolare con il migliore per il
+ * suo slot, che ne eredita i minuti; i minuti della panchina agli altri della rotazione, fino a 240. Gli
+ * infortunati restano dove sono: alla partita li sostituisce il motore, ma quando guariscono tornano al loro
+ * posto. Restituisce null se in squadra ci sono ancora tutti.
+ */
+export function settingsForRoster(s: SavedTeamSettings, roster: readonly Player[]): SavedTeamSettings | null {
+  const ids = new Set(roster.map((p) => p.id));
+  const gone = s.starters.some((id) => !ids.has(id)) || Object.keys(s.minutes).some((id) => !ids.has(id));
+  if (!gone) return null;
+  if (roster.length < 5) {
+    // Non bastano per un quintetto: si tolgono solo quelli usciti, gli slot restano vuoti
+    return {
+      starters: s.starters.map((id) => (ids.has(id) ? id : '')),
+      minutes: Object.fromEntries(Object.entries(s.minutes).filter(([id]) => ids.has(id))),
+      tactics: s.tactics,
+    };
+  }
+  const setup = setupFromSettings(
+    'squadra',
+    roster.map((p) => ({ ...p, injury: null })),
+    s,
+  );
+  return {
+    starters: [...setup.starters],
+    minutes: Object.fromEntries(Object.entries(setup.minutes).filter(([, m]) => m > 0)),
+    tactics: s.tactics,
+  };
+}
+
 export async function saveTeamSettings(
   teamId: string,
   leagueId: string,
@@ -308,8 +340,13 @@ export { DEFAULT_TACTICS };
 /** Controlli dell'app, gli stessi del database: 5 titolari diversi, minuti da 0 a 48 con la somma a 240. */
 export function settingsProblems(s: SavedTeamSettings, rosterIds: readonly string[]): string[] {
   const problems: string[] = [];
-  if (s.starters.length !== 5 || new Set(s.starters).size !== 5) problems.push('Servono 5 titolari diversi.');
-  if (s.starters.some((id) => !rosterIds.includes(id))) problems.push('Un titolare non è più in squadra.');
+  if (s.starters.some((id) => id === '')) problems.push('Manca un titolare: sceglilo nel quintetto.');
+  else if (s.starters.length !== 5 || new Set(s.starters).size !== 5)
+    problems.push('Servono 5 titolari diversi.');
+  if (s.starters.some((id) => id !== '' && !rosterIds.includes(id)))
+    problems.push('Un titolare non è più in squadra.');
+  if (Object.entries(s.minutes).some(([id, m]) => m > 0 && !rosterIds.includes(id)))
+    problems.push('Ci sono minuti per chi non è più in squadra.');
   const total = Object.values(s.minutes).reduce((a, b) => a + b, 0);
   if (total !== 240) problems.push(`La somma dei minuti deve fare 240 (ora ${total}).`);
   if (Object.values(s.minutes).some((m) => m < 0 || m > 48)) problems.push('I minuti vanno da 0 a 48.');

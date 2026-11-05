@@ -20,6 +20,8 @@ import {
   marketAction,
   millions,
   myBids,
+  offerInput,
+  offerSalary,
   projectedTax,
   salaryRunOf,
   seasonConfig,
@@ -40,6 +42,7 @@ import {
   type RosterPlayer,
 } from '../lib/roster.ts';
 import { useAsync } from '../lib/useAsync.ts';
+import { useRoundChange } from '../lib/useRoundChange.ts';
 
 type Tab = 'svincolati' | 'scambi' | 'rinnovi' | 'bilancio';
 
@@ -95,6 +98,8 @@ export function MarketPage() {
       faRound,
     };
   }, [id, userId]);
+  // Turno nuovo: richieste, offerte e scambi cambiano
+  useRoundChange(id, reload);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<{ ok: boolean; text: string } | null>(null);
 
@@ -343,15 +348,15 @@ function OfferForm({
   onSubmit: (salary: number, years: number) => void;
 }) {
   const [years, setYears] = useState(1);
-  const [salary, setSalary] = useState((ask / 1e6).toFixed(2));
-  const first = Math.round(Number(salary.replace(',', '.')) * 1e6);
-  const run = Number.isFinite(first) && first > 0 ? salaryRunOf(first, years) : [];
+  const [salary, setSalary] = useState(offerInput(ask));
+  const first = offerSalary(salary, ask);
+  const run = first !== null ? salaryRunOf(first, years) : [];
   return (
     <form
       className="mt-2 flex flex-wrap items-end gap-3 rounded-lg bg-slate-50 p-3 dark:bg-slate-900"
       onSubmit={(e) => {
         e.preventDefault();
-        if (run.length) onSubmit(first, years);
+        if (first !== null) onSubmit(first, years);
       }}
     >
       <label className="text-xs">

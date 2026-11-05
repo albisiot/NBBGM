@@ -107,11 +107,12 @@ export function TurnCard({
     setActionError(null);
     try {
       await action();
-      reload();
     } catch (e) {
       setActionError(friendlyError(e));
     } finally {
       setBusy(false);
+      // Anche dopo un errore: se il turno è cambiato, la scheda mostra subito quello nuovo
+      reload();
     }
   }
 
@@ -258,7 +259,7 @@ export function TurnCard({
               className="w-full sm:w-auto"
               variant={myState === 'ready' ? 'secondary' : 'primary'}
               disabled={busy}
-              onClick={() => void run(() => setReady(mine.id, myState !== 'ready'))}
+              onClick={() => void run(() => setReady(mine.id, myState !== 'ready', round.id))}
             >
               {myState === 'ready' ? 'Non sono più pronto' : 'Sono pronto'}
             </Button>

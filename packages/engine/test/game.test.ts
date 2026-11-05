@@ -80,6 +80,29 @@ describe('simulateGame', () => {
     }
   });
 
+  it('dopo il rimbalzo offensivo sull’ultimo libero la palla resta a chi attacca', () => {
+    // Dopo il rimbalzo la prima cosa che succede (cambi e infortuni a parte) è dell'attacco: un tiro, una palla
+    // persa, dei liberi; della difesa ci possono essere solo un fallo o una stoppata
+    let checked = 0;
+    for (const g of games) {
+      const ev = g.playByPlay;
+      for (let i = 0; i + 1 < ev.length; i++) {
+        const ft = ev[i]!;
+        const reb = ev[i + 1]!;
+        if (!/ai liberi$/.test(ft.text) || !reb.text.startsWith('Rimbalzo offensivo') || reb.team !== ft.team)
+          continue;
+        const next = ev
+          .slice(i + 2)
+          .find((e) => e.team !== null && !e.text.startsWith('Entra') && !e.text.includes('infortuna'));
+        if (!next || next.period !== reb.period) continue;
+        const defense = / su |stoppa/.test(next.text);
+        expect(next.team === ft.team || defense, `${ft.text} → ${reb.text} → ${next.text}`).toBe(true);
+        checked++;
+      }
+    }
+    expect(checked).toBeGreaterThan(20);
+  });
+
   it('un infortunato non è mai in campo', () => {
     // Prima della partita: chi è infortunato non gioca
     const players = roster('BOS');

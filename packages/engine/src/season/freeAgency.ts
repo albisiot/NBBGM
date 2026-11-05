@@ -44,6 +44,19 @@ export function askingSalaryFor(
   return Math.max(minimum, Math.round(ask / 10_000) * 10_000);
 }
 
+/** Scarto massimo tra un'offerta e la richiesta perché valga come la richiesta esatta. */
+export const ASK_ROUNDING = 5_000;
+
+/**
+ * Le richieste si mostrano in milioni con due decimali, cioè arrotondate ai 10.000 $, ma i minimi non sono cifre
+ * tonde (1.452.806 $ si legge "1,45"). Un'offerta che dista dalla richiesta non più di 5.000 $ è la cifra mostrata
+ * e vale come la richiesta esatta: chi offre quello che vede firma alla richiesta, e un minimo resta un minimo
+ * (sopra il cap è l'unica firma possibile).
+ */
+export function snapToAsk(salary: number, ask: number): number {
+  return Math.abs(salary - ask) <= ASK_ROUNDING ? ask : salary;
+}
+
 /** Posto che il giocatore avrebbe nella rotazione di una squadra: 1 da titolare, 0,6 da sesto-ottavo, 0,3 oltre. */
 function expectedRole(state: LeagueState, teamId: string, p: PlayerState): number {
   const mine = overall(p);
@@ -155,14 +168,34 @@ export function botOffers(state: LeagueState, round: number, rng: Rng, opts: { f
   return offers;
 }
 
-/** In stagione: chi ha meno di 13 contratti standard firma al minimo i migliori svincolati. */
+/** Quanto sopra il minimo può chiedere uno svincolato perché il server lo firmi al minimo (firme automatiche). */
+export const MINIMUM_SIGNING_SLACK = 1.2;
+
+/**
+ * Svincolati che il server può firmare al minimo per riportare una rosa a 13: sani, sotto i 39 anni, e che
+ * chiedono il minimo o poco più (la richiesta dell'ultimo turno di free agency, la più bassa, come in stagione).
+ * Chi chiede di più va preso sul mercato. Solo se non resta nessuno così (caso limite) si passa a chi chiede
+ * meno, prima i sani: la rosa deve comunque arrivare a 13.
+ */
+export function minimumSigningPool(state: LeagueState): PlayerState[] {
+  const free = state.players.filter((p) => p.teamId === null && p.age < 39 && p.prospect == null);
+  const ask = (p: PlayerState) => askingSalaryFor(state.config, p, FREE_AGENCY_ROUNDS - 1);
+  const minimum = (p: PlayerState) => minimumSalaryFor(state.config, p.yearsInLeague);
+  const pool = free.filter((p) => p.injury === null && ask(p) <= minimum(p) * MINIMUM_SIGNING_SLACK);
+  if (pool.length) return pool;
+  const cheapest = [...free].sort(
+    (a, b) =>
+      Number(a.injury !== null) - Number(b.injury !== null) || ask(a) / minimum(a) - ask(b) / minimum(b),
+  )[0];
+  return cheapest ? [cheapest] : [];
+}
+
+/** In stagione: chi ha meno di 13 contratti standard firma al minimo i migliori svincolati che lo accettano. */
 export function fillMinimumRosters(state: LeagueState, turn: number | null): void {
   for (const team of state.teams) {
     if (team.human) continue;
     while (standardRoster(state, team.id).length < MIN_STANDARD) {
-      const free = state.players
-        .filter((p) => p.teamId === null && p.age < 39)
-        .sort((a, b) => overall(b) - overall(a));
+      const free = minimumSigningPool(state).sort((a, b) => overall(b) - overall(a));
       const p = free[0];
       if (!p) break;
       const salary = minimumSalaryFor(state.config, p.yearsInLeague);
@@ -185,8 +218,8 @@ export function fillMinimumRosters(state: LeagueState, turn: number | null): voi
 
 /**
  * Squadra umana sotto i 13 contratti standard (il manager non ha risposto all'avviso): il server firma al
- * minimo, per un anno, i migliori svincolati dei ruoli più scoperti, come la scelta automatica del draft
- * iniziale. Restituisce i giocatori firmati.
+ * minimo, per un anno, i migliori svincolati dei ruoli più scoperti tra quelli che accettano il minimo
+ * (minimumSigningPool), come la scelta automatica del draft iniziale. Restituisce i giocatori firmati.
  */
 export function fillRosterAtMinimum(state: LeagueState, teamId: string, turn: number | null): PlayerState[] {
   const signed: PlayerState[] = [];
@@ -197,7 +230,7 @@ export function fillRosterAtMinimum(state: LeagueState, teamId: string, turn: nu
     overall: overall(p),
   });
   while (standardRoster(state, teamId).length < MIN_STANDARD) {
-    const free = state.players.filter((p) => p.teamId === null && p.age < 39);
+    const free = minimumSigningPool(state);
     if (!free.length) break;
     const choice = autoDraftPick(free.map(prospect), standardRoster(state, teamId).map(prospect));
     const p = free.find((x) => x.id === choice.id) as PlayerState;

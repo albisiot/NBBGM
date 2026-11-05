@@ -412,10 +412,12 @@ class GameSim {
         ] as SimPlayer;
         const fouler = this.rng.pick(def.court);
         const bonus = this.commitFoul(def, fouler, target, 'fallo sistematico');
-        if (bonus || this.clock <= 0) {
-          if (bonus) return this.freeThrows(off, def, target, 2);
-          return { side: def, transition: false };
+        if (bonus) {
+          // Con il rimbalzo offensivo sull'ultimo libero il possesso continua: chi è sotto fa di nuovo fallo
+          if (this.freeThrows(off, def, target, 2).side === def) return { side: def, transition: false };
+          continue;
         }
+        if (this.clock <= 0) return { side: def, transition: false };
       }
       return { side: def, transition: false };
     }
@@ -469,7 +471,12 @@ class GameSim {
         const fouler = def.court[
           this.rng.weightedIndex(def.court.map((d) => d.p.tendencies.hardFoul + d.p.tendencies.steal))
         ] as SimPlayer;
-        if (this.commitFoul(def, fouler, handler, 'fallo')) return this.freeThrows(off, def, handler, 2);
+        if (this.commitFoul(def, fouler, handler, 'fallo')) {
+          // Rimbalzo offensivo sull'ultimo libero: stesso possesso, con 14 secondi
+          if (this.freeThrows(off, def, handler, 2).side === def) return { side: def, transition: false };
+          transition = false;
+          continue;
+        }
         if (this.clock <= 0) return { side: def, transition: false };
       }
 
@@ -481,6 +488,11 @@ class GameSim {
         late && deficit < 0 && deficit <= -3 && this.clock <= 40,
       );
       const outcome = this.shoot(off, def, plan, transition, rushed);
+      // Fallo sul tiro con rimbalzo offensivo sull'ultimo libero: stesso possesso, con 14 secondi
+      if (outcome === 'kept') {
+        transition = false;
+        continue;
+      }
       if (outcome !== 'miss') return { side: def, transition: false };
 
       // Rimbalzo
@@ -511,6 +523,7 @@ class GameSim {
           helper: null,
         };
         const res = this.shoot(off, def, put, false, false);
+        if (res === 'kept') continue;
         if (res !== 'miss') return { side: def, transition: false };
         const again = this.rebound(off, def, 1);
         if (!again || this.clock <= 0) return { side: def, transition: false };
@@ -832,7 +845,7 @@ class GameSim {
     plan: ShotPlan,
     transition: boolean,
     rushed: boolean,
-  ): 'made' | 'miss' | 'fouled' {
+  ): 'made' | 'miss' | 'fouled' | 'kept' {
     const P = this.P;
     const { shooter, kind, zone } = plan;
     const putback =
@@ -866,13 +879,15 @@ class GameSim {
       blockLean;
     if (this.rng.chance(pFoul)) {
       this.commitFoul(def, fouler, shooter, 'fallo sul tiro');
+      let after: { side: Side };
       if (this.rng.chance(p * P.andOneMakeFactor)) {
         this.made(off, def, plan, points, true);
-        this.freeThrows(off, def, shooter, 1);
+        after = this.freeThrows(off, def, shooter, 1);
       } else {
-        this.freeThrows(off, def, shooter, points);
+        after = this.freeThrows(off, def, shooter, points);
       }
-      return 'fouled';
+      // 'kept': l'ultimo libero è sbagliato e il rimbalzo è dell'attacco, che tiene la palla
+      return after.side === off ? 'kept' : 'fouled';
     }
 
     // Stoppata: vicino a canestro è lei a causare l'errore. Può stoppare il marcatore, chi aiuta o il lungo vicino.

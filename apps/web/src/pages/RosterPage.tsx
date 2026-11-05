@@ -16,11 +16,13 @@ import { Button, Card, ErrorText, PageTitle, Spinner } from '../components/ui.ts
 import { useUserId } from '../lib/auth.tsx';
 import { friendlyError } from '../lib/errors.ts';
 import { leagueDetail, statusLabel, type LeagueDetail } from '../lib/leagues.ts';
+import { useRoundChange } from '../lib/useRoundChange.ts';
 import {
   coachDelegation,
   DEFAULT_TACTICS,
   saveTeamSettings,
   setCoachDelegation,
+  settingsForRoster,
   settingsProblems,
   TACTIC_OPTIONS,
   teamRoster,
@@ -40,7 +42,12 @@ export function RosterPage() {
   const [settings, setSettings] = useState<SavedTeamSettings | null>(null);
   const [coach, setCoach] = useState<CoachDelegation | null>(null);
   const [dirty, setDirty] = useState(false);
+  const [repaired, setRepaired] = useState(false);
   const [saved, setSaved] = useState(false);
+  // Turno nuovo: si rilegge la rosa; con modifiche non salvate si chiede prima al manager
+  const [tick, setTick] = useState(0);
+  const [stale, setStale] = useState(false);
+  useRoundChange(id, () => (dirty ? setStale(true) : setTick((t) => t + 1)));
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
@@ -64,8 +71,13 @@ export function RosterPage() {
         if (!alive) return;
         setRoster(players);
         setCoach(c);
-        setSettings(s ?? fromAuto(mine.code, players, DEFAULT_TACTICS));
-        setDirty(s === null);
+        // Chi non è più in squadra lo sostituisce il bot, come alla partita: il manager controlla e salva
+        const fixed = s && settingsForRoster(s, players);
+        setSettings(fixed ?? s ?? fromAuto(mine.code, players, DEFAULT_TACTICS));
+        setRepaired(fixed !== null);
+        setDirty(s === null || fixed !== null);
+        setSaved(false);
+        setStale(false);
       } catch (e) {
         if (alive) setError(friendlyError(e));
       } finally {
@@ -75,7 +87,7 @@ export function RosterPage() {
     return () => {
       alive = false;
     };
-  }, [id, userId]);
+  }, [id, userId, tick]);
 
   const byId = useMemo(() => new Map(roster.map((p) => [p.id, p])), [roster]);
   const ovr = useMemo(() => new Map(roster.map((p) => [p.id, Math.round(overall(p))])), [roster]);
@@ -128,6 +140,7 @@ export function RosterPage() {
     try {
       await saveTeamSettings(team.id, league!.id, settings);
       setDirty(false);
+      setRepaired(false);
       setSaved(true);
     } catch (e) {
       setError(friendlyError(e));
@@ -166,6 +179,22 @@ export function RosterPage() {
         </p>
       )}
 
+      {stale && (
+        <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg bg-amber-50 px-3 py-2 text-sm text-amber-900 dark:bg-amber-950 dark:text-amber-100">
+          <span>La lega è passata al turno successivo: la rosa potrebbe essere cambiata.</span>
+          <Button variant="secondary" onClick={() => setTick((t) => t + 1)}>
+            Ricarica (perdi le modifiche)
+          </Button>
+        </div>
+      )}
+
+      {repaired && (
+        <p className="rounded-lg bg-amber-50 px-3 py-2 text-sm text-amber-900 dark:bg-amber-950 dark:text-amber-100">
+          Qualcuno non è più in squadra: il bot ha sistemato quintetto e minuti come farebbe alla partita.
+          Controlla e salva.
+        </p>
+      )}
+
       <Card className="space-y-3">
         <div className="flex items-center justify-between gap-2">
           <h2 className="font-semibold">Quintetto</h2>
@@ -188,6 +217,7 @@ export function RosterPage() {
                 value={settings.starters[i] ?? ''}
                 onChange={(e) => setStarter(i, e.target.value)}
               >
+                {!p && <option value="">Scegli il titolare</option>}
                 {roster
                   .filter((x) => x.injury === null || x.id === settings.starters[i])
                   .map((x) => (

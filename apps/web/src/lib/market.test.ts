@@ -1,6 +1,14 @@
 import { CONFIG_2026_27, luxuryTax, nextConfig, salaryRun } from '@nbbgm/engine';
 import { describe, expect, it } from 'vitest';
-import { effectiveConfig, faRoundOf, millions, projectedTax, salaryRunOf } from './market.ts';
+import {
+  effectiveConfig,
+  faRoundOf,
+  millions,
+  offerInput,
+  offerSalary,
+  projectedTax,
+  salaryRunOf,
+} from './market.ts';
 
 describe('mercato nell’app', () => {
   it('stipendi e tassa come li calcola il server', () => {
@@ -9,6 +17,23 @@ describe('mercato nell’app', () => {
     expect(projectedTax(CONFIG_2026_27, f)).toBe(luxuryTax(CONFIG_2026_27, 215_000_000, false));
     expect(projectedTax(CONFIG_2026_27, { ...f, payroll: 150_000_000 })).toBe(0);
     expect(millions(12_345_678)).toBe('12,35 mln');
+  });
+
+  it('l’offerta proposta e la cifra mostrata valgono la richiesta esatta, anche per i minimi', () => {
+    const minimums = [...CONFIG_2026_27.minimumSalary, ...nextConfig(CONFIG_2026_27).minimumSalary];
+    for (const ask of minimums) {
+      // Cifra proposta di default
+      expect(offerSalary(offerInput(ask), ask)).toBe(ask);
+      // Cifra riscritta dal messaggio "chiede 1,45 mln"
+      expect(offerSalary(millions(ask).replace(' mln', ''), ask)).toBe(ask);
+    }
+    expect(offerInput(1_452_806)).toBe('1,45');
+    expect(offerSalary('1,45', 1_452_806)).toBe(1_452_806);
+    expect(offerSalary('3.52', 3_524_115)).toBe(3_524_115);
+    // Un'offerta diversa resta com'è
+    expect(offerSalary('2', 1_452_806)).toBe(2_000_000);
+    expect(offerSalary('', 1_452_806)).toBeNull();
+    expect(offerSalary('abc', 1_452_806)).toBeNull();
   });
 });
 

@@ -13,7 +13,7 @@ Riassunto del documento di design (versione 2.4, 4 novembre 2026). È la fonte d
 
 ## Stato del lavoro
 
-- Fasi 1-13 completate: l'app è pubblicata e installata dal telefono, e in produzione una lega ha giocato i suoi turni (con il Pronto e con l'allenatore). Si lavora su `main`; `fasi-1-3` è il ramo storico delle fasi.
+- Fasi 1-13 completate: l'app è pubblicata e installata dal telefono, e in produzione una lega ha giocato i suoi turni (con il Pronto e con l'allenatore). Dopo la Fase 13 sono stati corretti sette bug trovati analizzando l'app (vedi "Scelte prese dopo la Fase 13"). Si lavora su `main`; `fasi-1-3` è il ramo storico delle fasi. La logica di stagione sta in `packages/engine/src/season/`; database e sicurezza in `supabase/migrations/` (vedi `supabase/README.md`).
 - App: `pnpm dev` (o `pnpm dev:lan` per provarla dal telefono sulla stessa Wi-Fi). Legge URL e chiave publishable da `apps/web/.env.local` (modello in `.env.example`).
 - Pubblicata su **GitHub Pages**: `https://albisiot.github.io/NBBGM/` (repository pubblico `albisiot/NBBGM`, ramo `main`). Workflow in `.github/workflows/`: `ci.yml` (controlli), `pages.yml` (app, con le variabili `SUPABASE_URL` e `SUPABASE_PUBLISHABLE_KEY`), `supabase.yml` (migrazioni e funzioni, con il segreto `SUPABASE_ACCESS_TOKEN`). Icone della PWA con `pnpm icons`.
 - Edge Functions `create-league`, `draft`, `advance-turn` e `market` in `supabase/functions/`; il codice comune a Edge Function e script sta in `supabase/functions/_shared/`: `league.ts` (dati di partenza <-> motore, righe per `insert_league`), `draft.ts` (draft iniziale), `state.ts` (stato della lega dal database al motore, con `league_state`) `turn.ts` (un turno: dal motore alle sezioni di `apply_turn`) e `market.ts` (controllo delle azioni di mercato). Si pubblicano con `npx.cmd --yes supabase@3.0.0 functions deploy create-league draft advance-turn market --use-api`.
@@ -129,6 +129,29 @@ Riassunto del documento di design (versione 2.4, 4 novembre 2026). È la fonte d
 - **Repository pubblico** `albisiot/NBBGM` (Pages gratis): restano fuori file Excel, `data/`, `seed.sql`, `.env.local`; i giocatori veri stanno solo nel database, dietro la RLS.
 - **Informativa privacy** in `apps/web/public/privacy.html`, con contatto mondiali2014@gmail.com; il link è nella pagina di accesso.
 - **Rami:** `main` è il ramo principale (creato da `fasi-1-3`); Pages pubblica da `main`.
+
+## Scelte prese dopo la Fase 13 (non erano nel documento)
+
+Correzioni dei bug trovati analizzando l'app pubblicata.
+
+- **Offerte agli svincolati:** l'app mostra le richieste in milioni con due decimali (arrotondate ai 10.000 $), ma i minimi non sono cifre tonde. Un'offerta che dista dalla richiesta al massimo 5.000 $ vale come la richiesta esatta (`snapToAsk`), nell'app e nel server: chi offre la cifra che vede firma, e un minimo resta un minimo (sopra il cap è l'unica firma possibile).
+- **Impostazioni con giocatori usciti:** la pagina Squadra le sistema al caricamento come fa il motore alla partita (`settingsForRoster`, con `setupFromSettings`): il titolare uscito lo sostituisce il migliore per lo slot, i minuti tornano a 240, gli infortunati restano al loro posto. Poi chiede di salvare. Il server non riscrive `team_settings`: alla partita il motore corregge comunque gli slot mancanti.
+- **Pronto legato al turno visto:** `set_ready(p_team, p_ready, p_round)`. Se `p_round` non è il turno corrente il server rifiuta ("Il turno è cambiato"). Senza `p_round` (le app già installate) funziona come prima.
+- **Pagine aggiornate al cambio di turno:** Squadra, Mercato, Risultati, Classifica e Playoff si rileggono quando la lega passa al turno successivo (`useRoundChange`), in tempo reale o al ritorno in primo piano. La scheda del turno si rilegge anche al ritorno in primo piano. In Squadra, con modifiche non salvate, l'app chiede prima di ricaricare.
+- **Seed di turni e partite solo al server:** `rounds.seed` e `games.seed` sono chiusi al client come `leagues.seed`. Il tempo reale su `rounds` arriva lo stesso, senza la colonna seed (servono i permessi sulla chiave primaria `id`).
+- **Valutazione degli scambi dei bot:**
+  - Il valore di un giocatore non ha più il minimo a 0,1: un contratto sopra il valore di mercato lo porta sotto zero.
+  - Anche chi è in corsa sconta i veterani, di 1,5 punti per anno oltre i 32.
+  - Un infortunato perde la parte di stagione che salta (`gamesRemaining / 82`, al massimo il 70%).
+  - Una prima scelta protetta "top N", con la protezione già messa o quella dello scambio (`t.protections`), vale `1 − 0,7 × P(cade nella fascia)` (`protectedShare`). P dipende da N e dalla posizione attesa, ed è più incerta per i draft lontani.
+  - Uno swap vale, per chi ha il diritto, la differenza attesa tra le due scelte se l'altra è migliore, più il 15% della peggiore come opzione (`swapValue`). Chi lo concede perde lo stesso valore.
+  - La luxury tax in più per il bot conta tra i costi (mezzo punto per milione), il risparmio tra i guadagni.
+  - Il bot accetta solo con un guadagno netto di almeno 1 punto e di almeno il 10% di quanto cede, in valore assoluto (`tradeGainOk`). Le proposte dei bot, agli umani e tra bot, passano lo stesso controllo per la parte del bot.
+  - Con i giocatori reali Paul George regalato (36 anni, 54 milioni) non lo prende più nessun bot (prima 16 su 29), uno swap regalato nessuno (prima 29 su 29). Gli scambi tra bot restano 5,3 a stagione.
+- **Rimbalzo offensivo sui liberi:** dopo l'ultimo libero sbagliato, con il rimbalzo offensivo il possesso continua con 14 secondi, come dopo un tiro sbagliato. Nei falli sistematici del finale chi è sotto fa di nuovo fallo.
+- **Firme automatiche al minimo** (bot e `fillRosterAtMinimum`):
+  - Solo svincolati sani che chiedono al massimo il 20% sopra il minimo (`minimumSigningPool`), con la richiesta dell'ultimo turno di free agency. Chi chiede di più va preso sul mercato.
+  - Se non c'è nessuno così, si firma quello che chiede meno rispetto al suo minimo.
 
 ## Visione
 

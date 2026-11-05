@@ -215,9 +215,19 @@ export function readiness(status: TurnStatus, teamId: string, now = Date.now()):
   return 'waiting';
 }
 
-/** Pronto o tolto il Pronto; restituisce true se ora tutte le squadre umane sono pronte. */
-export async function setReady(teamId: string, ready: boolean): Promise<boolean> {
-  const { data, error } = await supabase.rpc('set_ready', { p_team: teamId, p_ready: ready });
+/**
+ * Pronto o tolto il Pronto per il turno che il manager sta guardando (roundId): se nel frattempo il server è
+ * passato al turno successivo, rifiuta. Restituisce true se ora tutte le squadre umane sono pronte.
+ */
+export async function setReady(teamId: string, ready: boolean, roundId: string): Promise<boolean> {
+  let { data, error } = await supabase.rpc('set_ready', {
+    p_team: teamId,
+    p_ready: ready,
+    p_round: roundId,
+  });
+  // Database non ancora aggiornato (l'app si pubblica insieme alle migrazioni): set_ready senza il turno
+  if (error?.code === 'PGRST202')
+    ({ data, error } = await supabase.rpc('set_ready', { p_team: teamId, p_ready: ready }));
   if (error) throw error;
   return data as boolean;
 }
@@ -238,21 +248,55 @@ export async function answerAlert(alertId: string): Promise<boolean> {
   return data as boolean;
 }
 
+// Ogni canale ha un nome suo: supabase-js riusa un canale con lo stesso nome, anche se sta per chiudersi
+let channelCount = 0;
+export const channelName = (prefix: string, leagueId: string) => `${prefix}:${leagueId}:${++channelCount}`;
+
+/**
+ * Chiama onVisible quando l'app torna in primo piano o la rete torna: mentre era in background (PWA chiusa,
+ * telefono bloccato) gli eventi in tempo reale si sono persi. Restituisce la funzione per smettere.
+ */
+export function onResume(onVisible: () => void): () => void {
+  const handler = () => {
+    if (document.visibilityState === 'visible') onVisible();
+  };
+  document.addEventListener('visibilitychange', handler);
+  window.addEventListener('online', handler);
+  return () => {
+    document.removeEventListener('visibilitychange', handler);
+    window.removeEventListener('online', handler);
+  };
+}
+
 /**
  * Ascolta in tempo reale turni, Pronto, allenatori e avvisi della lega; onChange si chiama a ogni modifica
- * (la RLS decide che cosa arriva). Restituisce la funzione per smettere di ascoltare.
+ * (la RLS decide che cosa arriva), al ritorno in primo piano e ogni 30 secondi. Restituisce la funzione per
+ * smettere di ascoltare.
  */
 export function subscribeTurn(leagueId: string, onChange: () => void): () => void {
   const filter = `league_id=eq.${leagueId}`;
-  const channel = supabase.channel(`turno:${leagueId}`);
+  const channel = supabase.channel(channelName('turno', leagueId));
   for (const table of ['rounds', 'ready_flags', 'coach_delegations', 'alerts'])
     channel.on('postgres_changes', { event: '*', schema: 'public', table, filter }, onChange);
   channel.subscribe();
   const timer = setInterval(onChange, 30_000);
+  const stopResume = onResume(onChange);
   return () => {
     clearInterval(timer);
+    stopResume();
     void supabase.removeChannel(channel);
   };
+}
+
+/** Turno corrente della lega, per capire se è cambiato. */
+export async function currentRoundId(leagueId: string): Promise<string | null> {
+  const { data, error } = await supabase
+    .from('leagues')
+    .select('current_round_id')
+    .eq('id', leagueId)
+    .maybeSingle();
+  if (error) throw error;
+  return (data?.current_round_id as string | null | undefined) ?? null;
 }
 
 /** Testo di un avviso per il manager. */

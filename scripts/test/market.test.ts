@@ -322,6 +322,15 @@ describe('tagli, rinnovi e svincolati', () => {
     const p = state.players.find((x) => x.id === weak)!;
     const ask = inSeasonAsk(state, p);
     expect(ask).toBe(minimumSalaryFor(state.config, p.yearsInLeague));
+    // La cifra mostrata dall'app (arrotondata ai 10.000 $, anche per difetto) vale come la richiesta esatta
+    const rows = await rpc().rpc<LeagueStateRows>('league_state', { p_league: LEAGUE });
+    for (const shown of [Math.round(Number((ask / 1e6).toFixed(2)) * 1e6), ask - 5_000, ask + 5_000]) {
+      const c = checkMarketAction(rows, BRUNO, { kind: 'bid', player_id: weak, salary: shown, years: 1 });
+      expect(c.write).toMatchObject({ salaries: [ask] });
+    }
+    expect(() =>
+      checkMarketAction(rows, BRUNO, { kind: 'bid', player_id: weak, salary: ask - 10_000, years: 1 }),
+    ).toThrow(/minimo/);
     await expect(act(BRUNO, { kind: 'bid', player_id: weak, salary: 1, years: 1 })).rejects.toThrow(/minimo/);
     await expect(act(BRUNO, { kind: 'bid', player_id: weak, salary: ask, years: 9 })).rejects.toThrow(
       /da 1 a 5/,

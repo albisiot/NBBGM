@@ -93,14 +93,45 @@ describe('permessi', () => {
       'join_league(text,text)',
       'league_preview(text)',
       'player_scouting(uuid)',
-      'set_ready(uuid,boolean)',
+      'set_ready(uuid,boolean,uuid)',
       'team_balance(uuid)',
     ]);
-    // Il seed della lega resta al server: con il motore si rifarebbero stime del potenziale e crescita
-    const seed = await db.query<{ ok: boolean }>(
-      `select has_column_privilege('authenticated', 'public.leagues', 'seed', 'SELECT') as ok`,
+    // I seed restano al server: con il motore si rifarebbero stime del potenziale, crescita e classe del draft
+    for (const table of ['leagues', 'rounds', 'games']) {
+      const seed = await db.query<{ ok: boolean }>(
+        `select has_column_privilege('authenticated', $1, 'seed', 'SELECT') as ok`,
+        [`public.${table}`],
+      );
+      expect(seed.rows[0]!.ok, table).toBe(false);
+    }
+    // Le altre colonne di turni e partite si leggono (l'app e il tempo reale ne hanno bisogno)
+    for (const [table, column] of [
+      ['rounds', 'id'],
+      ['rounds', 'league_id'],
+      ['rounds', 'state'],
+      ['rounds', 'stage'],
+      ['games', 'play_by_play'],
+      ['games', 'played_at'],
+    ]) {
+      const ok = await db.query<{ ok: boolean }>(
+        `select has_column_privilege('authenticated', $1, $2, 'SELECT') as ok`,
+        [`public.${table}`, column],
+      );
+      expect(ok.rows[0]!.ok, `${table}.${column}`).toBe(true);
+    }
+    // Un membro della lega che chiede il seed all'API viene respinto; le colonne dell'app si leggono
+    for (const table of ['rounds', 'games'])
+      await expect(
+        asUser(db, ANNA, (tx) => tx.query(`select seed from public.${table} limit 1`)),
+      ).rejects.toThrow(/permission denied/);
+    const games = await asUser(db, ANNA, (tx) =>
+      tx.query('select id, round_number, home_team_id, home_score from public.games limit 1'),
     );
-    expect(seed.rows[0]!.ok).toBe(false);
+    expect(games.rows).toHaveLength(1);
+    const rounds = await asUser(db, ANNA, (tx) =>
+      tx.query('select id, number, state from public.rounds limit 1'),
+    );
+    expect(rounds.rows).toHaveLength(1);
     // Il saldo delle squadre si legge solo con team_balance (propria squadra o commissario)
     const balance = await db.query<{ ok: boolean }>(
       `select has_column_privilege('authenticated', 'public.teams', 'balance', 'SELECT') as ok`,

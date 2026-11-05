@@ -2,10 +2,10 @@ import { autoSetup } from '../game/setup.ts';
 import { overall } from '../overall.ts';
 import type { Rng } from '../rng.ts';
 import type { Contract, Role } from '../types.ts';
-import { minimumSalaryFor, type SeasonConfig } from './config.ts';
-import { contractOf, marketValue, roster, standardRoster } from './finance.ts';
-import type { DraftPick, LeagueState, PlayerState, Strategy } from './state.ts';
-import { executeTrade, tradeWindowOpen, validateTrade, type Trade } from './trades.ts';
+import { luxuryTax, minimumSalaryFor, type SeasonConfig } from './config.ts';
+import { contractOf, isRepeater, marketValue, payroll, roster, standardRoster } from './finance.ts';
+import type { DraftPick, DraftSwap, LeagueState, PlayerState, Strategy } from './state.ts';
+import { executeTrade, payrollChange, tradeWindowOpen, validateTrade, type Trade } from './trades.ts';
 
 /** Forza di una squadra: overall medio della rotazione automatica, pesato sui minuti. */
 export function teamStrength(state: LeagueState, teamId: string): number {
@@ -48,17 +48,21 @@ export function playerValue(
   const room = Math.max(0, p.scoutedPotential - ovr);
   const young = p.age <= 25;
   let level: number;
-  if (strategy === 'contend') level = ovr + (young ? room * 0.15 : 0);
+  // Anche chi è in corsa sconta un po' i veterani oltre i 32 anni: il calo arriva
+  if (strategy === 'contend') level = ovr + (young ? room * 0.15 : 0) - Math.max(0, p.age - 32) * 1.5;
   else if (strategy === 'rebuild') level = ovr + (young ? room * 0.7 : 0) - Math.max(0, p.age - 27) * 1.5;
   else level = ovr + (young ? room * 0.4 : 0) - Math.max(0, p.age - 30);
-  const talent = Math.max(0, level - 50) ** 2 / 10;
+  // Un infortunato salta una parte della stagione: con 60 partite da saltare vale circa un terzo
+  const injured = p.injury ? Math.min(0.7, p.injury.gamesRemaining / 82) : 0;
+  const talent = (Math.max(0, level - 50) ** 2 / 10) * (1 - injured);
   const salary = contract?.salaries[0] ?? 0;
   const years = contract?.salaries.length ?? 0;
+  // Un contratto sopra il valore del giocatore pesa: il valore può scendere sotto zero
   const surplus =
     years && contract?.type !== 'two-way'
       ? ((marketValue(c, p) - salary) / 1e6) * Math.min(years, 3) * 0.5
       : 0;
-  return Math.max(0.1, talent + surplus);
+  return talent + surplus;
 }
 
 /** Posizione attesa della scelta di una squadra, dalla sua forza attuale (la più debole sceglie per prima). */
@@ -67,27 +71,80 @@ export function expectedPickPosition(ranking: readonly string[], teamId: string)
   return i < 0 ? 15 : ranking.length - i;
 }
 
+/**
+ * Quota del valore che resta a una prima scelta protetta "top N": se cade nella fascia protetta resta a chi la
+ * cede e l'obbligo passa al draft dopo (alla fine, dopo tre rinvii, diventa una seconda scelta), quindi in quel
+ * caso vale circa il 30%. La probabilità di cadere nella fascia dipende da N e dalla posizione attesa, più
+ * incerta per i draft lontani.
+ */
+export function protectedShare(expected: number, protection: number, yearsAway: number): number {
+  const inRange = 1 / (1 + Math.exp(-(protection + 0.5 - expected) / (3 + 2 * yearsAway)));
+  return 1 - 0.7 * inRange;
+}
+
+/** Valore di una scelta; protection è la protezione da considerare (di default quella della scelta). */
 export function pickValue(
   state: LeagueState,
-  pick: DraftPick,
+  pick: Pick<DraftPick, 'draftYear' | 'round' | 'originalTeamId' | 'protection'>,
   strategy: Strategy,
   ranking: readonly string[],
+  protection: number | null = pick.protection,
 ): number {
   const yearsAway = Math.max(0, pick.draftYear - (state.config.year + 1));
   // Più lontana la scelta, più la posizione attesa tende alla media
   const expected = 15 + (expectedPickPosition(ranking, pick.originalTeamId) - 15) * 0.6 ** yearsAway;
   const base = pick.round === 1 ? 45 * Math.exp(-(expected - 1) / 7) + 4 : 1.5;
-  const protection = pick.protection ? (expected <= pick.protection ? 0.35 : 0.8) : 1;
+  const share = protection && pick.round === 1 ? protectedShare(expected, protection, yearsAway) : 1;
   const strategyF = strategy === 'rebuild' ? 1.4 : strategy === 'contend' ? 0.6 : 1;
-  return base * 0.9 ** yearsAway * protection * strategyF;
+  return base * 0.9 ** yearsAway * share * strategyF;
 }
 
-/** Valore netto di uno scambio per una squadra (ciò che riceve meno ciò che cede). */
+/**
+ * Valore di uno swap per chi ha il diritto: la differenza attesa tra la scelta dell'altra squadra e la propria,
+ * se è migliore, più un valore d'opzione (le classifiche cambiano). Chi lo concede perde lo stesso valore.
+ */
+export function swapValue(
+  state: LeagueState,
+  swap: Pick<DraftSwap, 'draftYear' | 'round' | 'holderId' | 'otherId'>,
+  strategy: Strategy,
+  ranking: readonly string[],
+): number {
+  const value = (team: string) =>
+    pickValue(
+      state,
+      { draftYear: swap.draftYear, round: swap.round, originalTeamId: team, protection: null },
+      strategy,
+      ranking,
+    );
+  const own = value(swap.holderId);
+  const other = value(swap.otherId);
+  return Math.max(0, other - own) + 0.15 * Math.min(own, other);
+}
+
+/**
+ * Costo della luxury tax in più (o risparmio, se negativo) per la squadra se lo scambio si fa, nella stessa
+ * scala dei valori: come per i contratti, mezzo punto per milione.
+ */
+function taxCost(state: LeagueState, t: Trade, teamId: string): number {
+  const team = state.teams.find((x) => x.id === teamId);
+  if (!team) return 0;
+  const before = payroll(state, teamId);
+  const repeater = isRepeater(team.taxHistory);
+  const extra =
+    luxuryTax(state.config, before + payrollChange(state, t, teamId), repeater) -
+    luxuryTax(state.config, before, repeater);
+  return (extra / 1e6) * 0.5;
+}
+
+/**
+ * Valore di uno scambio per una squadra: ciò che riceve (giocatori, scelte con le protezioni messe nello scambio,
+ * diritti di swap) e ciò che cede, con la tassa in più tra i costi (o il risparmio tra i guadagni).
+ */
 export function tradeBalance(
   state: LeagueState,
   t: Trade,
   teamId: string,
-  ranking = strengthRanking(state),
+  ranking: readonly string[] = strengthRanking(state),
 ): { get: number; give: number } {
   const team = state.teams.find((x) => x.id === teamId);
   const strategy = team?.strategy ?? 'middle';
@@ -96,23 +153,39 @@ export function tradeBalance(
       const p = state.players.find((x) => x.id === id) as PlayerState;
       return a + playerValue(p, contractOf(state, id), strategy, state.config);
     }, 0) +
-    picks.reduce(
-      (a, id) => a + pickValue(state, state.picks.find((x) => x.id === id) as DraftPick, strategy, ranking),
-      0,
-    );
+    picks.reduce((a, id) => {
+      const pick = state.picks.find((x) => x.id === id) as DraftPick;
+      return a + pickValue(state, pick, strategy, ranking, t.protections?.[id] ?? pick.protection);
+    }, 0);
+  const swaps = (holder: boolean) =>
+    (t.swaps ?? [])
+      .filter((s) => (holder ? s.holderId : s.otherId) === teamId)
+      .reduce((a, s) => a + swapValue(state, s, strategy, ranking), 0);
   const mine = teamId === t.teamA;
+  const tax = taxCost(state, t, teamId);
   return {
-    get: mine ? val(t.playersB, t.picksB) : val(t.playersA, t.picksA),
-    give: mine ? val(t.playersA, t.picksA) : val(t.playersB, t.picksB),
+    get: (mine ? val(t.playersB, t.picksB) : val(t.playersA, t.picksA)) + swaps(true) + Math.max(0, -tax),
+    give: (mine ? val(t.playersA, t.picksA) : val(t.playersB, t.picksB)) + swaps(false) + Math.max(0, tax),
   };
 }
 
 /** Un bot accetta solo se riceve almeno il 10% in più di quanto cede. */
 export const BOT_TRADE_MARGIN = 1.1;
+/** Guadagno netto minimo di un bot in uno scambio: niente scambi alla pari o in perdita, nemmeno a costo zero. */
+export const MIN_TRADE_GAIN = 1;
+
+/**
+ * Il guadagno netto basta? Almeno MIN_TRADE_GAIN e almeno il margine (10%) su quanto cede, contato in valore
+ * assoluto: cedere un contratto in perdita (valore negativo) non rende buono un altro contratto in perdita.
+ */
+export function tradeGainOk(get: number, give: number, margin = BOT_TRADE_MARGIN): boolean {
+  // Il millesimo evita che l'arrotondamento dei decimali rifiuti uno scambio proprio al margine
+  return get - give >= Math.max(MIN_TRADE_GAIN, (margin - 1) * Math.abs(give)) - 1e-9;
+}
 
 export function botAccepts(state: LeagueState, t: Trade, teamId: string): boolean {
   const { get, give } = tradeBalance(state, t, teamId);
-  return get >= give * BOT_TRADE_MARGIN && validateTrade(state, t).length === 0;
+  return tradeGainOk(get, give) && validateTrade(state, t).length === 0;
 }
 
 /**
@@ -173,7 +246,10 @@ function buildVeteranTrade(
         forSeller: pickValue(state, p, sS, ranking),
         forBuyer: pickValue(state, p, sB, ranking),
       })),
-  ].sort((a, b) => b.forSeller / b.forBuyer - a.forSeller / a.forBuyer);
+  ]
+    // Nel pacchetto solo quello che il venditore vuole: prima ciò che vale di più per lui che per il compratore
+    .filter((a) => a.forSeller > 0)
+    .sort((a, b) => b.forSeller / Math.max(0.5, b.forBuyer) - a.forSeller / Math.max(0.5, a.forBuyer));
   const pkg: Asset[] = [];
   let forSeller = 0;
   let forBuyer = 0;
@@ -194,6 +270,15 @@ function buildVeteranTrade(
     picksA: [],
     picksB: pkg.filter((a) => a.kind === 'pick').map((a) => a.id),
   };
+  // Il bot deve volere lo scambio come se gli arrivasse da fuori (tassa compresa)
+  for (const [team, margin] of [
+    [sellerId, check.seller],
+    [buyerId, check.buyer],
+  ] as const) {
+    if (margin < BOT_TRADE_MARGIN) continue;
+    const { get, give } = tradeBalance(state, trade, team, ranking);
+    if (!tradeGainOk(get, give, margin)) return null;
+  }
   return validateTrade(state, trade).length ? null : trade;
 }
 

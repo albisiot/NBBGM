@@ -4,7 +4,9 @@ import { ARCHETYPE_PROFILES } from '../src/archetype-profiles.ts';
 import { generateLeague } from '../src/generator.ts';
 import { overall } from '../src/overall.ts';
 import { Rng } from '../src/rng.ts';
+import { CONFIG_2026_27, nextConfig } from '../src/season/config.ts';
 import { contractOf, payroll, standardRoster } from '../src/season/finance.ts';
+import { snapToAsk } from '../src/season/freeAgency.ts';
 import {
   botProposals,
   inSeasonAsk,
@@ -226,6 +228,17 @@ describe('tagli, rinnovi e svincolati', () => {
     expect(target.teamId).toBe('LAL');
     expect(other.teamId).toBeNull();
     expect(out.notes.find((n) => n.teamId === 'BOS' && n.text.includes('chiede almeno'))).toBeDefined();
+  });
+
+  it('la cifra mostrata (arrotondata ai 10.000 $) vale come la richiesta esatta, anche per i minimi', () => {
+    const minimums = [...CONFIG_2026_27.minimumSalary, ...nextConfig(CONFIG_2026_27).minimumSalary];
+    for (const ask of minimums) {
+      const shown = Math.round(Number((ask / 1e6).toFixed(2)) * 1e6);
+      expect(snapToAsk(shown, ask)).toBe(ask);
+    }
+    expect(snapToAsk(1_450_000, 1_452_806)).toBe(1_452_806);
+    expect(snapToAsk(1_460_000, 1_452_806)).toBe(1_460_000);
+    expect(snapToAsk(1_440_000, 1_452_806)).toBe(1_440_000);
   });
 });
 
