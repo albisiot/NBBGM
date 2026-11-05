@@ -435,6 +435,10 @@ verify_jwt = false
 [functions.draft]
 verify_jwt = false
 
+# Edge Function market: come create-league, il JWT lo controlla la funzione stessa.
+[functions.market]
+verify_jwt = false
+
 # Edge Function advance-turn: la chiamano pg_net e pg_cron, senza utente. Non si fida di chi chiama: il turno
 # avanza solo se il database dice che è il momento (try_close_round).
 [functions.advance-turn]

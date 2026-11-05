@@ -94,12 +94,18 @@ describe('permessi', () => {
       'league_preview(text)',
       'player_scouting(uuid)',
       'set_ready(uuid,boolean)',
+      'team_balance(uuid)',
     ]);
     // Il seed della lega resta al server: con il motore si rifarebbero stime del potenziale e crescita
     const seed = await db.query<{ ok: boolean }>(
       `select has_column_privilege('authenticated', 'public.leagues', 'seed', 'SELECT') as ok`,
     );
     expect(seed.rows[0]!.ok).toBe(false);
+    // Il saldo delle squadre si legge solo con team_balance (propria squadra o commissario)
+    const balance = await db.query<{ ok: boolean }>(
+      `select has_column_privilege('authenticated', 'public.teams', 'balance', 'SELECT') as ok`,
+    );
+    expect(balance.rows[0]!.ok).toBe(false);
     // Chiamate alle Edge Functions, controllo di pg_cron e chiusura dei turni: solo dal database
     for (const f of [
       'private.kick(text,jsonb)',
@@ -123,9 +129,6 @@ describe('permessi', () => {
       'coach_delegations:DELETE',
       'coach_delegations:INSERT',
       'coach_delegations:UPDATE',
-      'free_agent_bids:DELETE',
-      'free_agent_bids:INSERT',
-      'free_agent_bids:UPDATE',
       'initial_draft_lists:DELETE',
       'initial_draft_lists:INSERT',
       'initial_draft_lists:UPDATE',
@@ -134,7 +137,6 @@ describe('permessi', () => {
       'team_settings:DELETE',
       'team_settings:INSERT',
       'team_settings:UPDATE',
-      'trade_offers:INSERT',
     ]);
   });
 
@@ -302,25 +304,18 @@ describe('la propria squadra e basta', () => {
 });
 
 describe('offerte agli svincolati', () => {
-  it('sono a busta chiusa e solo per la propria squadra', async () => {
+  it('sono a busta chiusa; dal client non si scrivono (passano dalla Edge Function market)', async () => {
     const fa = await one<{ id: string }>(db, 'select id from public.players where team_id is null limit 1');
     const bid = `insert into public.free_agent_bids (league_id, round_id, team_id, player_id, salaries)
                  values ($1, $2, $3, $4, '{2000000}')`;
-    await asUser(db, BRUNO, (tx) => tx.query(bid, [ids.league, ids.round, LAL, fa.id]));
+    await expect(
+      asUser(db, BRUNO, (tx) => tx.query(bid, [ids.league, ids.round, LAL, fa.id])),
+    ).rejects.toThrow(/permission denied/);
+    // Scritta dal server, la vede solo chi l'ha fatta
+    await asService(db, (tx) => tx.query(bid, [ids.league, ids.round, LAL, fa.id]));
     expect(await asUser(db, BRUNO, (tx) => count(tx, 'select 1 from public.free_agent_bids'))).toBe(1);
     expect(await asUser(db, ANNA, (tx) => count(tx, 'select 1 from public.free_agent_bids'))).toBe(0);
-    await expect(
-      asUser(db, ANNA, (tx) => tx.query(bid, [ids.league, ids.round, LAL, fa.id])),
-    ).rejects.toThrow(/row-level security/);
-    // Un giocatore sotto contratto non è uno svincolato
-    const rostered = await one<{ id: string }>(
-      db,
-      'select id from public.players where team_id = $1 limit 1',
-      [MIA],
-    );
-    await expect(
-      asUser(db, ANNA, (tx) => tx.query(bid, [ids.league, ids.round, BOS, rostered.id])),
-    ).rejects.toThrow(/row-level security/);
+    await db.query('delete from public.free_agent_bids');
   });
 });
 

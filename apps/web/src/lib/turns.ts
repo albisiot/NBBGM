@@ -277,6 +277,14 @@ export function alertText(a: Pick<AlertItem, 'kind' | 'payload'>): {
         action: 'Ok',
       };
     }
+    case 'trade_offer':
+      return {
+        title: 'Proposta di scambio',
+        body: 'Hai ricevuto una proposta di scambio: rispondi prima che il turno si chiuda, altrimenti è rifiutata. Finché non rispondi l’allenatore è fermo.',
+        action: 'Vai agli scambi',
+      };
+    case 'market':
+      return { title: 'Mercato', body: String(p.text ?? ''), action: 'Ok' };
     default:
       return { title: 'Avviso', body: '', action: 'Ok' };
   }

@@ -271,6 +271,7 @@ export function TurnCard({
             <AlertRow
               key={a.id}
               alert={a}
+              leagueId={league.id}
               disabled={busy || !open}
               onAnswer={() => void run(() => answerAlert(a.id))}
             />
@@ -283,10 +284,12 @@ export function TurnCard({
 
 function AlertRow({
   alert,
+  leagueId,
   disabled,
   onAnswer,
 }: {
   alert: AlertItem;
+  leagueId: string;
   disabled: boolean;
   onAnswer: () => void;
 }) {
@@ -306,14 +309,24 @@ function AlertRow({
         )}
       </p>
       <p className="mt-1 text-slate-700 dark:text-slate-200">{text.body}</p>
-      <Button
-        className="mt-2"
-        variant={alert.blocking ? 'primary' : 'secondary'}
-        disabled={disabled}
-        onClick={onAnswer}
-      >
-        {text.action}
-      </Button>
+      {alert.kind === 'trade_offer' ? (
+        // Alla proposta si risponde dalla pagina del mercato: accettarla o rifiutarla chiude l'avviso
+        <Link
+          to={`/lega/${leagueId}/mercato?tab=scambi`}
+          className="mt-2 inline-flex min-h-11 items-center rounded-lg bg-orange-600 px-4 text-sm font-semibold text-white hover:bg-orange-700"
+        >
+          {text.action}
+        </Link>
+      ) : (
+        <Button
+          className="mt-2"
+          variant={alert.blocking ? 'primary' : 'secondary'}
+          disabled={disabled}
+          onClick={onAnswer}
+        >
+          {text.action}
+        </Button>
+      )}
     </div>
   );
 }

@@ -1,6 +1,6 @@
 import { overall } from '../overall.ts';
 import type { Rng } from '../rng.ts';
-import { minimumSalaryFor } from './config.ts';
+import { minimumSalaryFor, type SeasonConfig } from './config.ts';
 import { teamStrength, playerValue } from './bots.ts';
 import { autoDraftPick } from './initialDraft.ts';
 import {
@@ -30,8 +30,17 @@ export const FREE_AGENCY_ROUNDS = 4;
  * che scende di turno in turno senza andare sotto il minimo.
  */
 export function askingSalary(state: LeagueState, p: PlayerState, round: number): number {
-  const minimum = minimumSalaryFor(state.config, p.yearsInLeague);
-  const ask = marketValue(state.config, p) * (1 + (50 - p.morale) / 400) * (1 - 0.12 * round);
+  return askingSalaryFor(state.config, p, round);
+}
+
+/** Come askingSalary, con la sola configurazione della stagione: la usa anche l'app per mostrare le richieste. */
+export function askingSalaryFor(
+  c: SeasonConfig,
+  p: Pick<PlayerState, 'ratings' | 'role' | 'age' | 'yearsInLeague' | 'scoutedPotential' | 'morale'>,
+  round: number,
+): number {
+  const minimum = minimumSalaryFor(c, p.yearsInLeague);
+  const ask = marketValue(c, p) * (1 + (50 - p.morale) / 400) * (1 - 0.12 * round);
   return Math.max(minimum, Math.round(ask / 10_000) * 10_000);
 }
 

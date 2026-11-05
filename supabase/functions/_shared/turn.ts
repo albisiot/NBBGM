@@ -18,6 +18,9 @@ import {
   postseasonGames,
   REGULAR_SEASON_TURNS,
   replayPostseason,
+  Rng,
+  botProposals,
+  runMarket,
   simulateGame,
   standardRoster,
   twoWayRoster,
@@ -30,8 +33,19 @@ import type {
   PostseasonGame,
   PostseasonState,
   TeamSetup,
+  Trade,
 } from '../../../packages/engine/src/index.ts';
-import { leagueStateFromRows, type LeagueStateRows } from './state.ts';
+import { leagueStateFromRows, type LeagueStateRows, type TradeOfferRow } from './state.ts';
+
+export interface TurnOptions {
+  now?: Date;
+  /** uuid per le righe nuove (proposte dei bot, swap, partite di post-season). */
+  newId: () => string;
+  /** false: niente proposte dei bot ai manager (per i test che non riguardano il mercato). */
+  botProposals?: boolean;
+  /** Partita da giocare al posto del motore vero (solo per i test lunghi). */
+  playGame?: (home: TeamSetup, away: TeamSetup, seed: string) => GameResult;
+}
 
 /** Risultato di public.try_close_round: il turno da simulare. */
 export interface TurnClaim {
@@ -62,6 +76,10 @@ export const ALERT_KINDS = {
   rosterMinimum: 'roster_minimum',
   /** Informativo: un giocatore della squadra si è infortunato. */
   injury: 'injury',
+  /** Bloccante: proposta di scambio ricevuta. */
+  tradeOffer: 'trade_offer',
+  /** Informativo: esito di scambi, tagli, rinnovi e offerte agli svincolati. */
+  market: 'market',
 } as const;
 
 const PERIODS = 82;
@@ -79,7 +97,7 @@ const round1 = (x: number) => Math.round(x * 10) / 10;
 export function serverTurn(
   rows: LeagueStateRows,
   claim: TurnClaim,
-  opts: { now?: Date; newId: () => string },
+  opts: TurnOptions,
 ): { payload: Row; summary: TurnSummary } {
   const round = rows.round;
   if (!round || round.id !== claim.round_id) throw new Error('Il turno da simulare non è quello corrente');
@@ -108,6 +126,45 @@ export function serverTurn(
   if (turn !== round.number) throw new Error(`Turno ${round.number} fuori sequenza (atteso ${turn})`);
   const before = clone(state);
   const alerts = rows.alerts ?? [];
+
+  // ------------------------------------------------ mercato dei manager: scambi, tagli, rinnovi, firme
+  const code = (id: string): string => {
+    const c = ids.code.get(id);
+    if (!c) throw new Error(`Squadra sconosciuta: ${id}`);
+    return c;
+  };
+  const humanCodes = new Set(state.teams.filter((t) => t.human).map((t) => t.id));
+  const market = runMarket(
+    state,
+    {
+      trades: (rows.trade_offers ?? []).map((o, i) => ({
+        id: o.id,
+        trade: tradeFromRow(o, code),
+        fromId: code(o.from_team_id),
+        status: o.status,
+        toBot: !humanCodes.has(code(o.to_team_id)),
+        order: i,
+      })),
+      releases: (rows.requests ?? [])
+        .filter((q) => q.kind === 'release')
+        .map((q) => ({ id: q.id, teamId: code(q.team_id), playerId: q.player_id })),
+      renewals: (rows.requests ?? [])
+        .filter((q) => q.kind === 'renew')
+        .map((q) => ({
+          id: q.id,
+          teamId: code(q.team_id),
+          playerId: q.player_id,
+          salaries: (q.payload.salaries ?? []).map(Number),
+        })),
+      bids: (rows.bids ?? []).map((b) => ({
+        id: b.id,
+        teamId: code(b.team_id),
+        playerId: b.player_id,
+        salaries: b.salaries.map(Number),
+      })),
+    },
+    turn,
+  );
 
   // ------------------------------------------------ avvisi del turno che si chiude
   const closed = new Map<string, 'resolved' | 'expired'>();
@@ -142,7 +199,7 @@ export function serverTurn(
   );
   const games: { result: GameResult; seed: string }[] = [];
   const play = (home: TeamSetup, away: TeamSetup, seed: string) => {
-    const result = simulateGame(home, away, seed);
+    const result = (opts.playGame ?? simulateGame)(home, away, seed);
     games.push({ result, seed });
     return result;
   };
@@ -172,6 +229,43 @@ export function serverTurn(
         kind: ALERT_KINDS.rosterMinimum,
         blocking: true,
         payload: { standard, minimum: MIN_STANDARD },
+        deadline: null,
+      });
+    }
+  }
+  for (const n of market.notes) {
+    if (!humans.has(n.teamId)) continue;
+    newAlerts.push({
+      team_id: uuid(n.teamId),
+      kind: ALERT_KINDS.market,
+      blocking: false,
+      payload: { text: n.text },
+      deadline: null,
+    });
+  }
+  // Proposte dei bot per il turno che si apre (solo in regular season, prima della trade deadline)
+  const newTrades: Row[] = [];
+  if (next.kind === 'regular' && opts.botProposals !== false) {
+    const last = new Map(Object.entries(rows.bot_proposals ?? {}).map(([id, n]) => [code(id), n]));
+    for (const p of botProposals(state, new Rng(`${claim.seed}:proposte`), last, next.number)) {
+      const fromIsA = p.trade.teamA === p.fromId;
+      const id = opts.newId();
+      newTrades.push({
+        id,
+        from_team_id: uuid(p.fromId),
+        to_team_id: uuid(p.toId),
+        players_from: fromIsA ? p.trade.playersA : p.trade.playersB,
+        players_to: fromIsA ? p.trade.playersB : p.trade.playersA,
+        picks_from: fromIsA ? p.trade.picksA : p.trade.picksB,
+        picks_to: fromIsA ? p.trade.picksB : p.trade.picksA,
+        swaps: [],
+        protections: {},
+      });
+      newAlerts.push({
+        team_id: uuid(p.toId),
+        kind: ALERT_KINDS.tradeOffer,
+        blocking: true,
+        payload: { trade_id: id, from_team_id: uuid(p.fromId) },
         deadline: null,
       });
     }
@@ -448,6 +542,10 @@ export function serverTurn(
   if (closed.size) payload.alerts_closed = [...closed].map(([id, s]) => ({ id, status: s }));
   if (coachExpired.length) payload.coach_expired = coachExpired;
   if (seriesRows.length) payload.playoff_series = seriesRows;
+  if (market.trades.length) payload.trades = market.trades;
+  if (market.bids.length) payload.bids = market.bids;
+  if (market.requests.length) payload.requests = market.requests;
+  if (newTrades.length) payload.new_trades = newTrades;
   if (next.kind !== round.kind) payload.season_phase = next.kind;
 
   return {
@@ -481,6 +579,25 @@ export function compactPlayByPlay(events: GameResult['playByPlay']): StoredPlay[
   ]);
 }
 
+/** Proposta di scambio salvata -> scambio del motore (A = chi propone, B = chi riceve). */
+export function tradeFromRow(o: TradeOfferRow, code: (id: string) => string): Trade {
+  return {
+    teamA: code(o.from_team_id),
+    teamB: code(o.to_team_id),
+    playersA: o.players_from,
+    playersB: o.players_to,
+    picksA: o.picks_from,
+    picksB: o.picks_to,
+    swaps: (o.swaps ?? []).map((w) => ({
+      draftYear: w.draft_year,
+      round: w.round as 1 | 2,
+      holderId: code(w.holder_team_id),
+      otherId: code(w.other_team_id),
+    })),
+    protections: o.protections ?? {},
+  };
+}
+
 /** Le chiamate al database che servono per avanzare un turno: supabase-js nella Edge Function, PGlite nei test. */
 export interface ServerDb {
   rpc<T>(name: string, args: Record<string, unknown>): Promise<T>;
@@ -503,12 +620,12 @@ export type AdvanceResult =
 export async function advanceLeague(
   db: ServerDb,
   leagueId: string,
-  opts: { now?: Date; newId: () => string },
+  opts: TurnOptions,
 ): Promise<AdvanceResult> {
   const claim = await db.rpc<TurnClaim | null>('try_close_round', { p_league: leagueId });
   if (!claim) return { advanced: false };
   const rows = await db.rpc<LeagueStateRows>('league_state', { p_league: leagueId });
   const { payload, summary } = serverTurn(rows, claim, opts);
-  const nextRoundId = await db.rpc<string>('apply_turn', { p_round: claim.round_id, p_payload: payload });
+  const nextRoundId = await db.rpc<string>('apply_round', { p_round: claim.round_id, p_payload: payload });
   return { advanced: true, reason: claim.reason, reclaimed: claim.reclaimed, nextRoundId, summary };
 }

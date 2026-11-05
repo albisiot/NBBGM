@@ -8,11 +8,22 @@ import {
   TENDENCY_FIELDS,
   type BodyPart,
 } from '@nbbgm/engine';
+import { useState } from 'react';
 import { useParams } from 'react-router';
-import { Card, ErrorText, PageTitle, Spinner } from '../components/ui.tsx';
+import { Button, Card, ErrorText, PageTitle, Spinner } from '../components/ui.tsx';
+import { useUserId } from '../lib/auth.tsx';
 import { formatSalary } from '../lib/draft.ts';
+import { friendlyError } from '../lib/errors.ts';
 import { leagueDetail } from '../lib/leagues.ts';
-import { playerCard, playerScouting } from '../lib/roster.ts';
+import {
+  marketAction,
+  millions,
+  myRequests,
+  renewalAsk,
+  seasonConfig,
+  type RosterRequest,
+} from '../lib/market.ts';
+import { playerCard, playerScouting, type RosterPlayer } from '../lib/roster.ts';
 import { useAsync } from '../lib/useAsync.ts';
 
 const CONTRACT_LABEL: Record<string, string> = {
@@ -26,14 +37,21 @@ const CONTRACT_LABEL: Record<string, string> = {
 
 export function PlayerPage() {
   const { id = '', pid = '' } = useParams();
-  const { data, error, loading } = useAsync(async () => {
+  const userId = useUserId();
+  const { data, error, loading, reload } = useAsync(async () => {
     const [player, scouting, league] = await Promise.all([
       playerCard(pid),
       playerScouting(pid),
       leagueDetail(id),
     ]);
-    return { player, scouting, league };
-  }, [id, pid]);
+    const mine = league?.teams.find((t) => t.ownerId === userId);
+    const own = mine !== undefined && player?.teamId === mine.id;
+    const [config, requests] =
+      own && league?.seasonId
+        ? await Promise.all([seasonConfig(league.seasonId), myRequests(mine.id)])
+        : [null, [] as RosterRequest[]];
+    return { player, scouting, league, config, requests, own };
+  }, [id, pid, userId]);
 
   if (loading) return <Spinner />;
   if (error) return <ErrorText>{error}</ErrorText>;
@@ -133,6 +151,17 @@ export function PlayerPage() {
         )}
       </Card>
 
+      {data.own && data.config && league && (
+        <OwnPlayerMarket
+          leagueId={league.id}
+          player={p}
+          renewal={renewalAsk(data.config, p)}
+          requests={data.requests.filter((r) => r.playerId === p.id)}
+          marketOpen={league.roundKind === 'regular'}
+          onDone={reload}
+        />
+      )}
+
       <Card>
         <h2 className="mb-2 font-semibold">Statistiche della stagione</h2>
         {games === 0 ? (
@@ -203,5 +232,113 @@ function Stat({ label, value }: { label: string; value: string }) {
       <dt className="text-xs text-slate-500">{label}</dt>
       <dd className="text-lg font-semibold">{value}</dd>
     </div>
+  );
+}
+
+/** Taglio e rinnovo di un giocatore della propria squadra: si eseguono alla chiusura del turno. */
+function OwnPlayerMarket({
+  leagueId,
+  player: p,
+  renewal,
+  requests,
+  marketOpen,
+  onDone,
+}: {
+  leagueId: string;
+  player: RosterPlayer;
+  renewal: number[];
+  requests: RosterRequest[];
+  marketOpen: boolean;
+  onDone: () => void;
+}) {
+  const [busy, setBusy] = useState(false);
+  const [confirm, setConfirm] = useState(false);
+  const [message, setMessage] = useState<string | null>(null);
+  const residual = p.contractType === 'two-way' ? 0 : p.salaries.reduce((a, b) => a + b, 0);
+  const lastYear = p.contractType !== 'two-way' && p.salaries.length === 1;
+  const release = requests.find((r) => r.kind === 'release');
+  const renew = requests.find((r) => r.kind === 'renew');
+
+  async function run(action: Parameters<typeof marketAction>[1]) {
+    setBusy(true);
+    setMessage(null);
+    try {
+      await marketAction(leagueId, action);
+      setConfirm(false);
+      onDone();
+    } catch (e) {
+      setMessage(friendlyError(e));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <Card className="space-y-3 text-sm">
+      <h2 className="font-semibold">Contratto e rosa</h2>
+      {!marketOpen && <p className="text-slate-500">Tagli e rinnovi si fanno in regular season.</p>}
+      {release ? (
+        <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg bg-orange-50 p-3 dark:bg-orange-950">
+          <span>Taglio chiesto: si esegue alla chiusura del turno.</span>
+          <Button
+            variant="ghost"
+            disabled={busy}
+            onClick={() => void run({ kind: 'withdraw_request', request_id: release.id })}
+          >
+            Annulla
+          </Button>
+        </div>
+      ) : (
+        marketOpen && (
+          <div className="space-y-1">
+            <Button
+              variant="secondary"
+              disabled={busy}
+              onClick={() => (confirm ? void run({ kind: 'release', player_id: p.id }) : setConfirm(true))}
+            >
+              {confirm ? 'Confermi il taglio?' : 'Taglia'}
+            </Button>
+            <p className="text-xs text-slate-500 dark:text-slate-400">
+              {residual
+                ? `Lo stipendio residuo (${millions(residual)} in tutto) resta a tuo carico, sul cap e sul bilancio, fino alla scadenza.`
+                : 'Senza stipendi residui.'}
+            </p>
+          </div>
+        )
+      )}
+      {lastYear &&
+        (renew ? (
+          <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg bg-green-50 p-3 dark:bg-green-950">
+            <span>
+              Rinnovo accettato: {renew.salaries.length} anni, {millions(renew.salaries[0] ?? 0)} il primo,
+              dalla prossima stagione. Si firma alla chiusura del turno.
+            </span>
+            <Button
+              variant="ghost"
+              disabled={busy}
+              onClick={() => void run({ kind: 'withdraw_request', request_id: renew.id })}
+            >
+              Annulla
+            </Button>
+          </div>
+        ) : (
+          marketOpen && (
+            <div className="space-y-1">
+              <p>
+                Ultimo anno di contratto.{' '}
+                {p.morale < 30
+                  ? 'Con il morale così basso non vuole rinnovare.'
+                  : `Per rinnovare chiede ${renewal.length} anni, ${millions(renewal[0] ?? 0)} il primo (+5% l'anno), dalla prossima stagione.`}
+              </p>
+              {p.morale >= 30 && (
+                <Button disabled={busy} onClick={() => void run({ kind: 'renew', player_id: p.id })}>
+                  Accetta il rinnovo
+                </Button>
+              )}
+            </div>
+          )
+        ))}
+      {message && <ErrorText>{message}</ErrorText>}
+    </Card>
   );
 }

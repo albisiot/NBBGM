@@ -1,6 +1,7 @@
 // Rosa della propria squadra: giocatori, contratti, infortuni, impostazioni salvate e allenatore.
 import {
   DEFAULT_TACTICS,
+  overall,
   validTactics,
   type Hidden,
   type InjurySeverity,
@@ -111,6 +112,60 @@ export async function teamRoster(teamId: string): Promise<RosterPlayer[]> {
   const { data, error } = await supabase.from('players').select(PLAYER_COLUMNS).eq('team_id', teamId);
   if (error) throw error;
   return withContractsAndInjuries((data ?? []) as unknown as PlayerRow[]);
+}
+
+/** Svincolati della lega (non ritirati), con le stesse informazioni dei giocatori in rosa. */
+export async function freeAgentPlayers(leagueId: string): Promise<RosterPlayer[]> {
+  const { data, error } = await supabase
+    .from('players')
+    .select(PLAYER_COLUMNS)
+    .eq('league_id', leagueId)
+    .is('team_id', null)
+    .eq('retired', false);
+  if (error) throw error;
+  return withContractsAndInjuries((data ?? []) as unknown as PlayerRow[]);
+}
+
+export interface PlayerLite {
+  id: string;
+  teamId: string | null;
+  name: string;
+  role: string;
+  age: number;
+  overall: number;
+}
+
+/** Tutti i giocatori della lega in breve (nome, ruolo, età, overall), per descrivere scambi e offerte. */
+export async function leaguePlayersLite(leagueId: string): Promise<Map<string, PlayerLite>> {
+  const { data, error } = await supabase
+    .from('players')
+    .select('id, team_id, first_name, last_name, role, secondary_role, age, ratings')
+    .eq('league_id', leagueId)
+    .eq('retired', false);
+  if (error) throw error;
+  type Row = {
+    id: string;
+    team_id: string | null;
+    first_name: string;
+    last_name: string;
+    role: Role;
+    secondary_role: Role | null;
+    age: number;
+    ratings: Ratings;
+  };
+  return new Map(
+    ((data ?? []) as Row[]).map((p) => [
+      p.id,
+      {
+        id: p.id,
+        teamId: p.team_id,
+        name: `${p.first_name} ${p.last_name}`,
+        role: p.role,
+        age: p.age,
+        overall: overall({ ratings: p.ratings, role: p.role }),
+      },
+    ]),
+  );
 }
 
 export async function playerCard(playerId: string): Promise<RosterPlayer | null> {

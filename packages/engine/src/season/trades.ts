@@ -7,7 +7,7 @@ import {
   standardRoster,
 } from './finance.ts';
 import { violatesStepien } from './picks.ts';
-import type { DraftSwap, LeagueState } from './state.ts';
+import type { DraftPick, DraftSwap, LeagueState } from './state.ts';
 
 /** Trade deadline: dopo questo turno (circa 2/3 di regular season) gli scambi sono bloccati fino alla fine dei playoff. */
 export const TRADE_DEADLINE_TURN = 55;
@@ -22,6 +22,18 @@ export interface Trade {
   picksB: string[];
   /** Diritti di swap concessi: holder riceve il diritto, other lo concede. */
   swaps?: Omit<DraftSwap, 'id'>[];
+  /** Protezione "top N" (1-20) messa da chi cede su una sua prima scelta: id della scelta -> N. */
+  protections?: Record<string, number>;
+}
+
+/** Protezione massima di una prima scelta ceduta. */
+export const MAX_PROTECTION = 20;
+
+/** "prima scelta 2028 di BOS (top 10)" */
+export function pickName(
+  k: Pick<DraftPick, 'round' | 'draftYear' | 'originalTeamId' | 'protection'>,
+): string {
+  return `${k.round === 1 ? 'prima' : 'seconda'} scelta ${k.draftYear} di ${k.originalTeamId}${k.protection ? ` (top ${k.protection})` : ''}`;
 }
 
 export function tradeWindowOpen(state: LeagueState): boolean {
@@ -42,12 +54,41 @@ export function validateTrade(state: LeagueState, t: Trade): string[] {
   ] as const) {
     for (const id of players) {
       const p = state.players.find((x) => x.id === id);
-      if (!p || p.teamId !== team) problems.push(`${id} non è di ${team}`);
+      if (!p) problems.push('Un giocatore dello scambio non esiste');
+      else if (p.teamId !== team) problems.push(`${p.firstName} ${p.lastName} non è di ${team}`);
     }
     for (const id of picks) {
       const pick = state.picks.find((x) => x.id === id);
-      if (!pick || pick.ownerId !== team) problems.push(`La scelta ${id} non è di ${team}`);
+      if (!pick) problems.push('Una scelta dello scambio non esiste');
+      else if (pick.ownerId !== team) problems.push(`La ${pickName(pick)} non è di ${team}`);
     }
+  }
+  for (const [id, n] of Object.entries(t.protections ?? {})) {
+    const pick = state.picks.find((x) => x.id === id);
+    const ceded = t.picksA.includes(id) ? t.teamA : t.picksB.includes(id) ? t.teamB : null;
+    if (!pick || !ceded) problems.push('La protezione riguarda una scelta che non è nello scambio');
+    else if (pick.round !== 1) problems.push('Si possono proteggere solo le prime scelte');
+    else if (pick.originalTeamId !== ceded || pick.protection !== null)
+      problems.push('Si protegge solo una propria prima scelta non ancora protetta');
+    else if (!Number.isInteger(n) || n < 1 || n > MAX_PROTECTION)
+      problems.push(`La protezione va da top 1 a top ${MAX_PROTECTION}`);
+  }
+  for (const w of t.swaps ?? []) {
+    const pair = new Set([w.holderId, w.otherId]);
+    if (pair.size !== 2 || !pair.has(t.teamA) || !pair.has(t.teamB))
+      problems.push('Lo swap deve essere tra le due squadre dello scambio');
+    else if (w.round !== 1 && w.round !== 2) problems.push('Lo swap riguarda il primo o il secondo giro');
+    else if (w.draftYear <= state.config.year || w.draftYear > state.config.year + 7)
+      problems.push('Lo swap riguarda uno dei prossimi 7 draft');
+    else if (
+      state.swaps.some(
+        (x) =>
+          x.draftYear === w.draftYear &&
+          x.round === w.round &&
+          new Set([x.holderId, x.otherId, ...pair]).size === 2,
+      )
+    )
+      problems.push(`C'è già uno swap tra le due squadre per il draft ${w.draftYear}`);
   }
   if (problems.length) return problems;
 
@@ -103,6 +144,8 @@ export function executeTrade(state: LeagueState, t: Trade, turn: number | null):
   for (const p of state.picks) {
     if (t.picksA.includes(p.id)) p.ownerId = t.teamB;
     else if (t.picksB.includes(p.id)) p.ownerId = t.teamA;
+    const protection = t.protections?.[p.id];
+    if (protection) p.protection = protection;
   }
   for (const s of t.swaps ?? [])
     state.swaps.push({ ...s, id: `${s.draftYear}-${s.round}-${s.holderId}-${s.otherId}` });
@@ -110,8 +153,12 @@ export function executeTrade(state: LeagueState, t: Trade, turn: number | null):
     const p = state.players.find((x) => x.id === id);
     return p ? `${p.firstName} ${p.lastName}` : id;
   };
+  const pick = (id: string) => {
+    const k = state.picks.find((x) => x.id === id);
+    return k ? pickName(k) : 'una scelta';
+  };
   const side = (players: string[], picks: string[]) =>
-    [...players.map(name), ...picks.map((id) => `scelta ${id}`)].join(', ') || 'niente';
+    [...players.map(name), ...picks.map(pick)].join(', ') || 'niente';
   state.transactions.push({
     year: state.config.year,
     turn,

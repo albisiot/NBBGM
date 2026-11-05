@@ -13,9 +13,9 @@ Riassunto del documento di design (versione 2.4, 4 novembre 2026). È la fonte d
 
 ## Stato del lavoro
 
-- Fasi 1-10 completate (ramo `fasi-1-3`); della Fase 6 manca solo la prova del login con codice da iPhone. La logica di stagione sta in `packages/engine/src/season/`; database e sicurezza in `supabase/migrations/` (vedi `supabase/README.md`).
+- Fasi 1-11 completate (ramo `fasi-1-3`); della Fase 6 manca solo la prova del login con codice da iPhone. La logica di stagione sta in `packages/engine/src/season/`; database e sicurezza in `supabase/migrations/` (vedi `supabase/README.md`).
 - App: `pnpm dev` (o `pnpm dev:lan` per provarla dal telefono sulla stessa Wi-Fi). Legge URL e chiave publishable da `apps/web/.env.local` (modello in `.env.example`).
-- Edge Functions `create-league`, `draft` e `advance-turn` in `supabase/functions/`; il codice comune a Edge Function e script sta in `supabase/functions/_shared/`: `league.ts` (dati di partenza <-> motore, righe per `insert_league`), `draft.ts` (draft iniziale), `state.ts` (stato della lega dal database al motore, con `league_state`) e `turn.ts` (un turno: dal motore alle sezioni di `apply_turn`). Si pubblicano con `npx.cmd --yes supabase@3.0.0 functions deploy create-league draft advance-turn --use-api`.
+- Edge Functions `create-league`, `draft`, `advance-turn` e `market` in `supabase/functions/`; il codice comune a Edge Function e script sta in `supabase/functions/_shared/`: `league.ts` (dati di partenza <-> motore, righe per `insert_league`), `draft.ts` (draft iniziale), `state.ts` (stato della lega dal database al motore, con `league_state`) `turn.ts` (un turno: dal motore alle sezioni di `apply_turn`) e `market.ts` (controllo delle azioni di mercato). Si pubblicano con `npx.cmd --yes supabase@3.0.0 functions deploy create-league draft advance-turn market --use-api`.
 - `pnpm db:seed` scrive `supabase/seed.sql` (lega di prova generata, utenti anna, bruno e carla `@nbbgm.test`) e `data/base.sql` (giocatori reali per le tabelle `base_*`); nessuno dei due va nel repo. I test del database girano su PGlite (`scripts/test/db.test.ts`), senza Docker.
 - Progetto Supabase **NBBGM** (`sojimrnmsrbntgfsgxmj`, Francoforte): migrazioni applicate, giocatori reali caricati nelle tabelle `base_*`. Si lavora con la CLI (`npx.cmd --yes supabase@3.0.0 ...`, comandi in `supabase/README.md`), non con il connettore.
 - `pnpm data:import` legge `NBA_2026-27_valutazioni_v2.xlsx` e `NBA_2026-27_contratti.xlsx` dalla radice e scrive `data/league-2026-27.json` e `data/import-report.md`; aggiorna `packages/engine/src/archetype-profiles.ts`.
@@ -98,6 +98,17 @@ Riassunto del documento di design (versione 2.4, 4 novembre 2026). È la fonte d
 - **Statistiche individuali:** solo regular season, medie per partita da `players.season_stats`; per le classifiche della lega servono almeno metà delle partite del più presente. Le statistiche dei playoff restano nei box score (`player_game_stats`).
 - **Post-season senza movimenti di bilancio** e senza firme dei bot: ricavi e stipendi si contano solo nelle 82 giornate.
 - **Dopo la finale** si apre il turno di offseason, che per ora non si gioca (Fase 12): la pagina della lega mostra il campione.
+
+## Scelte prese nella Fase 11 (non erano nel documento)
+
+- **Azioni di mercato solo dalla Edge Function `market`** (cambia la scelta della Fase 5): offerte agli svincolati, proposte e risposte agli scambi, tagli e rinnovi le controlla il motore (`checkMarketAction`) e le scrive `market_write` sotto il lock del turno aperto. Il client non scrive più `free_agent_bids` e `trade_offers`; tagli e rinnovi sono richieste in `roster_requests`. Alla chiusura del turno `runMarket` esegue, ricontrollando tutto: scambi (nell'ordine in cui sono stati accettati), tagli, rinnovi, firme. Quello che non vale più salta.
+- **Scambi:** verso un umano serve la sua risposta nel turno (avviso bloccante, e il suo Pronto si toglie perché la veda); senza risposta alla chiusura è rifiutato. Verso un bot decide il bot alla chiusura, con il margine del 10%. Al massimo 10 proposte in attesa per squadra.
+- **Protezioni:** chi cede mette la protezione (top 1-20) solo su una propria prima scelta non ancora protetta (`Trade.protections`). **Swap** tra le due squadre dello scambio, per uno dei prossimi 7 draft, uno per coppia, draft e giro.
+- **Svincolati in stagione:** chiedono quanto all'ultimo turno di free agency (`IN_SEASON_ASK_ROUND`, `askingSalaryFor`); un'offerta sotto la richiesta è rifiutata subito. Lo stipendio cresce del 5% l'anno, da 1 a 5 anni. In stagione i bot non fanno offerte: firmano solo al minimo per restare a 13.
+- **Rinnovi in stagione:** all'ultimo anno di contratto, con morale almeno 30; la richiesta (`renewalSalaries`) è ai prezzi della stagione successiva e il contratto si allunga da quella stagione. In stagione non è un avviso bloccante: lo diventa nel turno dei rinnovi dell'offseason (Fase 12).
+- **Proposte dei bot ai manager:** dopo ogni turno di regular season, per ogni squadra umana il 15% di probabilità, al massimo una ogni 5 turni (`botProposals`), come avviso bloccante.
+- **Bilancio riservato:** `teams.balance` e `tax_history` non sono più leggibili da tutti i membri; il saldo si legge con `team_balance` (propria squadra, o tutte per il commissario).
+- **Stagione intera nei test:** `serverTurn` accetta una partita finta (`playGame`) e si possono spegnere le proposte dei bot (`botProposals: false`), così su PGlite una stagione da 82 giornate dura pochi secondi.
 
 ## Visione
 

@@ -64,6 +64,7 @@ export function Layout() {
 const LEAGUE_LINKS: { to: string; label: string }[] = [
   { to: '', label: 'Lega' },
   { to: 'squadra', label: 'Squadra' },
+  { to: 'mercato', label: 'Mercato' },
   { to: 'risultati', label: 'Risultati' },
   { to: 'classifica', label: 'Classifica' },
   { to: 'playoff', label: 'Playoff' },

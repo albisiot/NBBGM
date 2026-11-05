@@ -28,7 +28,7 @@ const MANAGERS = new Map([
 
 let db: PGlite;
 
-const advance = () => advanceLeague(serviceRpc(db), LEAGUE, { newId: randomUUID });
+const advance = () => advanceLeague(serviceRpc(db), LEAGUE, { newId: randomUUID, botProposals: false });
 
 async function current() {
   const r = await db.query<{ id: string; number: number; kind: string; state: string }>(

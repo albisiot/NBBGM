@@ -154,6 +154,35 @@ export interface LeagueStateRows {
     round_id: string | null;
     payload: Record<string, unknown>;
   }[];
+  /** Proposte di scambio ancora da decidere (in attesa o accettate), nell'ordine della risposta. */
+  trade_offers?: TradeOfferRow[];
+  /** Offerte agli svincolati del turno. */
+  bids?: { id: string; team_id: string; player_id: string; salaries: Num[] }[];
+  /** Tagli e rinnovi chiesti nel turno. */
+  requests?: {
+    id: string;
+    team_id: string;
+    player_id: string;
+    kind: 'release' | 'renew';
+    payload: { salaries?: Num[] };
+  }[];
+  /** Squadra umana -> numero dell'ultimo turno in cui un bot le ha proposto uno scambio. */
+  bot_proposals?: Record<string, number>;
+}
+
+export interface TradeOfferRow {
+  id: string;
+  from_team_id: string;
+  to_team_id: string;
+  players_from: string[];
+  players_to: string[];
+  picks_from: string[];
+  picks_to: string[];
+  /** [{ draft_year, round, holder_team_id, other_team_id }] */
+  swaps: { draft_year: number; round: number; holder_team_id: string; other_team_id: string }[];
+  /** { id della scelta: N } */
+  protections: Record<string, number>;
+  status: 'pending' | 'accepted';
 }
 
 export interface StateIds {

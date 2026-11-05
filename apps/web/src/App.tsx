@@ -11,6 +11,7 @@ import { JoinLeaguePage } from './pages/JoinLeaguePage.tsx';
 import { LeaguePage } from './pages/LeaguePage.tsx';
 import { LeaguesPage } from './pages/LeaguesPage.tsx';
 import { LoginPage } from './pages/LoginPage.tsx';
+import { MarketPage } from './pages/MarketPage.tsx';
 import { PlayerPage } from './pages/PlayerPage.tsx';
 import { PlayoffPage } from './pages/PlayoffPage.tsx';
 import { ProfilePage } from './pages/ProfilePage.tsx';
@@ -46,6 +47,7 @@ function Routed() {
         <Route path="lega/:id/classifica" element={<StandingsPage />} />
         <Route path="lega/:id/playoff" element={<PlayoffPage />} />
         <Route path="lega/:id/statistiche" element={<StatsPage />} />
+        <Route path="lega/:id/mercato" element={<MarketPage />} />
         <Route path="profilo" element={<ProfilePage />} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Route>
