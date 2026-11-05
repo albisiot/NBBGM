@@ -54,7 +54,8 @@ Senza `--remote` i comandi `db` puntano al database locale di Docker.
 
 - Codice di 6 cifre via email (niente link magico) e Google. Le email partono dallo SMTP di Gmail configurato nella dashboard; il modello è `templates/codice.html`.
 - Impostazioni applicate al progetto: Site URL `http://localhost:5173`, Redirect URLs `http://localhost:5173/**` e `http://192.168.1.51:5173/**`, `otp_length = 6`, modelli `magic_link` e `confirmation` con oggetto "Il tuo codice NBBGM". Per cambiarle si usa `config push --workdir <cartella>` con un `config.toml` che dichiara solo quei valori: i valori non dichiarati restano com'erano. Il `config.toml` di questa cartella è per il database locale e non va spinto per intero.
-- Da fare: provider Google (client OAuth con redirect `https://sojimrnmsrbntgfsgxmj.supabase.co/auth/v1/callback`) e, con la pubblicazione su GitHub Pages, il nuovo Site URL.
+- Google: provider attivo (client OAuth del progetto Google Cloud `NBBGM-pro`, redirect `https://sojimrnmsrbntgfsgxmj.supabase.co/auth/v1/callback`). L'app Google è in Test: entra solo chi è tra gli utenti di prova.
+- Da fare con la pubblicazione su GitHub Pages: nuovo Site URL e Redirect URLs, e la pubblicazione dell'app Google (servono home page e informativa privacy).
 
 ## apply_turn
 

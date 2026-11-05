@@ -52,7 +52,7 @@ Riassunto del documento di design (versione 2.4, 4 novembre 2026). È la fonte d
 - **Una squadra per lega:** chi entra prende una squadra libera, finora del bot; non c'è ancora un modo per cambiarla o lasciare la lega.
 - **Email con il codice:** 6 cifre, mandate da Gmail (SMTP del progetto, mittente NBBGM `<mondiali2014@gmail.com>`, 30 email all'ora). Il modello sta in `supabase/templates/codice.html`. Sul piano Free i modelli si cambiano solo con uno SMTP personalizzato.
 - **Impostazioni Auth del progetto:** si applicano con `config push` da una cartella temporanea con un `config.toml` minimo, che dichiara solo i valori da cambiare (Site URL, Redirect URLs, lunghezza del codice, modelli). Serve il login della CLI come Owner (mondiali2014). Il `config.toml` del repo è per il database locale: non va spinto per intero sul progetto.
-- **Login con Google:** il codice c'è, ma il provider va ancora configurato (client OAuth di Google con redirect `https://sojimrnmsrbntgfsgxmj.supabase.co/auth/v1/callback`).
+- **Login con Google:** attivo, con un client OAuth del progetto Google Cloud `NBBGM-pro` (redirect `https://sojimrnmsrbntgfsgxmj.supabase.co/auth/v1/callback`). L'app Google è in stato Test: entra con Google solo chi è tra gli utenti di prova (fino a 100, si aggiungono in Google Auth Platform → Pubblico); gli altri usano il codice via email. Per pubblicarla Google chiede home page e informativa privacy su un dominio nostro: si potrà fare con GitHub Pages (Fase 13). Chi entra con Google e con il codice usando la stessa email ritrova lo stesso account.
 - **Dopo il login con Google** il client usa il flusso PKCE: il codice torna come `?code=...` e non si scontra con l'HashRouter.
 
 ## Visione
