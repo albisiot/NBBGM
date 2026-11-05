@@ -1,9 +1,11 @@
-// pnpm sim:seasons [stagioni] [--veloce] [--tetto=0.7]
+// pnpm sim:seasons [stagioni] [--veloce] [--tetto=0.7] [--ricavi=180]
 // --veloce usa la partita finta dei test (per provare crescita ed economia in pochi secondi: energia e
-// infortuni non sono significativi); --tetto prova un altro valore di POTENTIAL_SHRINK.
+// infortuni non sono significativi); --tetto prova un altro valore di POTENTIAL_SHRINK; --ricavi prova altri ricavi
+// stagionali 2026-27 in milioni.
 // Gioca N stagioni complete (calendario, playoff, offseason, bot) partendo dalla lega importata e controlla
 // le metriche di lungo periodo del documento: overall stabili, nessuna dinastia, bilanci, energia, infortuni.
 import {
+  CONFIG_2026_27,
   ENERGY_RECOVERY,
   MAX_STANDARD,
   MIN_STANDARD,
@@ -30,6 +32,7 @@ const args = process.argv.slice(2);
 const SEASONS = Number(args.find((a) => !a.startsWith('--')) ?? 10);
 const FAST = args.includes('--veloce');
 const SHRINK = args.find((a) => a.startsWith('--tetto='))?.split('=')[1];
+const REVENUE = args.find((a) => a.startsWith('--ricavi='))?.split('=')[1];
 const pct = (x: number) => `${(x * 100).toFixed(0)}%`;
 const num = (x: number, d = 1) => x.toFixed(d);
 const mln = (x: number) => `${(x / 1e6).toFixed(0)} mln`;
@@ -145,6 +148,7 @@ function main() {
   const state = createLeagueState(league, 'stagioni', {
     potentialOnOverallScale: source !== 'giocatori reali',
     ...(SHRINK ? { potentialShrink: Number(SHRINK) } : {}),
+    ...(REVENUE ? { config: { ...CONFIG_2026_27, revenue: Number(REVENUE) * 1e6 } } : {}),
   });
   const initial = leagueSnapshot(state);
   const pot80 = state.players.filter((p) => p.hidden.potential >= 80).length;
@@ -222,6 +226,9 @@ function main() {
   const avg = (f: (m: SeasonMetrics) => number) => metrics.reduce((a, m) => a + f(m), 0) / metrics.length;
   const energy35 = energyExperiment(state, 35);
   const energy42 = energyExperiment(state, 42);
+  // Il bilancio deve contare: il saldo tipico non può crescere (o calare) di più di una stagione di ricavi
+  const balances = state.teams.map((t) => t.balance).sort((a, b) => a - b);
+  const medianBalance = (balances[14]! + balances[15]!) / 2;
   const checks: [string, string, boolean][] = [
     [
       'Overall dei primi 150 (scarto dall’inizio)',
@@ -242,6 +249,11 @@ function main() {
       'Squadre in rosso a fine regular season (media)',
       num(avg((m) => m.negativeBalance)),
       avg((m) => m.negativeBalance) <= 15,
+    ],
+    [
+      'Saldo mediano a fine simulazione (stagioni di ricavi)',
+      num(medianBalance / state.config.revenue, 2),
+      Math.abs(medianBalance) <= state.config.revenue,
     ],
     [
       'Infortuni medi o gravi per squadra a stagione',

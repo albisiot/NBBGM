@@ -63,7 +63,8 @@ export const CONFIG_2026_27: SeasonConfig = {
     [2_948_280, 3_095_640, 3_243_120, 5_853_832],
     [2_926_800, 3_073_080, 3_219_840, 5_811_811],
   ],
-  revenue: 200_428_000,
+  // Ricavi poco sopra il cap (+3%): chi spende fino alla tassa va in perdita. Calibrati con pnpm sim:seasons.
+  revenue: 170_000_000,
   growth: 0.07,
 };
 

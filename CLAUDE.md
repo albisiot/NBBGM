@@ -29,7 +29,7 @@ Riassunto del documento di design (versione 2.4, 4 novembre 2026). È la fonte d
 - **Scala rookie:** ricavata dai contratti reali dei rookie 2026 (`CONFIG_2026_27.rookieScale`); minimi per anzianità dalla tabella 2026-27.
 - **Rose iniziali:** alla creazione della lega le rose oltre 15 standard o 3 two-way si tagliano come in offseason.
 - **Niente dinastie a forza di scambi:** negli scambi tra bot le due squadre più forti non comprano veterani.
-- **Da decidere (bilanci):** con ricavi pari alla soglia della tassa e senza eccezioni salariali, dopo qualche stagione nessuno paga la tassa e i saldi crescono di centinaia di milioni. Possibili correttivi: ricavi più bassi o una mid-level exception.
+- **Ricavi:** 170 milioni di $ nel 2026-27 (il 3% sopra il cap), non più pari alla soglia della tassa: con quel valore i saldi crescevano di centinaia di milioni e il bilancio smetteva di contare. Crescono del 7% l'anno con il resto.
 
 ## Visione
 
@@ -229,7 +229,7 @@ La lega parte dai valori ufficiali NBA della stagione 2026-27 (comunicato NBA de
 ### Bilancio
 
 - Ogni squadra incassa a ogni stagione la stessa cifra, accreditata giornata per giornata sulle 82 di regular season; gli stipendi si pagano allo stesso modo, la tassa a fine regular season. Il saldo passa alla stagione successiva.
-- Di default i ricavi sono pari alla soglia della luxury tax (200,428 milioni di $ nel 2026-27): chi resta sotto la soglia accumula, chi la sfora va in perdita.
+- I ricavi sono 170 milioni di $ nel 2026-27, poco sopra il cap: chi resta vicino al cap accumula poco, chi spende fino alla soglia della tassa va in perdita, chi la supera perde molto.
 - Con saldo negativo non si firmano svincolati, salvo quelli al minimo necessari per restare a 13, e non si fanno scambi che aumentano il monte stipendi. I rinnovi restano possibili.
 - Biglietti, sponsor, palazzetto e ricavi diversi per città sono uno sviluppo futuro.
 
