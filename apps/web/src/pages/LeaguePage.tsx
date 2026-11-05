@@ -1,7 +1,8 @@
-// Pagina della lega: codice invito, squadre con i loro manager (o il bot) e impostazioni. Formazione,
-// partite e mercato arrivano con le fasi successive.
+// Pagina della lega: turno corrente con chi è pronto (in tempo reale), avvisi, codice invito, squadre con i
+// loro manager (o il bot) e impostazioni. Risultati, classifiche e mercato arrivano con le fasi successive.
 import { useEffect, useState } from 'react';
 import { Link, useParams, useSearchParams } from 'react-router';
+import { TurnCard } from '../components/TurnCard.tsx';
 import { Button, Card, ErrorText, PageTitle, Spinner } from '../components/ui.tsx';
 import { LAST_LEAGUE_KEY } from '../components/Layout.tsx';
 import { useUserId } from '../lib/auth.tsx';
@@ -12,7 +13,7 @@ export function LeaguePage() {
   const { id = '' } = useParams();
   const [search] = useSearchParams();
   const userId = useUserId();
-  const { data: league, error, loading } = useAsync(() => leagueDetail(id), [id]);
+  const { data: league, error, loading, reload } = useAsync(() => leagueDetail(id), [id]);
 
   useEffect(() => {
     try {
@@ -55,6 +56,8 @@ export function LeaguePage() {
           bot
         </p>
       </Card>
+
+      <TurnCard league={league} userId={userId} onRoundChange={reload} />
 
       {league.draftState && (
         <Card className="space-y-2">

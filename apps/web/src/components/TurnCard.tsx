@@ -1,0 +1,288 @@
+// Turno corrente nella pagina della lega: stato, scadenza, chi è pronto (in tempo reale), il proprio Pronto,
+// gli avvisi della propria squadra e, per il commissario, forza l'avanzamento e pausa.
+import { useEffect, useRef, useState } from 'react';
+import { friendlyError } from '../lib/errors.ts';
+import type { LeagueDetail } from '../lib/leagues.ts';
+import {
+  alertText,
+  answerAlert,
+  forceRound,
+  readiness,
+  setPaused,
+  setReady,
+  subscribeTurn,
+  timeLeft,
+  turnStatus,
+  type AlertItem,
+  type Readiness,
+} from '../lib/turns.ts';
+import { useAsync } from '../lib/useAsync.ts';
+import { Button, Card, ErrorText } from './ui.tsx';
+
+const BADGE: Record<Readiness, { label: string; className: string }> = {
+  ready: { label: 'Pronto', className: 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-100' },
+  coach: { label: 'Allenatore', className: 'bg-sky-100 text-sky-800 dark:bg-sky-900 dark:text-sky-100' },
+  waiting: {
+    label: 'In attesa',
+    className: 'bg-slate-100 text-slate-600 dark:bg-slate-700 dark:text-slate-300',
+  },
+};
+
+export function TurnCard({
+  league,
+  userId,
+  onRoundChange,
+}: {
+  league: LeagueDetail;
+  userId: string;
+  onRoundChange: () => void;
+}) {
+  const mine = league.teams.find((t) => t.ownerId === userId) ?? null;
+  const isCommissioner = league.commissionerId === userId;
+  const {
+    data: status,
+    error,
+    reload,
+  } = useAsync(() => turnStatus(league.id, mine?.id ?? null), [league.id, mine?.id]);
+  const [busy, setBusy] = useState(false);
+  const [actionError, setActionError] = useState<string | null>(null);
+  const [confirmForce, setConfirmForce] = useState(false);
+  const [now, setNow] = useState(() => Date.now());
+
+  // Tempo reale: a ogni Pronto, allenatore, avviso o cambio di turno si rilegge
+  useEffect(() => subscribeTurn(league.id, reload), [league.id, reload]);
+  // Il conto alla rovescia della scadenza
+  useEffect(() => {
+    const t = setInterval(() => setNow(Date.now()), 15_000);
+    return () => clearInterval(t);
+  }, []);
+  // Turno nuovo: anche il resto della pagina va riletto
+  const roundId = status?.round?.id;
+  const lastRound = useRef(roundId);
+  useEffect(() => {
+    if (roundId && lastRound.current && roundId !== lastRound.current) onRoundChange();
+    lastRound.current = roundId;
+  }, [roundId, onRoundChange]);
+
+  if (error) return <ErrorText>{error}</ErrorText>;
+  if (!status?.round) return null;
+  const round = status.round;
+  const humans = league.teams.filter((t) => t.ownerId !== null);
+  const open = round.state === 'open';
+  const draftPending = league.draftState !== null && league.draftState !== 'done';
+  const myState = mine ? readiness(status, mine.id, now) : null;
+  const blocked = status.alerts.some((a) => a.blocking);
+  const readyCount = humans.filter((t) => readiness(status, t.id, now) !== 'waiting').length;
+  const code = (id: string) => league.teams.find((t) => t.id === id)?.code ?? '?';
+
+  async function run(action: () => Promise<unknown>) {
+    setBusy(true);
+    setActionError(null);
+    try {
+      await action();
+      reload();
+    } catch (e) {
+      setActionError(friendlyError(e));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  const title =
+    round.kind === 'regular'
+      ? `Giornata ${round.number + 1} di 82`
+      : round.kind === 'play-in'
+        ? 'Play-in'
+        : round.kind === 'playoffs'
+          ? 'Playoff'
+          : 'Offseason';
+
+  return (
+    <>
+      <Card className="space-y-3">
+        <div className="flex flex-wrap items-start justify-between gap-2">
+          <div>
+            <p className="text-sm text-slate-500 dark:text-slate-400">Turno</p>
+            <p className="text-xl font-semibold">{title}</p>
+          </div>
+          <span
+            className={`rounded-full px-3 py-1 text-xs font-semibold ${
+              !open
+                ? 'bg-orange-100 text-orange-800 dark:bg-orange-900 dark:text-orange-100'
+                : status.paused
+                  ? 'bg-slate-200 text-slate-700 dark:bg-slate-700 dark:text-slate-200'
+                  : 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-100'
+            }`}
+          >
+            {!open ? 'Simulazione in corso…' : status.paused ? 'Lega in pausa' : 'Aperto'}
+          </span>
+        </div>
+
+        {status.lastGame && (
+          <p className="text-sm">
+            <span className="text-slate-500 dark:text-slate-400">
+              Ultima partita (giornata {status.lastGame.roundNumber + 1}):
+            </span>{' '}
+            <span className="font-semibold">
+              {code(status.lastGame.awayTeamId)} {status.lastGame.awayScore} – {status.lastGame.homeScore}{' '}
+              {code(status.lastGame.homeTeamId)}
+            </span>
+            {status.lastGame.overtimes > 0 &&
+              ` (${status.lastGame.overtimes > 1 ? `${status.lastGame.overtimes} ` : ''}supplementari)`}
+          </p>
+        )}
+
+        {draftPending && (
+          <p className="text-sm text-slate-600 dark:text-slate-300">
+            Il primo turno parte quando il draft iniziale è finito.
+          </p>
+        )}
+        {round.kind !== 'regular' && (
+          <p className="text-sm text-slate-600 dark:text-slate-300">
+            La regular season è finita: play-in e playoff non sono ancora disponibili.
+          </p>
+        )}
+        {open && round.deadline && !status.paused && (
+          <p className="text-sm">
+            Scadenza del turno: <span className="font-semibold">{timeLeft(round.deadline, now)}</span>
+          </p>
+        )}
+        {open && round.forcedAt && (
+          <p className="text-sm text-orange-700 dark:text-orange-300">
+            Il commissario ha forzato l’avanzamento.
+          </p>
+        )}
+
+        <div>
+          <p className="mb-1 text-xs font-semibold tracking-wide text-slate-500 uppercase dark:text-slate-400">
+            Pronti {readyCount} su {humans.length}
+          </p>
+          <ul className="divide-y divide-slate-100 dark:divide-slate-700">
+            {humans.map((t) => {
+              const r = readiness(status, t.id, now);
+              return (
+                <li key={t.id} className="flex items-center justify-between gap-2 py-1.5 text-sm">
+                  <span className="flex min-w-0 items-center gap-2">
+                    <span className="w-10 shrink-0 rounded bg-slate-100 px-1 text-center text-xs font-bold text-slate-700 dark:bg-slate-700 dark:text-slate-200">
+                      {t.code}
+                    </span>
+                    <span className={`truncate ${t.ownerId === userId ? 'font-semibold' : ''}`}>
+                      {t.ownerId === userId ? 'Tu' : (t.ownerName ?? 'Manager')}
+                    </span>
+                  </span>
+                  <span
+                    className={`shrink-0 rounded-full px-2 py-0.5 text-xs font-semibold ${BADGE[r].className}`}
+                  >
+                    {BADGE[r].label}
+                  </span>
+                </li>
+              );
+            })}
+          </ul>
+          {readyCount === humans.length && open && !status.paused && !draftPending && (
+            <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+              {humans.every((t) => readiness(status, t.id, now) === 'coach')
+                ? 'Tutti con l’allenatore: la lega avanza da sola, al ritmo scelto dal commissario.'
+                : 'Tutti pronti: il turno parte a momenti.'}
+            </p>
+          )}
+        </div>
+
+        {mine && open && (
+          <div className="space-y-2">
+            {myState === 'coach' && (
+              <p className="text-sm text-sky-800 dark:text-sky-200">
+                {blocked
+                  ? 'La squadra è affidata all’allenatore, ma è fermo finché non rispondi agli avvisi qui sotto.'
+                  : 'La squadra è affidata all’allenatore: risulti pronto a ogni turno.'}
+              </p>
+            )}
+            <Button
+              className="w-full sm:w-auto"
+              variant={myState === 'ready' ? 'secondary' : 'primary'}
+              disabled={busy}
+              onClick={() => void run(() => setReady(mine.id, myState !== 'ready'))}
+            >
+              {myState === 'ready' ? 'Non sono più pronto' : 'Sono pronto'}
+            </Button>
+          </div>
+        )}
+
+        {isCommissioner && open && round.kind === 'regular' && !draftPending && (
+          <div className="flex flex-wrap gap-2 border-t border-slate-100 pt-3 dark:border-slate-700">
+            <Button
+              variant="secondary"
+              disabled={busy || round.forcedAt !== null}
+              onClick={() => {
+                if (!confirmForce) return setConfirmForce(true);
+                setConfirmForce(false);
+                void run(() => forceRound(league.id));
+              }}
+            >
+              {confirmForce ? 'Confermi? Si gioca subito' : 'Forza l’avanzamento'}
+            </Button>
+            <Button
+              variant="ghost"
+              disabled={busy}
+              onClick={() => void run(() => setPaused(league.id, !status.paused))}
+            >
+              {status.paused ? 'Riprendi la lega' : 'Metti in pausa'}
+            </Button>
+          </div>
+        )}
+        {actionError && <ErrorText>{actionError}</ErrorText>}
+      </Card>
+
+      {status.alerts.length > 0 && (
+        <Card className="space-y-3">
+          <h2 className="font-semibold">Avvisi</h2>
+          {status.alerts.map((a) => (
+            <AlertRow
+              key={a.id}
+              alert={a}
+              disabled={busy || !open}
+              onAnswer={() => void run(() => answerAlert(a.id))}
+            />
+          ))}
+        </Card>
+      )}
+    </>
+  );
+}
+
+function AlertRow({
+  alert,
+  disabled,
+  onAnswer,
+}: {
+  alert: AlertItem;
+  disabled: boolean;
+  onAnswer: () => void;
+}) {
+  const text = alertText(alert);
+  return (
+    <div
+      className={`rounded-lg border p-3 text-sm ${
+        alert.blocking
+          ? 'border-orange-300 bg-orange-50 dark:border-orange-700 dark:bg-orange-950'
+          : 'border-slate-200 dark:border-slate-700'
+      }`}
+    >
+      <p className="font-semibold">
+        {text.title}
+        {alert.blocking && (
+          <span className="ml-2 text-xs text-orange-700 dark:text-orange-300">blocca l’allenatore</span>
+        )}
+      </p>
+      <p className="mt-1 text-slate-700 dark:text-slate-200">{text.body}</p>
+      <Button
+        className="mt-2"
+        variant={alert.blocking ? 'primary' : 'secondary'}
+        disabled={disabled}
+        onClick={onAnswer}
+      >
+        {text.action}
+      </Button>
+    </div>
+  );
+}

@@ -2,6 +2,7 @@ import { overall } from '../overall.ts';
 import type { Rng } from '../rng.ts';
 import { minimumSalaryFor } from './config.ts';
 import { teamStrength, playerValue } from './bots.ts';
+import { autoDraftPick } from './initialDraft.ts';
 import {
   MIN_STANDARD,
   canSign,
@@ -171,4 +172,40 @@ export function fillMinimumRosters(state: LeagueState, turn: number | null): voi
       );
     }
   }
+}
+
+/**
+ * Squadra umana sotto i 13 contratti standard (il manager non ha risposto all'avviso): il server firma al
+ * minimo, per un anno, i migliori svincolati dei ruoli più scoperti, come la scelta automatica del draft
+ * iniziale. Restituisce i giocatori firmati.
+ */
+export function fillRosterAtMinimum(state: LeagueState, teamId: string, turn: number | null): PlayerState[] {
+  const signed: PlayerState[] = [];
+  const prospect = (p: PlayerState) => ({
+    id: p.id,
+    role: p.role,
+    secondaryRole: p.secondaryRole,
+    overall: overall(p),
+  });
+  while (standardRoster(state, teamId).length < MIN_STANDARD) {
+    const free = state.players.filter((p) => p.teamId === null && p.age < 39);
+    if (!free.length) break;
+    const choice = autoDraftPick(free.map(prospect), standardRoster(state, teamId).map(prospect));
+    const p = free.find((x) => x.id === choice.id) as PlayerState;
+    signContract(
+      state,
+      p,
+      {
+        playerId: p.id,
+        teamId,
+        type: 'standard',
+        salaries: [minimumSalaryFor(state.config, p.yearsInLeague)],
+        options: [null],
+        guaranteed: null,
+      },
+      turn,
+    );
+    signed.push(p);
+  }
+  return signed;
 }

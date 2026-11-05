@@ -162,6 +162,8 @@ function setupFor(state: LeagueState, teamId: string, regular: boolean): TeamSet
   let players: Player[] = eligible(state, teamId, regular);
   // Con troppi infortunati gioca anche chi non è al meglio
   if (players.length < 8) players = roster(state, teamId).map((p) => ({ ...p, injury: null }));
+  // L'allenatore delegato fa quintetto e minuti come il pulsante Auto, con le tattiche scelte dal manager
+  if (team?.human && team.coach) return autoSetup(teamId, players, team.tactics);
   // Le squadre umane giocano con le impostazioni salvate; il bot corregge solo gli slot che non valgono più
   if (team?.human && team.settings) return setupFromSettings(teamId, players, team.settings);
   return autoSetup(teamId, players, team?.tactics);
@@ -230,7 +232,7 @@ function regularGames(state: LeagueState): GameRecord[] {
 }
 
 function endRegularSeason(state: LeagueState): void {
-  settleSeason(state);
+  state.lastSettlement = settleSeason(state);
   const games = regularGames(state);
   const seeds = {
     East: conferenceStandings(state.teams, games, 'East', `${state.seed}:${state.config.year}`).slice(0, 10),

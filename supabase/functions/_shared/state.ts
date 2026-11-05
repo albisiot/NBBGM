@@ -39,7 +39,14 @@ export interface LeagueStateRows {
     revenue: Num;
     growth: Num;
   };
-  round: { id: string; number: number; kind: string; state: string } | null;
+  round: {
+    id: string;
+    number: number;
+    kind: string;
+    state: string;
+    seed?: string | null;
+    close_reason?: string | null;
+  } | null;
   teams: {
     id: string;
     code: string;
@@ -114,6 +121,25 @@ export interface LeagueStateRows {
     away_score: number | null;
     overtimes: number | null;
   }[];
+  /** Squadre umane con l'allenatore attivo nel turno corrente. */
+  coach?: string[];
+  coach_delegations?: {
+    team_id: string;
+    active: boolean;
+    until_round: number | null;
+    until_at: string | null;
+    until_phase_end: boolean;
+  }[];
+  /** Avvisi aperti e avvisi nati nel turno corrente. */
+  alerts?: {
+    id: string;
+    team_id: string;
+    kind: string;
+    blocking: boolean;
+    status: 'open' | 'resolved' | 'expired';
+    round_id: string | null;
+    payload: Record<string, unknown>;
+  }[];
 }
 
 export interface StateIds {
@@ -132,6 +158,7 @@ export function leagueStateFromRows(r: LeagueStateRows): { state: LeagueState; i
     return c;
   };
   const settings = new Map(r.team_settings.map((s) => [s.team_id, s]));
+  const coach = new Set(r.coach ?? []);
   const injuries = new Map(r.injuries.map((i) => [i.player_id, i]));
   const s = r.season;
   const config: SeasonConfig = {
@@ -219,6 +246,7 @@ export function leagueStateFromRows(r: LeagueStateRows): { state: LeagueState; i
         taxHistory: t.tax_history,
         settings:
           t.owner_id !== null && saved ? { starters: saved.starters, minutes: saved.minutes, tactics } : null,
+        coach: t.owner_id !== null && coach.has(t.id),
       };
     }),
     players,

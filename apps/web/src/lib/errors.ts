@@ -14,6 +14,10 @@ const AUTH_MESSAGES: [RegExp, string][] = [
   [/unable to validate email|invalid email|email.*invalid/i, 'Indirizzo email non valido.'],
   [/failed to fetch|network|load failed/i, 'Connessione assente: controlla la rete e riprova.'],
   [/jwt expired|session.*(missing|expired)/i, 'Accesso scaduto: entra di nuovo.'],
+  [
+    /row-level security/i,
+    'Modifica non accettata: il turno è in chiusura. Riprova quando si apre il prossimo.',
+  ],
 ];
 
 export function friendlyError(e: unknown): string {

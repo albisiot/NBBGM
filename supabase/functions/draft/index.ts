@@ -2,6 +2,7 @@
 // le scrive se nel frattempo nessun'altra richiesta ha fatto avanzare il draft.
 //
 // POST { league_id, action: 'start' | 'pick' | 'tick' | 'to-list', player_id? }  ->  { next, state, picks }
+// tick si può chiamare anche senza utente (pg_cron): sceglie solo se il tempo della chiamata è scaduto.
 import { createClient } from 'npm:@supabase/supabase-js@2.118.0';
 import { DraftError, planDraft, type DraftAction } from '../../../packages/engine/src/index.ts';
 import { applyArgs, snapshotFromRow, type DraftSnapshotRow } from '../_shared/draft.ts';
@@ -45,12 +46,6 @@ Deno.serve(async (req) => {
     const admin = createClient(Deno.env.get('SUPABASE_URL') ?? '', serverKey(), {
       auth: { persistSession: false, autoRefreshToken: false },
     });
-    const token = (req.headers.get('Authorization') ?? '').replace(/^Bearer\s+/i, '');
-    if (!token) throw new RequestError('Devi accedere', 401);
-    const { data: auth, error: authError } = await admin.auth.getUser(token);
-    if (authError || !auth.user) throw new RequestError('Accesso scaduto: entra di nuovo', 401);
-    const userId = auth.user.id;
-
     const body = (await req.json().catch(() => null)) as {
       league_id?: unknown;
       action?: unknown;
@@ -59,12 +54,23 @@ Deno.serve(async (req) => {
     const leagueId = typeof body?.league_id === 'string' ? body.league_id : '';
     if (!leagueId) throw new RequestError('Lega mancante');
 
+    // Il tempo scaduto lo controlla anche pg_cron, senza utente: tick sceglie solo se la scadenza è passata
+    const token = (req.headers.get('Authorization') ?? '').replace(/^Bearer\s+/i, '');
+    const system = body?.action === 'tick' && !token;
+    let userId = '';
+    if (!system) {
+      if (!token) throw new RequestError('Devi accedere', 401);
+      const { data: auth, error: authError } = await admin.auth.getUser(token);
+      if (authError || !auth.user) throw new RequestError('Accesso scaduto: entra di nuovo', 401);
+      userId = auth.user.id;
+    }
+
     const { data: row, error } = await admin.rpc('draft_snapshot', { p_league: leagueId });
     if (error) throw new Error(`Lettura del draft: ${error.message}`);
     if (!row) throw new RequestError('Questa lega non ha un draft iniziale', 404);
     const snapshot = snapshotFromRow(row as DraftSnapshotRow);
     // Solo chi è nella lega tocca il draft
-    if (snapshot.commissionerId !== userId && !Object.values(snapshot.owners).includes(userId))
+    if (!system && snapshot.commissionerId !== userId && !Object.values(snapshot.owners).includes(userId))
       throw new RequestError('Non fai parte di questa lega', 403);
 
     let action: DraftAction;

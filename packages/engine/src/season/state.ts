@@ -46,6 +46,8 @@ export interface TeamState extends Team {
   taxHistory: boolean[];
   /** Impostazioni salvate dal manager (solo squadre umane): le legge la simulazione al posto del bot. */
   settings?: SavedSettings | null;
+  /** Allenatore delegato attivo in questo turno: quintetto e minuti come il pulsante Auto, con le tattiche del manager. */
+  coach?: boolean;
 }
 
 export interface DraftPick {
@@ -122,6 +124,8 @@ export interface LeagueState {
   history: SeasonSummary[];
   /** Livello della lega alla creazione (media dei migliori 150): ogni offseason ci si riporta lì. */
   talentReference: number;
+  /** Luxury tax e monte stipendi minimo pagati all'ultima fine di regular season (per il bilancio del server). */
+  lastSettlement?: { teamId: string; payroll: number; tax: number; shortfall: number }[];
 }
 
 export function emptyStats(): SeasonStats {

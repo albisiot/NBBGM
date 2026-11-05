@@ -52,6 +52,26 @@ export async function asUser<T>(db: PGlite, userId: string, fn: (tx: Transaction
   });
 }
 
+/**
+ * Le chiamate rpc della Edge Function advance-turn sul database di prova, come il server (service_role):
+ * select public.<nome>(arg => $1, ...).
+ */
+export function serviceRpc(db: PGlite): { rpc<T>(name: string, args: Record<string, unknown>): Promise<T> } {
+  return {
+    async rpc<T>(name: string, args: Record<string, unknown>): Promise<T> {
+      const keys = Object.keys(args);
+      const sql = `select public.${name}(${keys.map((k, i) => `${k} => $${i + 1}`).join(', ')}) as r`;
+      return asService(db, async (tx) => {
+        const res = await tx.query<{ r: T }>(
+          sql,
+          keys.map((k) => args[k]),
+        );
+        return (res.rows[0] as { r: T }).r;
+      });
+    },
+  };
+}
+
 /** Come asUser, ma senza login (chiave anon). */
 export async function asAnon<T>(db: PGlite, fn: (tx: Transaction) => Promise<T>): Promise<T> {
   return db.transaction(async (tx) => {

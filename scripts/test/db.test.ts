@@ -83,16 +83,33 @@ describe('permessi', () => {
     // Postgres apre ogni funzione nuova a tutti: le migrazioni devono averle chiuse una per una
     const anonFunctions = rows.filter((r) => r.kind === 'function' && r.role === 'anon').map((r) => r.name);
     expect(anonFunctions).toEqual([]);
-    // Dall'API il manager chiama solo set_ready; le funzioni delle policy stanno nello schema private
+    // Dall'API il manager chiama solo queste; le funzioni delle policy stanno nello schema private
     const userFunctions = rows
       .filter((r) => r.kind === 'function' && r.role === 'authenticated')
       .map((r) => r.name);
     expect(userFunctions).toEqual([
+      'answer_alert(uuid)',
+      'force_round(uuid)',
       'join_league(text,text)',
       'league_preview(text)',
       'player_scouting(uuid)',
       'set_ready(uuid,boolean)',
     ]);
+    // Chiamate alle Edge Functions, controllo di pg_cron e chiusura dei turni: solo dal database
+    for (const f of [
+      'private.kick(text,jsonb)',
+      'private.cron_tick()',
+      'private.round_due(uuid)',
+      'private.coach_active(uuid,uuid)',
+    ]) {
+      for (const role of ['anon', 'authenticated', 'service_role']) {
+        const ok = await db.query<{ ok: boolean }>(`select has_function_privilege($1, $2, 'EXECUTE') as ok`, [
+          role,
+          f,
+        ]);
+        expect(ok.rows[0]!.ok, `${role} ${f}`).toBe(false);
+      }
+    }
     // Il client scrive solo dove serve al manager
     const writes = rows
       .filter((r) => r.kind === 'table' && r.role === 'authenticated' && r.priv !== 'SELECT')

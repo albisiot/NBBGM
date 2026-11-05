@@ -13,9 +13,9 @@ Riassunto del documento di design (versione 2.4, 4 novembre 2026). È la fonte d
 
 ## Stato del lavoro
 
-- Fasi 1-8 completate (ramo `fasi-1-3`); della Fase 6 manca solo la prova del login con codice da iPhone. La logica di stagione sta in `packages/engine/src/season/`; database e sicurezza in `supabase/migrations/` (vedi `supabase/README.md`).
+- Fasi 1-9 completate (ramo `fasi-1-3`); della Fase 6 manca solo la prova del login con codice da iPhone. La logica di stagione sta in `packages/engine/src/season/`; database e sicurezza in `supabase/migrations/` (vedi `supabase/README.md`).
 - App: `pnpm dev` (o `pnpm dev:lan` per provarla dal telefono sulla stessa Wi-Fi). Legge URL e chiave publishable da `apps/web/.env.local` (modello in `.env.example`).
-- Edge Functions `create-league` e `draft` in `supabase/functions/`; il codice comune a Edge Function e script sta in `supabase/functions/_shared/`: `league.ts` (dati di partenza <-> motore, righe per `insert_league`), `draft.ts` (draft iniziale) e `state.ts` (stato della lega dal database al motore, con `league_state`). Si pubblicano con `npx.cmd --yes supabase@3.0.0 functions deploy create-league draft --use-api`.
+- Edge Functions `create-league`, `draft` e `advance-turn` in `supabase/functions/`; il codice comune a Edge Function e script sta in `supabase/functions/_shared/`: `league.ts` (dati di partenza <-> motore, righe per `insert_league`), `draft.ts` (draft iniziale), `state.ts` (stato della lega dal database al motore, con `league_state`) e `turn.ts` (un turno: dal motore alle sezioni di `apply_turn`). Si pubblicano con `npx.cmd --yes supabase@3.0.0 functions deploy create-league draft advance-turn --use-api`.
 - `pnpm db:seed` scrive `supabase/seed.sql` (lega di prova generata, utenti anna, bruno e carla `@nbbgm.test`) e `data/base.sql` (giocatori reali per le tabelle `base_*`); nessuno dei due va nel repo. I test del database girano su PGlite (`scripts/test/db.test.ts`), senza Docker.
 - Progetto Supabase **NBBGM** (`sojimrnmsrbntgfsgxmj`, Francoforte): migrazioni applicate, giocatori reali caricati nelle tabelle `base_*`. Si lavora con la CLI (`npx.cmd --yes supabase@3.0.0 ...`, comandi in `supabase/README.md`), non con il connettore.
 - `pnpm data:import` legge `NBA_2026-27_valutazioni_v2.xlsx` e `NBA_2026-27_contratti.xlsx` dalla radice e scrive `data/league-2026-27.json` e `data/import-report.md`; aggiorna `packages/engine/src/archetype-profiles.ts`.
@@ -73,6 +73,20 @@ Riassunto del documento di design (versione 2.4, 4 novembre 2026). È la fonte d
 - **Stime della scheda giocatore** (`player_scouting`): costanza in attacco e in difesa ed etica del lavoro in 5 livelli per i propri giocatori e in 3 per gli altri; distretti a rischio sotto 70 di durabilità per i propri, sotto 55 per gli altri. Il potenziale è la stima che vedono anche i bot. I numeri dei valori nascosti non arrivano mai al client.
 - **Pulsante Auto** e overall sono calcolati nell'app con il motore, dalle sole abilità visibili.
 - **Allenatore:** si attiva dalla schermata roster (fino al prossimo turno, a fine fase, a una data o senza limite); cosa fa al passaggio di turno arriva con la Fase 9.
+
+## Scelte prese nella Fase 9 (non erano nel documento)
+
+- **Chi decide la chiusura:** il database (`private.round_due`). advance-turn non ha login e non si fida di chi la chiama: `try_close_round` chiude il turno solo se è il momento e solo per la prima chiamata. La chiamano pg_net (ultimo Pronto, risposta all'ultimo avviso, avanzamento forzato) e pg_cron ogni 15 secondi (scadenze, ritmo degli allenatori, riprese dopo 5 minuti, timer del draft dal vivo). L'indirizzo delle funzioni sta in `private.settings` (vedi `supabase/README.md`).
+- **Ritmo massimo:** vale solo quando tutti sono pronti con l'allenatore, senza nessun Pronto premuto; si conta dall'apertura del turno. Se l'ultimo a essere pronto preme Pronto, si parte subito.
+- **Pausa:** ferma tutto tranne l'avanzamento forzato; alla ripresa la scadenza del turno aperto riparte da adesso. Anche cambiare la scadenza la fa ripartire. La scadenza del primo turno parte a fine draft iniziale.
+- **Allenatore:** fa quintetto e minuti come il pulsante Auto, con le tattiche salvate dal manager; le impostazioni salvate restano com'erano. Con un avviso bloccante aperto la squadra non è più pronta da sola, ma in campo la guida comunque l'allenatore. La delega fino a un turno vale per quel turno compreso.
+- **Rosa sotto 13** (anche per le squadre umane): alla chiusura del turno arriva l'avviso bloccante `roster_minimum`; se alla chiusura del turno dopo la rosa è ancora corta, il server firma al minimo per un anno i migliori svincolati dei ruoli più scoperti (`fillRosterAtMinimum`), che il manager abbia risposto o no. Gli altri avvisi bloccanti senza risposta si chiudono come scaduti.
+- **Avvisi informativi:** per ora solo gli infortuni dei propri giocatori; restano finché il manager non li legge.
+- **Bilancio:** a ogni turno tre movimenti per squadra (ricavi, stipendi, two-way) arrotondati al dollaro, più tassa e monte minimo a fine regular season; il saldo è sempre il saldo di partenza più la somma dei movimenti.
+- **Cronaca salvata compatta** (`compactPlayByPlay`): ogni azione è `[periodo, secondi alla fine, squadra h/a, testo, punti casa, punti trasferta]`, circa 20 KB a partita, per stare nei 500 MB del piano Free.
+- **Seed del turno:** tutto il caso del turno (partite e mercato dei bot) viene dal seed del turno, non da quello della lega.
+- **Fine regular season:** dopo la giornata 82 si apre il turno di play-in, che per ora non si gioca (Fase 10).
+- **Lega "ciao" in pausa:** all'avvio della Fase 9 la sua scadenza di 15 minuti era passata da ore; per non farla avanzare da sola ogni 15 minuti è stata messa in pausa. La riprende il commissario dalla pagina della lega.
 
 ## Visione
 
