@@ -69,9 +69,13 @@ Senza `--remote` i comandi `db` puntano al database locale di Docker.
 ## Accesso (Auth)
 
 - Codice di 6 cifre via email (niente link magico) e Google. Le email partono dallo SMTP di Gmail configurato nella dashboard; il modello è `templates/codice.html`.
-- Impostazioni applicate al progetto: Site URL `http://localhost:5173`, Redirect URLs `http://localhost:5173/**` e `http://192.168.1.51:5173/**`, `otp_length = 6`, modelli `magic_link` e `confirmation` con oggetto "Il tuo codice NBBGM". Per cambiarle si usa `config push --workdir <cartella>` con un `config.toml` che dichiara solo quei valori: i valori non dichiarati restano com'erano. Il `config.toml` di questa cartella è per il database locale e non va spinto per intero.
+- Impostazioni applicate al progetto: Site URL `https://albisiot.github.io/NBBGM/` (l'app pubblicata), Redirect URLs `https://albisiot.github.io/NBBGM/**`, `http://localhost:5173/**` e `http://192.168.1.51:5173/**`, `otp_length = 6`, modelli `magic_link` e `confirmation` con oggetto "Il tuo codice NBBGM". Per cambiarle si usa `config push --workdir <cartella>` con un `config.toml` che dichiara solo quei valori: i valori non dichiarati restano com'erano. Il `config.toml` di questa cartella è per il database locale e non va spinto per intero.
 - Google: provider attivo (client OAuth del progetto Google Cloud `NBBGM-pro`, redirect `https://sojimrnmsrbntgfsgxmj.supabase.co/auth/v1/callback`). L'app Google è in Test: entra solo chi è tra gli utenti di prova.
-- Da fare con la pubblicazione su GitHub Pages: nuovo Site URL e Redirect URLs, e la pubblicazione dell'app Google (servono home page e informativa privacy).
+- App Google ancora in Test: per pubblicarla, in Google Auth Platform servono home page `https://albisiot.github.io/NBBGM/` e informativa privacy `https://albisiot.github.io/NBBGM/privacy.html`, con il dominio verificato in Google Search Console.
+
+## GitHub Actions
+
+- `.github/workflows/supabase.yml` pubblica migrazioni ed Edge Functions quando cambiano su `main` (o a mano, da Actions). Servono i segreti del repository `SUPABASE_ACCESS_TOKEN` (token personale, da supabase.com > Account > Access Tokens) e `SUPABASE_DB_PASSWORD`, e la variabile `SUPABASE_PROJECT_REF`. Senza i segreti il job avvisa e non pubblica nulla: si continua con la CLI da qui.
 
 ## Turni, pg_net e pg_cron
 

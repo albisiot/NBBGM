@@ -15,6 +15,7 @@ Riassunto del documento di design (versione 2.4, 4 novembre 2026). È la fonte d
 
 - Fasi 1-12 completate (ramo `fasi-1-3`); della Fase 6 manca solo la prova del login con codice da iPhone. La logica di stagione sta in `packages/engine/src/season/`; database e sicurezza in `supabase/migrations/` (vedi `supabase/README.md`).
 - App: `pnpm dev` (o `pnpm dev:lan` per provarla dal telefono sulla stessa Wi-Fi). Legge URL e chiave publishable da `apps/web/.env.local` (modello in `.env.example`).
+- Pubblicata su **GitHub Pages**: `https://albisiot.github.io/NBBGM/` (repository pubblico `albisiot/NBBGM`, ramo `main`). Workflow in `.github/workflows/`: `ci.yml` (controlli), `pages.yml` (app, con le variabili `SUPABASE_URL` e `SUPABASE_PUBLISHABLE_KEY`), `supabase.yml` (migrazioni e funzioni, con i segreti `SUPABASE_ACCESS_TOKEN` e `SUPABASE_DB_PASSWORD`). Icone della PWA con `pnpm icons`.
 - Edge Functions `create-league`, `draft`, `advance-turn` e `market` in `supabase/functions/`; il codice comune a Edge Function e script sta in `supabase/functions/_shared/`: `league.ts` (dati di partenza <-> motore, righe per `insert_league`), `draft.ts` (draft iniziale), `state.ts` (stato della lega dal database al motore, con `league_state`) `turn.ts` (un turno: dal motore alle sezioni di `apply_turn`) e `market.ts` (controllo delle azioni di mercato). Si pubblicano con `npx.cmd --yes supabase@3.0.0 functions deploy create-league draft advance-turn market --use-api`.
 - `pnpm db:seed` scrive `supabase/seed.sql` (lega di prova generata, utenti anna, bruno e carla `@nbbgm.test`) e `data/base.sql` (giocatori reali per le tabelle `base_*`); nessuno dei due va nel repo. I test del database girano su PGlite (`scripts/test/db.test.ts`), senza Docker.
 - Progetto Supabase **NBBGM** (`sojimrnmsrbntgfsgxmj`, Francoforte): migrazioni applicate, giocatori reali caricati nelle tabelle `base_*`. Si lavora con la CLI (`npx.cmd --yes supabase@3.0.0 ...`, comandi in `supabase/README.md`), non con il connettore.
@@ -120,6 +121,14 @@ Riassunto del documento di design (versione 2.4, 4 novembre 2026). È la fonte d
 - **Configurazione della stagione nuova:** dopo il draft il server lavora con `nextConfig` della stagione corrente (contratti già scalati); la riga nuova di `seasons` nasce alla fine della preparazione, con il calendario. La stagione vecchia resta in offseason.
 - **Preparazione per tutte le squadre:** alla chiusura si tagliano gli esuberi oltre 15 standard e 3 two-way (overall più basso) e chi è sotto 13 firma al minimo, umani compresi. I two-way per le squadre umane non si firmano ancora dall'app.
 - **Storico:** le scelte usate restano in `draft_picks` con la loro posizione, gli swap decisi con `result`; `league_state` non li dà più al motore. I ritirati restano in `players` con `retired`.
+
+## Scelte prese nella Fase 13 (non erano nel documento)
+
+- **PWA senza dipendenze nuove:** `manifest.webmanifest`, icone disegnate da `pnpm icons` (palla da basket su fondo scuro: normale, maskable per Android, apple-touch-icon per iPhone) e un service worker generato in build da un plugin in `apps/web/vite.config.ts`, con l'elenco dei file e una versione che cambia a ogni pubblicazione. L'app installata si apre anche senza rete; i dati arrivano sempre da Supabase, mai dalla cache.
+- **iPhone:** meta `apple-mobile-web-app-*` e `viewport-fit=cover`; il codice via email resta l'accesso sicuro nella PWA installata (il login Google su iPhone si apre nel browser).
+- **Repository pubblico** `albisiot/NBBGM` (Pages gratis): restano fuori file Excel, `data/`, `seed.sql`, `.env.local`; i giocatori veri stanno solo nel database, dietro la RLS.
+- **Informativa privacy** in `apps/web/public/privacy.html`, con contatto mondiali2014@gmail.com; il link è nella pagina di accesso.
+- **Rami:** `main` è il ramo principale (creato da `fasi-1-3`); Pages pubblica da `main`.
 
 ## Visione
 

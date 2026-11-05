@@ -11,3 +11,12 @@ createRoot(root).render(
     <App />
   </StrictMode>,
 );
+
+// PWA: il service worker c'è solo nella build (in sviluppo darebbe file vecchi)
+if (import.meta.env.PROD && 'serviceWorker' in navigator) {
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('./sw.js').catch(() => {
+      // Senza service worker l'app funziona lo stesso, solo non si apre senza rete
+    });
+  });
+}
