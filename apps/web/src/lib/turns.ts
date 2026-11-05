@@ -285,6 +285,32 @@ export function alertText(a: Pick<AlertItem, 'kind' | 'payload'>): {
       };
     case 'market':
       return { title: 'Mercato', body: String(p.text ?? ''), action: 'Ok' };
+    case 'draft_pick': {
+      const picks = Array.isArray(p.picks) ? (p.picks as number[]) : [];
+      return {
+        title: `Draft ${String(p.draft_year ?? '')}`,
+        body: `Hai ${picks.length === 1 ? 'la scelta' : 'le scelte'} n. ${picks.join(', ')}. Ordina i tuoi preferiti nella pagina del draft: alla chiusura del turno sceglie il server, il primo disponibile della tua lista (senza lista, il migliore per i ruoli scoperti).`,
+        action: 'Lista pronta',
+      };
+    }
+    case 'renewals':
+      return {
+        title: 'Rinnovi',
+        body: `Hai ${String(p.players)} ${p.players === 1 ? 'giocatore' : 'giocatori'} in scadenza: rinnova chi vuoi tenere nella pagina del mercato. Chi non rinnovi diventa svincolato alla chiusura del turno.`,
+        action: 'Ho deciso',
+      };
+    case 'free_agency':
+      return {
+        title: `Free agency, turno ${String(p.round)} di 4`,
+        body: 'Fai le tue offerte agli svincolati nella pagina del mercato: alla chiusura del turno ognuno sceglie l’offerta migliore. Le richieste scendono di turno in turno.',
+        action: 'Ho finito',
+      };
+    case 'preparation':
+      return {
+        title: 'Preparazione della stagione',
+        body: 'Ultimo turno dell’offseason: sistema rosa (13-15 contratti standard, al massimo 3 two-way), quintetto e tattiche. Alla chiusura il server taglia gli esuberi con l’overall più basso e firma al minimo chi manca.',
+        action: 'Squadra pronta',
+      };
     default:
       return { title: 'Avviso', body: '', action: 'Ok' };
   }

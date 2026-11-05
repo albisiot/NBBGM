@@ -4,6 +4,7 @@ import { Layout } from './components/Layout.tsx';
 import { ErrorText, Spinner } from './components/ui.tsx';
 import { AuthProvider, useAuth } from './lib/auth.tsx';
 import { configured } from './lib/supabase.ts';
+import { AnnualDraftPage } from './pages/AnnualDraftPage.tsx';
 import { CreateLeaguePage } from './pages/CreateLeaguePage.tsx';
 import { DraftPage } from './pages/DraftPage.tsx';
 import { GamePage } from './pages/GamePage.tsx';
@@ -48,6 +49,7 @@ function Routed() {
         <Route path="lega/:id/playoff" element={<PlayoffPage />} />
         <Route path="lega/:id/statistiche" element={<StatsPage />} />
         <Route path="lega/:id/mercato" element={<MarketPage />} />
+        <Route path="lega/:id/draft-annuale" element={<AnnualDraftPage />} />
         <Route path="profilo" element={<ProfilePage />} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Route>

@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router';
 import { friendlyError } from '../lib/errors.ts';
 import type { LeagueDetail } from '../lib/leagues.ts';
+import { STAGE_LABEL } from '../lib/market.ts';
 import {
   alertText,
   answerAlert,
@@ -31,6 +32,25 @@ const BADGE: Record<Readiness, { label: string; className: string }> = {
 };
 
 const LINK = 'font-semibold text-orange-700 hover:underline dark:text-orange-300';
+
+// Dove si decide quello che chiede l'avviso
+const ALERT_LINK: Record<string, { to: string; label: string }> = {
+  trade_offer: { to: 'mercato?tab=scambi', label: 'Vai agli scambi' },
+  draft_pick: { to: 'draft-annuale', label: 'Vai al draft' },
+  renewals: { to: 'mercato?tab=rinnovi', label: 'Vai ai rinnovi' },
+  free_agency: { to: 'mercato?tab=svincolati', label: 'Vai agli svincolati' },
+  preparation: { to: 'squadra', label: 'Vai alla squadra' },
+};
+
+const STAGE_HINT: Record<string, string> = {
+  draft: 'Ordina i tuoi preferiti nella pagina del draft: alla chiusura del turno si fanno le 60 scelte.',
+  renewals: 'Decidi chi rinnovare tra i giocatori in scadenza: gli altri diventano svincolati.',
+  fa1: 'Free agency: offerte a busta chiusa agli svincolati.',
+  fa2: 'Free agency: le richieste degli svincolati sono scese.',
+  fa3: 'Free agency: le richieste degli svincolati sono scese ancora.',
+  fa4: 'Ultimo turno di free agency.',
+  preparation: 'Sistema rosa, quintetto e tattiche: poi riparte la regular season.',
+};
 
 export function TurnCard({
   league,
@@ -102,7 +122,7 @@ export function TurnCard({
         ? 'Play-in'
         : round.kind === 'playoffs'
           ? 'Playoff'
-          : 'Offseason';
+          : `Offseason · ${STAGE_LABEL[league.roundStage ?? ''] ?? ''}`;
 
   return (
     <>
@@ -147,8 +167,8 @@ export function TurnCard({
         )}
         {round.kind === 'offseason' && (
           <p className="text-sm text-slate-600 dark:text-slate-300">
-            {champion ? `Stagione finita: campioni i ${champion.fullName}. ` : 'Stagione finita. '}
-            L’offseason non è ancora disponibile.
+            {champion ? `Stagione finita: campioni i ${champion.fullName}. ` : ''}
+            {STAGE_HINT[league.roundStage ?? ''] ?? ''}
           </p>
         )}
         <p className="flex flex-wrap gap-x-4 gap-y-1 text-sm">
@@ -161,6 +181,16 @@ export function TurnCard({
           {round.kind !== 'regular' && (
             <Link to={`/lega/${league.id}/playoff`} className={LINK}>
               Tabellone
+            </Link>
+          )}
+          {round.kind === 'offseason' && (
+            <Link to={`/lega/${league.id}/draft-annuale`} className={LINK}>
+              Draft
+            </Link>
+          )}
+          {round.kind === 'offseason' && league.roundStage !== 'draft' && (
+            <Link to={`/lega/${league.id}/mercato`} className={LINK}>
+              Mercato
             </Link>
           )}
         </p>
@@ -201,17 +231,13 @@ export function TurnCard({
               );
             })}
           </ul>
-          {readyCount === inRound.length &&
-            open &&
-            !status.paused &&
-            !draftPending &&
-            round.kind !== 'offseason' && (
-              <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
-                {inRound.every((t) => readiness(status, t.id, now) === 'coach')
-                  ? 'Tutti con l’allenatore: la lega avanza da sola, al ritmo scelto dal commissario.'
-                  : 'Tutti pronti: il turno parte a momenti.'}
-              </p>
-            )}
+          {readyCount === inRound.length && open && !status.paused && !draftPending && (
+            <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+              {inRound.every((t) => readiness(status, t.id, now) === 'coach')
+                ? 'Tutti con l’allenatore: la lega avanza da sola, al ritmo scelto dal commissario.'
+                : 'Tutti pronti: il turno parte a momenti.'}
+            </p>
+          )}
         </div>
 
         {mine && open && myState === 'out' && (
@@ -219,7 +245,7 @@ export function TurnCard({
             La tua squadra non gioca in questo turno: non devi fare nulla.
           </p>
         )}
-        {mine && open && myState !== 'out' && round.kind !== 'offseason' && (
+        {mine && open && myState !== 'out' && (
           <div className="space-y-2">
             {myState === 'coach' && (
               <p className="text-sm text-sky-800 dark:text-sky-200">
@@ -239,7 +265,7 @@ export function TurnCard({
           </div>
         )}
 
-        {isCommissioner && open && round.kind !== 'offseason' && !draftPending && (
+        {isCommissioner && open && !draftPending && (
           <div className="flex flex-wrap gap-2 border-t border-slate-100 pt-3 dark:border-slate-700">
             <Button
               variant="secondary"
@@ -309,24 +335,26 @@ function AlertRow({
         )}
       </p>
       <p className="mt-1 text-slate-700 dark:text-slate-200">{text.body}</p>
-      {alert.kind === 'trade_offer' ? (
-        // Alla proposta si risponde dalla pagina del mercato: accettarla o rifiutarla chiude l'avviso
-        <Link
-          to={`/lega/${leagueId}/mercato?tab=scambi`}
-          className="mt-2 inline-flex min-h-11 items-center rounded-lg bg-orange-600 px-4 text-sm font-semibold text-white hover:bg-orange-700"
-        >
-          {text.action}
-        </Link>
-      ) : (
-        <Button
-          className="mt-2"
-          variant={alert.blocking ? 'primary' : 'secondary'}
-          disabled={disabled}
-          onClick={onAnswer}
-        >
-          {text.action}
-        </Button>
-      )}
+      <div className="mt-2 flex flex-wrap gap-2">
+        {ALERT_LINK[alert.kind] && (
+          <Link
+            to={`/lega/${leagueId}/${ALERT_LINK[alert.kind]?.to}`}
+            className={`inline-flex min-h-11 items-center rounded-lg px-4 text-sm font-semibold ${
+              alert.kind === 'trade_offer'
+                ? 'bg-orange-600 text-white hover:bg-orange-700'
+                : 'border border-slate-300 hover:bg-slate-50 dark:border-slate-600 dark:hover:bg-slate-800'
+            }`}
+          >
+            {ALERT_LINK[alert.kind]?.label}
+          </Link>
+        )}
+        {/* Alla proposta di scambio si risponde dalla pagina del mercato: accettarla o rifiutarla chiude l'avviso */}
+        {alert.kind !== 'trade_offer' && (
+          <Button variant={alert.blocking ? 'primary' : 'secondary'} disabled={disabled} onClick={onAnswer}>
+            {text.action}
+          </Button>
+        )}
+      </div>
     </div>
   );
 }

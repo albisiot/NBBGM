@@ -156,11 +156,13 @@ describe('dall’ultima giornata alla finale', () => {
     const final = series.rows.find((s) => s.round === 4)!;
     expect(final.winner_team_id).toBe(champion);
 
-    // L'offseason non si gioca ancora
+    // Dopo la finale si apre il turno del draft dell'offseason (Fase 12): senza i Pronto non avanza
+    const draft = await db.query<{ stage: string }>(
+      'select r.stage from public.leagues l join public.rounds r on r.id = l.current_round_id where l.id = $1',
+      [LEAGUE],
+    );
+    expect(draft.rows[0]!.stage).toBe('draft');
     expect((await advance()).advanced).toBe(false);
-    await expect(
-      asUser(db, ids.user('anna'), (tx) => tx.query('select public.force_round($1)', [LEAGUE])),
-    ).rejects.toThrow(/offseason/);
   });
 
   it('la classifica ha i totali delle partite e decide il tabellone', async () => {

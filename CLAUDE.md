@@ -13,7 +13,7 @@ Riassunto del documento di design (versione 2.4, 4 novembre 2026). È la fonte d
 
 ## Stato del lavoro
 
-- Fasi 1-11 completate (ramo `fasi-1-3`); della Fase 6 manca solo la prova del login con codice da iPhone. La logica di stagione sta in `packages/engine/src/season/`; database e sicurezza in `supabase/migrations/` (vedi `supabase/README.md`).
+- Fasi 1-12 completate (ramo `fasi-1-3`); della Fase 6 manca solo la prova del login con codice da iPhone. La logica di stagione sta in `packages/engine/src/season/`; database e sicurezza in `supabase/migrations/` (vedi `supabase/README.md`).
 - App: `pnpm dev` (o `pnpm dev:lan` per provarla dal telefono sulla stessa Wi-Fi). Legge URL e chiave publishable da `apps/web/.env.local` (modello in `.env.example`).
 - Edge Functions `create-league`, `draft`, `advance-turn` e `market` in `supabase/functions/`; il codice comune a Edge Function e script sta in `supabase/functions/_shared/`: `league.ts` (dati di partenza <-> motore, righe per `insert_league`), `draft.ts` (draft iniziale), `state.ts` (stato della lega dal database al motore, con `league_state`) `turn.ts` (un turno: dal motore alle sezioni di `apply_turn`) e `market.ts` (controllo delle azioni di mercato). Si pubblicano con `npx.cmd --yes supabase@3.0.0 functions deploy create-league draft advance-turn market --use-api`.
 - `pnpm db:seed` scrive `supabase/seed.sql` (lega di prova generata, utenti anna, bruno e carla `@nbbgm.test`) e `data/base.sql` (giocatori reali per le tabelle `base_*`); nessuno dei due va nel repo. I test del database girano su PGlite (`scripts/test/db.test.ts`), senza Docker.
@@ -109,6 +109,17 @@ Riassunto del documento di design (versione 2.4, 4 novembre 2026). È la fonte d
 - **Proposte dei bot ai manager:** dopo ogni turno di regular season, per ogni squadra umana il 15% di probabilità, al massimo una ogni 5 turni (`botProposals`), come avviso bloccante.
 - **Bilancio riservato:** `teams.balance` e `tax_history` non sono più leggibili da tutti i membri; il saldo si legge con `team_balance` (propria squadra, o tutte per il commissario).
 - **Stagione intera nei test:** `serverTurn` accetta una partita finta (`playGame`) e si possono spegnere le proposte dei bot (`botProposals: false`), così su PGlite una stagione da 82 giornate dura pochi secondi.
+
+## Scelte prese nella Fase 12 (non erano nel documento)
+
+- **Offseason in 7 turni** (`rounds.stage`): draft, renewals (rinnovi), fa1-fa4 (free agency), preparation. Fine stagione, lottery, ordine del draft e classe del draft si fanno già alla chiusura della finale, così nel turno del draft si vedono ordine e prospetti. Nel motore ogni passo è una funzione (`startOffseason`, `runAnnualDraft`, `scaleContracts`, `closeRenewals`, free agency con `runMarket`, `startNewSeason`); `runOffseason` li esegue di fila per le simulazioni offline.
+- **Draft annuale in modalità lista:** ogni manager ordina i preferiti (`draft_lists`, si salvano a ogni modifica) e alla chiusura del turno il server fa le 60 scelte: il primo disponibile della lista, senza lista la logica del bot. Il draft annuale dal vivo non c'è.
+- **Classe del draft generata:** 70 prospetti (`players.draft_prospect`), visibili con le stime come gli altri giocatori; i non scelti diventano svincolati. Le classi reali da file non si possono ancora caricare: anche con "rookie reali" si genera.
+- **Contratti in scadenza:** alla chiusura del draft i contratti scalano; chi scade resta in squadra con un contratto senza stipendi fino al turno dei rinnovi, dove il manager lo rinnova alla sua richiesta (prezzi della stagione che arriva) o lo lascia andare. Le opzioni della squadra le decide la logica del bot anche per le squadre umane.
+- **Senza risposta nei turni dell'offseason:** il draft sceglie comunque; i rinnovi non fatti lasciano andare il giocatore, salvo con l'allenatore attivo e l'avviso aperto (decide la logica del bot); in free agency l'allenatore non fa offerte. Ogni turno dell'offseason che chiede decisioni è un avviso bloccante.
+- **Configurazione della stagione nuova:** dopo il draft il server lavora con `nextConfig` della stagione corrente (contratti già scalati); la riga nuova di `seasons` nasce alla fine della preparazione, con il calendario. La stagione vecchia resta in offseason.
+- **Preparazione per tutte le squadre:** alla chiusura si tagliano gli esuberi oltre 15 standard e 3 two-way (overall più basso) e chi è sotto 13 firma al minimo, umani compresi. I two-way per le squadre umane non si firmano ancora dall'app.
+- **Storico:** le scelte usate restano in `draft_picks` con la loro posizione, gli swap decisi con `result`; `league_state` non li dà più al motore. I ritirati restano in `players` con `retired`.
 
 ## Visione
 

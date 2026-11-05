@@ -38,6 +38,8 @@ export interface LeagueDetail {
   roundNumber: number | null;
   roundKind: string | null;
   roundState: string | null;
+  /** Turno di offseason: draft, renewals, fa1-fa4, preparation. */
+  roundStage: string | null;
   draftState: 'waiting' | 'running' | 'done' | null;
   draftMode: 'list' | 'live';
   teams: LeagueTeam[];
@@ -70,11 +72,11 @@ export const PICK_SECONDS_OPTIONS: { label: string; value: number }[] = [
 
 // Le relazioni con più chiavi esterne vanno indicate per nome del vincolo
 const LEAGUE_STATUS =
-  'season:seasons!leagues_current_season(id, year, phase), round:rounds!leagues_current_round(number, kind, state)';
+  'season:seasons!leagues_current_season(id, year, phase), round:rounds!leagues_current_round(number, kind, state, stage)';
 
 interface StatusRow {
   season: { id: string; year: number; phase: string } | null;
-  round: { number: number; kind: string; state: string } | null;
+  round: { number: number; kind: string; state: string; stage: string | null } | null;
 }
 
 export async function myLeagues(userId: string): Promise<MyLeague[]> {
@@ -158,6 +160,7 @@ export async function leagueDetail(id: string): Promise<LeagueDetail | null> {
     roundNumber: l.round?.number ?? null,
     roundKind: l.round?.kind ?? null,
     roundState: l.round?.state ?? null,
+    roundStage: l.round?.stage ?? null,
     // Relazione uno a uno: PostgREST può restituire l'oggetto o un elenco di uno
     draftState: (Array.isArray(l.draft) ? l.draft[0] : l.draft)?.state ?? null,
     draftMode: l.draft_mode,

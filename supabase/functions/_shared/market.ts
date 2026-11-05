@@ -2,7 +2,11 @@
 // scrittura per public.market_write. Comune alla Edge Function market (Deno) e ai test (Node). Il turno le
 // esegue tutte alla chiusura, ricontrollandole: qui si rifiuta subito quello che già adesso non va.
 import {
+  askingSalary,
   canSign,
+  expiringAsk,
+  freeAgencyRoundOf,
+  isExpiring,
   contractOf,
   inSeasonAsk,
   maxSalaryFor,
@@ -11,7 +15,7 @@ import {
   salaryRun,
   validateTrade,
 } from '../../../packages/engine/src/index.ts';
-import type { LeagueState, Trade } from '../../../packages/engine/src/index.ts';
+import type { LeagueState, OffseasonStage, Trade } from '../../../packages/engine/src/index.ts';
 import { leagueStateFromRows, type LeagueStateRows, type StateIds } from './state.ts';
 import { tradeFromRow } from './turn.ts';
 
@@ -61,12 +65,16 @@ export function checkMarketAction(
   const me = team.code;
   const write = (w: Record<string, unknown>) => ({ teamId: team.id, roundId: round.id, write: w });
   const marketOpen = round.kind === 'regular';
+  const offseason = round.kind === 'offseason';
+  const stage = offseason ? (round.stage ?? null) : null;
+  const faRound = stage ? freeAgencyRoundOf(stage as OffseasonStage) : null;
 
   switch (action.kind) {
     case 'bid': {
-      if (!marketOpen) throw new MarketError('Svincolati: si firma solo in regular season');
+      if (!marketOpen && faRound === null)
+        throw new MarketError('Svincolati: si firma in regular season e nei turni di free agency');
       const p = state.players.find((x) => x.id === action.player_id);
-      if (!p || p.teamId !== null) throw new MarketError('Il giocatore non è svincolato');
+      if (!p || p.teamId !== null || p.prospect) throw new MarketError('Il giocatore non è svincolato');
       const years = Number(action.years);
       const salary = Math.round(Number(action.salary));
       if (!Number.isInteger(years) || years < 1 || years > 5)
@@ -75,7 +83,7 @@ export function checkMarketAction(
       const max = maxSalaryFor(state.config, p.yearsInLeague);
       if (!(salary >= min)) throw new MarketError(`Lo stipendio minimo per lui è ${millions(min)}`);
       if (salary > max) throw new MarketError(`Lo stipendio massimo per lui è ${millions(max)}`);
-      const ask = inSeasonAsk(state, p);
+      const ask = faRound === null ? inSeasonAsk(state, p) : askingSalary(state, p, faRound);
       if (salary < ask) throw new MarketError(`Chiede almeno ${millions(ask)} a stagione`);
       const check = canSign(state, me, p, salary);
       if (!check.ok) throw new MarketError(`Non puoi firmarlo: ${check.reason}`);
@@ -145,17 +153,24 @@ export function checkMarketAction(
       return write({ kind: 'withdraw_trade', offer_id: action.offer_id });
 
     case 'release': {
-      if (!marketOpen) throw new MarketError('Si taglia solo in regular season');
+      if (!marketOpen && !offseason) throw new MarketError('Durante play-in e playoff non si taglia');
       const p = ownPlayer(state, me, action.player_id);
       if (!contractOf(state, p.id)) throw new MarketError('Il giocatore non ha un contratto');
       return write({ kind: 'release', player_id: p.id });
     }
 
     case 'renew': {
-      if (!marketOpen) throw new MarketError('Si rinnova in regular season (o nel turno dei rinnovi)');
       const p = ownPlayer(state, me, action.player_id);
       const c = contractOf(state, p.id);
       if (!c || c.type === 'two-way') throw new MarketError('I two-way non si rinnovano');
+      if (stage === 'renewals') {
+        // Turno dei rinnovi: i giocatori in scadenza, alla richiesta della stagione che arriva
+        if (!isExpiring(state, p.id)) throw new MarketError('Il giocatore non è in scadenza');
+        const ask = expiringAsk(state, p);
+        if (!ask) throw new MarketError('Non vuole rinnovare: il morale è troppo basso');
+        return write({ kind: 'renew', player_id: p.id, salaries: ask });
+      }
+      if (!marketOpen) throw new MarketError('Si rinnova in regular season o nel turno dei rinnovi');
       if (c.salaries.length !== 1) throw new MarketError('Si rinnova solo all’ultimo anno di contratto');
       const offer = renewalOffer(state, p);
       if (!offer) throw new MarketError('Non vuole rinnovare: il morale è troppo basso');

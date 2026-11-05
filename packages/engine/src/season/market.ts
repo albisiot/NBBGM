@@ -121,7 +121,18 @@ export interface MarketOutcome {
  * agli svincolati (in stagione gli svincolati chiedono quanto a fine free agency). Uno scambio che non vale più,
  * per esempio perché un giocatore è già andato in un altro scambio, decade.
  */
-export function runMarket(state: LeagueState, req: MarketRequests, turn: number | null): MarketOutcome {
+export function runMarket(
+  state: LeagueState,
+  req: MarketRequests,
+  turn: number | null,
+  opts: {
+    /** Turno di free agency dell'offseason (0-3): le richieste scendono di turno in turno. In stagione l'ultimo. */
+    askRound?: number;
+    /** Offerte dei bot da mettere insieme a quelle dei manager (free agency dell'offseason). */
+    extraOffers?: () => Offer[];
+  } = {},
+): MarketOutcome {
+  const askRound = opts.askRound ?? IN_SEASON_ASK_ROUND;
   const out: MarketOutcome = { trades: [], requests: [], bids: [], notes: [] };
   const note = (teamId: string, text: string) => out.notes.push({ teamId, text });
 
@@ -216,10 +227,10 @@ export function runMarket(state: LeagueState, req: MarketRequests, turn: number 
       return [b.id, check.ok ? null : (check.reason ?? 'non si può firmare')];
     }),
   );
-  resolveOffers(state, offers, IN_SEASON_ASK_ROUND, worstFirst, turn);
+  resolveOffers(state, [...offers, ...(opts.extraOffers?.() ?? [])], askRound, worstFirst, turn);
   for (const b of valid) {
     const p = state.players.find((x) => x.id === b.playerId) as PlayerState;
-    const ask = inSeasonAsk(state, p);
+    const ask = askingSalaryFor(state.config, p, askRound);
     if (p.teamId === b.teamId) {
       out.bids.push({ id: b.id, status: 'won' });
       note(

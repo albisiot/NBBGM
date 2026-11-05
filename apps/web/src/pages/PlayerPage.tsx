@@ -133,7 +133,11 @@ export function PlayerPage() {
         </h2>
         {p.salaries.length === 0 ? (
           <p className="text-sm text-slate-500">
-            {p.contractType === 'two-way' ? 'Stipendio fisso da two-way.' : 'Nessun contratto.'}
+            {p.contractType === 'two-way'
+              ? 'Stipendio fisso da two-way.'
+              : p.contractType
+                ? 'In scadenza: la squadra può rinnovarlo nel turno dei rinnovi, altrimenti diventa svincolato.'
+                : 'Nessun contratto.'}
           </p>
         ) : (
           <ul className="grid grid-cols-2 gap-1 text-sm sm:grid-cols-3">
@@ -157,7 +161,8 @@ export function PlayerPage() {
           player={p}
           renewal={renewalAsk(data.config, p)}
           requests={data.requests.filter((r) => r.playerId === p.id)}
-          marketOpen={league.roundKind === 'regular'}
+          marketOpen={league.roundKind === 'regular' || league.roundKind === 'offseason'}
+          renewOpen={league.roundKind === 'regular'}
           onDone={reload}
         />
       )}
@@ -242,6 +247,7 @@ function OwnPlayerMarket({
   renewal,
   requests,
   marketOpen,
+  renewOpen,
   onDone,
 }: {
   leagueId: string;
@@ -249,6 +255,8 @@ function OwnPlayerMarket({
   renewal: number[];
   requests: RosterRequest[];
   marketOpen: boolean;
+  /** Rinnovo all'ultimo anno: in regular season (in offseason si rinnovano i giocatori in scadenza). */
+  renewOpen: boolean;
   onDone: () => void;
 }) {
   const [busy, setBusy] = useState(false);
@@ -276,7 +284,9 @@ function OwnPlayerMarket({
   return (
     <Card className="space-y-3 text-sm">
       <h2 className="font-semibold">Contratto e rosa</h2>
-      {!marketOpen && <p className="text-slate-500">Tagli e rinnovi si fanno in regular season.</p>}
+      {!marketOpen && (
+        <p className="text-slate-500">Durante play-in e playoff non si taglia e non si rinnova.</p>
+      )}
       {release ? (
         <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg bg-orange-50 p-3 dark:bg-orange-950">
           <span>Taglio chiesto: si esegue alla chiusura del turno.</span>
@@ -322,7 +332,7 @@ function OwnPlayerMarket({
             </Button>
           </div>
         ) : (
-          marketOpen && (
+          renewOpen && (
             <div className="space-y-1">
               <p>
                 Ultimo anno di contratto.{' '}

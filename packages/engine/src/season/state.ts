@@ -34,6 +34,8 @@ export interface PlayerState extends Player {
   scoutedPotential: number;
   /** Partite giocate da two-way in questa regular season (massimo 50). */
   twoWayGames: number;
+  /** Anno del draft per cui è in attesa di essere scelto (solo durante l'offseason), altrimenti null. */
+  prospect?: number | null;
 }
 
 export interface TeamState extends Team {
@@ -70,6 +72,18 @@ export interface DraftSwap {
   /** Chi ha il diritto di scegliere la migliore delle due. */
   holderId: string;
   otherId: string;
+}
+
+/** Una chiamata del draft annuale, con la squadra che sceglie dopo protezioni e swap. */
+export interface DraftSlotState {
+  /** Numero della chiamata nel draft (1-60). */
+  pick: number;
+  round: 1 | 2;
+  /** Posizione nel giro (1-30). */
+  number: number;
+  originalTeamId: string;
+  ownerId: string;
+  playerId: string | null;
 }
 
 export interface GameRecord {
@@ -129,6 +143,8 @@ export interface LeagueState {
    * in classifica. Senza, si usa seed: va bene offline, non sul server, dove seed resta segreto.
    */
   publicSeed?: string;
+  /** Offseason in corso: draft dell'anno, lottery e chiamate (da startOffseason a startNewSeason). */
+  offseason?: { draftYear: number; lottery: string[]; slots: DraftSlotState[] } | null;
   /** Luxury tax e monte stipendi minimo pagati all'ultima fine di regular season (per il bilancio del server). */
   lastSettlement?: { teamId: string; payroll: number; tax: number; shortfall: number }[];
 }

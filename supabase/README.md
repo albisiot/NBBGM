@@ -41,6 +41,7 @@ Senza `--remote` i comandi `db` puntano al database locale di Docker.
 | `20261105140100_pause_deadline.sql`      | La pausa ferma anche la scadenza: alla ripresa la scadenza del turno aperto riparte da adesso.                                                                                                                   |
 | `20261105150000_postseason.sql`          | Play-in e playoff: si gioca anche lì, conta solo chi ha una partita nel turno, `league_state` con le serie; `leagues.seed` non più leggibile dal client.                                                         |
 | `20261105160000_market.sql`              | Mercato: `market_write` (solo server, a turno aperto), `apply_round`, `roster_requests`, protezioni negli scambi, `team_balance`; niente scritture dirette su offerte e scambi, saldo non leggibile dagli altri. |
+| `20261105170000_offseason.sql`           | Offseason a turni: `rounds.stage`, prospetti (`players.draft_prospect`), `draft_order`, `draft_lists` (del manager), `apply_round` con draft e stagione nuova, l'offseason si gioca.                             |
 
 `supabase db advisors` lascia solo avvisi voluti:
 
@@ -86,6 +87,7 @@ Senza `--remote` i comandi `db` puntano al database locale di Docker.
 
 - pg_cron esegue `private.cron_tick()` ogni 15 secondi (job `nbbgm-turni`): turni da chiudere, turni fermi in chiusura da più di 5 minuti e scelte del draft dal vivo con il tempo scaduto. Le esecuzioni si vedono in `cron.job_run_details`, le risposte delle funzioni in `net._http_response`.
 - Tempo reale: `rounds`, `ready_flags`, `coach_delegations` e `alerts` sono nella pubblicazione `supabase_realtime`; la RLS decide che cosa arriva a ciascuno.
+- Offseason: turni `offseason` con `stage` draft, renewals, fa1-fa4, preparation. Alla chiusura della finale advance-turn fa fine stagione, lottery e ordine del draft (`draft_order`, `draft_lottery`) e scrive la classe del draft come prospetti; alla chiusura del draft fa le 60 scelte e fa scalare i contratti (chi scade resta con un contratto senza stipendi fino al turno dei rinnovi); alla chiusura della preparazione nasce la riga nuova di `seasons` con il suo calendario (`new_games` di `apply_round`). Dopo il draft `league_state` dà ancora la stagione vecchia: la configurazione della nuova la ricava il motore (`nextConfig`).
 - Post-season: il tabellone non si salva come stato. advance-turn lo ricostruisce dalle partite giocate (`replayPostseason` nel motore), aggiorna `playoff_series` e mette in `games` le partite del turno successivo (senza punteggio), così tutti vedono chi gioca.
 
 ## apply_turn

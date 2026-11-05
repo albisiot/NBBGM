@@ -1,7 +1,7 @@
 // Stato della lega dal database al motore: il risultato di public.league_state(lega) diventa un LeagueState,
 // con le impostazioni salvate dai manager al posto di quelle del bot. Nel motore le squadre hanno per id la
 // sigla (BOS), i giocatori e le scelte il loro uuid; ids riporta le sigle agli uuid del database.
-import { emptyStats, validTactics } from '../../../packages/engine/src/index.ts';
+import { emptyStats, nextConfig, validTactics } from '../../../packages/engine/src/index.ts';
 import type {
   BodyPart,
   Conference,
@@ -46,6 +46,8 @@ export interface LeagueStateRows {
     state: string;
     seed?: string | null;
     close_reason?: string | null;
+    /** Turno di offseason: draft, renewals, fa1-fa4, preparation. */
+    stage?: string | null;
   } | null;
   teams: {
     id: string;
@@ -62,6 +64,8 @@ export interface LeagueStateRows {
   }[];
   players: {
     id: string;
+    slug?: string;
+    draft_prospect?: number | null;
     team_id: string | null;
     first_name: string;
     last_name: string;
@@ -168,6 +172,18 @@ export interface LeagueStateRows {
   }[];
   /** Squadra umana -> numero dell'ultimo turno in cui un bot le ha proposto uno scambio. */
   bot_proposals?: Record<string, number>;
+  /** Ordine del draft annuale della stagione (dopo lottery, protezioni e swap). */
+  draft_order?: {
+    draft_year: number;
+    pick_no: number;
+    round: number;
+    number: number;
+    team_id: string;
+    original_team_id: string;
+    player_id: string | null;
+  }[];
+  /** Preferiti dei manager per il draft annuale. */
+  draft_lists?: { team_id: string; player_ids: string[] }[];
 }
 
 export interface TradeOfferRow {
@@ -204,7 +220,7 @@ export function leagueStateFromRows(r: LeagueStateRows): { state: LeagueState; i
   const coach = new Set(r.coach ?? []);
   const injuries = new Map(r.injuries.map((i) => [i.player_id, i]));
   const s = r.season;
-  const config: SeasonConfig = {
+  const seasonConfig: SeasonConfig = {
     year: s.year,
     salaryCap: num(s.salary_cap),
     luxuryTax: num(s.luxury_tax),
@@ -216,6 +232,12 @@ export function leagueStateFromRows(r: LeagueStateRows): { state: LeagueState; i
     revenue: num(s.revenue),
     growth: num(s.growth),
   };
+  // Dopo il draft dell'offseason i contratti sono già scalati: si lavora con la configurazione della stagione
+  // che arriva (la sua riga di seasons nasce alla fine della preparazione)
+  const config =
+    r.round?.kind === 'offseason' && r.round.stage && r.round.stage !== 'draft'
+      ? nextConfig(seasonConfig)
+      : seasonConfig;
 
   const players: PlayerState[] = r.players.map((p) => {
     const injury = injuries.get(p.id);
@@ -249,6 +271,7 @@ export function leagueStateFromRows(r: LeagueStateRows): { state: LeagueState; i
       stats: { ...emptyStats(), ...p.season_stats },
       scoutedPotential: p.scouted_potential,
       twoWayGames: p.two_way_games,
+      prospect: p.draft_prospect ?? null,
     };
   });
 
@@ -333,6 +356,20 @@ export function leagueStateFromRows(r: LeagueStateRows): { state: LeagueState; i
     talentReference: num(r.league.talent_reference),
     // Gli spareggi in classifica usano l'id della lega, che l'app conosce: il seed della lega resta segreto
     publicSeed: r.league.id,
+    offseason: r.draft_order?.length
+      ? {
+          draftYear: (r.draft_order[0] as { draft_year: number }).draft_year,
+          lottery: [],
+          slots: r.draft_order.map((d) => ({
+            pick: d.pick_no,
+            round: d.round as 1 | 2,
+            number: d.number,
+            ownerId: codeOf(d.team_id),
+            originalTeamId: codeOf(d.original_team_id),
+            playerId: d.player_id,
+          })),
+        }
+      : null,
   };
   return { state, ids: { team, code } };
 }

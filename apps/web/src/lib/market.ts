@@ -5,7 +5,10 @@ import {
   askingSalaryFor,
   IN_SEASON_ASK_ROUND,
   luxuryTax,
+  nextConfig,
   renewalSalaries,
+  salaryRun,
+  typicalYears,
   type SeasonConfig,
 } from '@nbbgm/engine';
 import { FunctionsHttpError } from '@supabase/supabase-js';
@@ -84,10 +87,46 @@ export async function seasonConfig(seasonId: string): Promise<SeasonConfig> {
   };
 }
 
-/** Richiesta di uno svincolato in stagione, come la calcola il server. */
-export function freeAgentAsk(config: SeasonConfig, p: RosterPlayer): number {
-  return askingSalaryFor(config, p, IN_SEASON_ASK_ROUND);
+/**
+ * Richiesta di uno svincolato, come la calcola il server: in stagione quella di fine free agency, nei turni di
+ * free agency dell'offseason quella del turno (scende di turno in turno).
+ */
+export function freeAgentAsk(config: SeasonConfig, p: RosterPlayer, faRound: number | null = null): number {
+  return askingSalaryFor(config, p, faRound ?? IN_SEASON_ASK_ROUND);
 }
+
+/** Turno di free agency (0-3) dello stage di offseason, o null. */
+export function faRoundOf(stage: string | null): number | null {
+  const m = /^fa([1-4])$/.exec(stage ?? '');
+  return m ? Number(m[1]) - 1 : null;
+}
+
+/**
+ * Configurazione con cui lavora il server: dopo il draft dell'offseason è già quella della stagione che arriva.
+ */
+export function effectiveConfig(
+  config: SeasonConfig,
+  kind: string | null,
+  stage: string | null,
+): SeasonConfig {
+  return kind === 'offseason' && stage && stage !== 'draft' ? nextConfig(config) : config;
+}
+
+/** Richiesta di rinnovo di un giocatore in scadenza nel turno dei rinnovi, come la calcola il server. */
+export function expiringAskOf(config: SeasonConfig, p: RosterPlayer): number[] | null {
+  if (p.morale < 30) return null;
+  return salaryRun(askingSalaryFor(config, p, 0), typicalYears(p.age));
+}
+
+export const STAGE_LABEL: Record<string, string> = {
+  draft: 'Draft',
+  renewals: 'Rinnovi',
+  fa1: 'Free agency, turno 1 di 4',
+  fa2: 'Free agency, turno 2 di 4',
+  fa3: 'Free agency, turno 3 di 4',
+  fa4: 'Free agency, turno 4 di 4',
+  preparation: 'Preparazione della stagione',
+};
 
 /** Stipendi chiesti per il rinnovo (dalla stagione successiva), come li calcola il server. */
 export function renewalAsk(config: SeasonConfig, p: RosterPlayer): number[] {

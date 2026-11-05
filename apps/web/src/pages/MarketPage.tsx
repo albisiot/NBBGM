@@ -9,7 +9,12 @@ import { friendlyError } from '../lib/errors.ts';
 import { leagueDetail, type LeagueDetail, type LeagueTeam } from '../lib/leagues.ts';
 import {
   BID_STATUS,
+  effectiveConfig,
+  expiringAskOf,
+  faRoundOf,
   freeAgentAsk,
+  myRequests,
+  type RosterRequest,
   leaguePicks,
   LEDGER_LABEL,
   marketAction,
@@ -36,7 +41,7 @@ import {
 } from '../lib/roster.ts';
 import { useAsync } from '../lib/useAsync.ts';
 
-type Tab = 'svincolati' | 'scambi' | 'bilancio';
+type Tab = 'svincolati' | 'scambi' | 'rinnovi' | 'bilancio';
 
 interface MarketData {
   league: LeagueDetail;
@@ -49,6 +54,9 @@ interface MarketData {
   offers: TradeOffer[];
   picks: PickInfo[];
   players: Map<string, PlayerLite>;
+  requests: RosterRequest[];
+  /** Turno di free agency dell'offseason (0-3), o null. */
+  faRound: number | null;
 }
 
 export function MarketPage() {
@@ -60,8 +68,8 @@ export function MarketPage() {
     const league = await leagueDetail(id);
     const me = league?.teams.find((t) => t.ownerId === userId);
     if (!league || !me || !league.seasonId) return null;
-    const [config, finance, roster, freeAgents, bids, offers, picks, players] = await Promise.all([
-      seasonConfig(league.seasonId),
+    const [config, finance, roster, freeAgents, bids, offers, picks, players, requests] = await Promise.all([
+      seasonConfig(league.seasonId).then((c) => effectiveConfig(c, league.roundKind, league.roundStage)),
       teamFinance(me.id),
       teamRoster(me.id),
       freeAgentPlayers(league.id),
@@ -69,8 +77,23 @@ export function MarketPage() {
       tradeOffers(league.id),
       leaguePicks(league.id),
       leaguePlayersLite(league.id),
+      myRequests(me.id),
     ]);
-    return { league, me, config, finance, roster, freeAgents, bids, offers, picks, players };
+    const faRound = league.roundKind === 'offseason' ? faRoundOf(league.roundStage) : null;
+    return {
+      league,
+      me,
+      config,
+      finance,
+      roster,
+      freeAgents,
+      bids,
+      offers,
+      picks,
+      players,
+      requests,
+      faRound,
+    };
   }, [id, userId]);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<{ ok: boolean; text: string } | null>(null);
@@ -95,6 +118,9 @@ export function MarketPage() {
   if (error) return <ErrorText>{error}</ErrorText>;
   if (!data) return <ErrorText>Non hai una squadra in questa lega.</ErrorText>;
   const regular = data.league.roundKind === 'regular';
+  const offseason = data.league.roundKind === 'offseason';
+  const renewals = offseason && data.league.roundStage === 'renewals';
+  const signing = regular || data.faRound !== null;
 
   return (
     <div className="space-y-4">
@@ -109,6 +135,7 @@ export function MarketPage() {
         options={[
           { label: 'Svincolati', value: 'svincolati' },
           { label: 'Scambi', value: 'scambi' },
+          ...(renewals ? [{ label: 'Rinnovi', value: 'rinnovi' as Tab }] : []),
           { label: 'Bilancio', value: 'bilancio' },
         ]}
       />
@@ -124,12 +151,25 @@ export function MarketPage() {
           {message.text}
         </p>
       )}
-      {!regular && tab !== 'bilancio' && (
+      {!regular && !offseason && tab !== 'bilancio' && (
         <p className="text-sm text-slate-600 dark:text-slate-300">
-          Il mercato è aperto solo in regular season (gli scambi fino alla giornata {TRADE_DEADLINE_TURN + 1}
-          ).
+          Durante play-in e playoff il mercato è chiuso (gli scambi si fermano dopo la giornata{' '}
+          {TRADE_DEADLINE_TURN + 1} e riaprono nell’offseason).
         </p>
       )}
+      {tab === 'svincolati' && !signing && (
+        <p className="text-sm text-slate-600 dark:text-slate-300">
+          Gli svincolati si firmano in regular season e nei quattro turni di free agency dell’offseason.
+        </p>
+      )}
+      {data.faRound !== null && (
+        <p className="text-sm text-slate-600 dark:text-slate-300">
+          Free agency, turno {data.faRound + 1} di 4: anche i bot fanno le loro offerte, e le richieste
+          scendono di turno in turno. Fino a 21 giocatori in rosa nell’offseason; contratti e cap sono già
+          quelli della prossima stagione.
+        </p>
+      )}
+      {tab === 'rinnovi' && renewals && <Renewals data={data} busy={busy} run={run} />}
       {tab === 'svincolati' && <FreeAgents data={data} busy={busy} run={run} />}
       {tab === 'scambi' && <Trades data={data} busy={busy} run={run} />}
       {tab === 'bilancio' && <Ledger data={data} />}
@@ -187,7 +227,7 @@ function FreeAgents({ data, busy, run }: { data: MarketData; busy: boolean; run:
     () =>
       data.freeAgents
         .filter((p) => role === 'all' || p.role === role || p.secondaryRole === role)
-        .map((p) => ({ p, ovr: overall(p), ask: freeAgentAsk(data.config, p) }))
+        .map((p) => ({ p, ovr: overall(p), ask: freeAgentAsk(data.config, p, data.faRound) }))
         .sort((a, b) => b.ovr - a.ovr)
         .slice(0, 60),
     [data, role],
@@ -834,5 +874,70 @@ function Ledger({ data }: { data: MarketData }) {
         </ul>
       </Card>
     </div>
+  );
+}
+
+// ---------------------------------------------------------------- rinnovi dell'offseason
+
+/** Turno dei rinnovi: i giocatori in scadenza con la loro richiesta; chi non rinnovi diventa svincolato. */
+function Renewals({ data, busy, run }: { data: MarketData; busy: boolean; run: Run }) {
+  const expiring = data.roster.filter((p) => p.contractType !== 'two-way' && p.salaries.length === 0);
+  return (
+    <Card className="space-y-3 !p-4">
+      <h2 className="font-semibold">Giocatori in scadenza</h2>
+      <p className="text-xs text-slate-500 dark:text-slate-400">
+        Le richieste sono ai prezzi della prossima stagione e dipendono da valore, età e morale. Con il morale
+        sotto 30 il giocatore non rinnova. Alla chiusura del turno chi non hai rinnovato diventa svincolato.
+      </p>
+      {expiring.length === 0 && <p className="text-sm text-slate-500">Nessun giocatore in scadenza.</p>}
+      <ul className="divide-y divide-slate-100 text-sm dark:divide-slate-700">
+        {expiring.map((p) => {
+          const ask = expiringAskOf(data.config, p);
+          const request = data.requests.find((r) => r.playerId === p.id && r.kind === 'renew');
+          return (
+            <li key={p.id} className="flex flex-wrap items-center gap-2 py-2">
+              <span className="w-8 text-center font-mono font-semibold">{overall(p)}</span>
+              <Link
+                to={`/lega/${data.league.id}/giocatore/${p.id}`}
+                className="min-w-0 flex-1 truncate hover:underline"
+              >
+                {p.firstName} {p.lastName}
+                <span className="ml-1 text-xs text-slate-500">
+                  {p.role} · {p.age} anni · morale {Math.round(p.morale)}
+                </span>
+              </Link>
+              <span className="text-xs text-slate-600 dark:text-slate-300">
+                {ask ? `${ask.length} anni, ${millions(ask[0] ?? 0)} il primo` : 'non vuole rinnovare'}
+              </span>
+              {request ? (
+                <Button
+                  variant="ghost"
+                  disabled={busy}
+                  onClick={() =>
+                    void run({ kind: 'withdraw_request', request_id: request.id }, 'Rinnovo annullato.')
+                  }
+                >
+                  Annulla il rinnovo
+                </Button>
+              ) : (
+                ask && (
+                  <Button
+                    disabled={busy}
+                    onClick={() =>
+                      void run(
+                        { kind: 'renew', player_id: p.id },
+                        `Rinnovo di ${p.firstName} ${p.lastName} accettato: si firma alla chiusura del turno.`,
+                      )
+                    }
+                  >
+                    Rinnova
+                  </Button>
+                )
+              )}
+            </li>
+          );
+        })}
+      </ul>
+    </Card>
   );
 }

@@ -19,8 +19,18 @@ import {
   REGULAR_SEASON_TURNS,
   replayPostseason,
   Rng,
+  botFreeAgencyOffers,
   botProposals,
+  closeRenewals,
+  expiringPlayers,
+  freeAgencyRoundOf,
+  generatedDraftClass,
+  nextStage,
+  runAnnualDraft,
   runMarket,
+  scaleContracts,
+  startNewSeason,
+  startOffseason,
   simulateGame,
   standardRoster,
   twoWayRoster,
@@ -30,6 +40,7 @@ import type {
   GameResult,
   LeagueState,
   PlayerState,
+  OffseasonStage,
   PostseasonGame,
   PostseasonState,
   TeamSetup,
@@ -80,6 +91,14 @@ export const ALERT_KINDS = {
   tradeOffer: 'trade_offer',
   /** Informativo: esito di scambi, tagli, rinnovi e offerte agli svincolati. */
   market: 'market',
+  /** Bloccante, offseason: scelte al draft da preparare (lista dei preferiti). */
+  draft: 'draft_pick',
+  /** Bloccante, offseason: giocatori in scadenza da rinnovare o lasciar andare. */
+  renewals: 'renewals',
+  /** Bloccante, offseason: turno di free agency. */
+  freeAgency: 'free_agency',
+  /** Bloccante, offseason: preparazione della stagione (rosa, quintetto, tattiche). */
+  preparation: 'preparation',
 } as const;
 
 const PERIODS = 82;
@@ -102,8 +121,11 @@ export function serverTurn(
   const round = rows.round;
   if (!round || round.id !== claim.round_id) throw new Error('Il turno da simulare non è quello corrente');
   const regular = round.kind === 'regular';
-  if (!regular && round.kind !== 'play-in' && round.kind !== 'playoffs')
-    throw new Error("L'offseason arriva con la Fase 12");
+  const offseason = round.kind === 'offseason';
+  const stage = offseason ? ((round.stage ?? null) as OffseasonStage | null) : null;
+  if (offseason && !stage) throw new Error('Turno di offseason senza stage');
+  if (!regular && !offseason && round.kind !== 'play-in' && round.kind !== 'playoffs')
+    throw new Error(`Turno sconosciuto: ${round.kind}`);
   const now = opts.now ?? new Date();
   const { state, ids } = leagueStateFromRows(rows);
   if (regular !== (state.phase === 'regular'))
@@ -115,15 +137,18 @@ export function serverTurn(
     return id;
   };
   let scheduled: PostseasonGame[] = [];
-  if (!regular) {
+  if (!regular && !offseason) {
     state.postseason = replayPostseason(state);
     scheduled = postseasonGames(state.postseason);
   }
   const turn = regular
     ? state.turn
-    : REGULAR_SEASON_TURNS +
-      new Set(state.games.filter((g) => g.phase !== 'regular').map((g) => g.turn)).size;
-  if (turn !== round.number) throw new Error(`Turno ${round.number} fuori sequenza (atteso ${turn})`);
+    : offseason
+      ? round.number
+      : REGULAR_SEASON_TURNS +
+        new Set(state.games.filter((g) => g.phase !== 'regular').map((g) => g.turn)).size;
+  if (!offseason && turn !== round.number)
+    throw new Error(`Turno ${round.number} fuori sequenza (atteso ${turn})`);
   const before = clone(state);
   const alerts = rows.alerts ?? [];
 
@@ -134,6 +159,8 @@ export function serverTurn(
     return c;
   };
   const humanCodes = new Set(state.teams.filter((t) => t.human).map((t) => t.id));
+  const faRound = stage ? freeAgencyRoundOf(stage) : null;
+  const requests = rows.requests ?? [];
   const market = runMarket(
     state,
     {
@@ -148,7 +175,8 @@ export function serverTurn(
       releases: (rows.requests ?? [])
         .filter((q) => q.kind === 'release')
         .map((q) => ({ id: q.id, teamId: code(q.team_id), playerId: q.player_id })),
-      renewals: (rows.requests ?? [])
+      // In offseason i rinnovi riguardano i giocatori in scadenza: li decide il turno dei rinnovi
+      renewals: (offseason ? [] : requests)
         .filter((q) => q.kind === 'renew')
         .map((q) => ({
           id: q.id,
@@ -156,14 +184,15 @@ export function serverTurn(
           playerId: q.player_id,
           salaries: (q.payload.salaries ?? []).map(Number),
         })),
-      bids: (rows.bids ?? []).map((b) => ({
+      bids: (offseason && faRound === null ? [] : (rows.bids ?? [])).map((b) => ({
         id: b.id,
         teamId: code(b.team_id),
         playerId: b.player_id,
         salaries: b.salaries.map(Number),
       })),
     },
-    turn,
+    offseason ? null : turn,
+    faRound === null ? {} : { askRound: faRound, extraOffers: () => botFreeAgencyOffers(state, faRound) },
   );
 
   // ------------------------------------------------ avvisi del turno che si chiude
@@ -203,20 +232,63 @@ export function serverTurn(
     games.push({ result, seed });
     return result;
   };
+  const renewalResults: { id: string; status: 'done' | 'invalid' }[] = [];
+  let newSeason = false;
+  let lottery: string[] | null = null;
   if (regular) playRegularTurn(state, play);
-  else playPostseasonTurn(state, play);
+  else if (!offseason) {
+    playPostseasonTurn(state, play);
+    // Finale giocata: fine stagione, lottery, ordine del draft e classe del draft (generata)
+    if (state.phase === 'offseason') {
+      const draftYear = state.config.year + 1;
+      const draftClass = generatedDraftClass(new Rng(`${claim.seed}:classe`), draftYear).map((p) => ({
+        ...p,
+        id: opts.newId(),
+        slug: `${p.id}-${state.publicSeed ?? ''}`.slice(0, 60),
+      }));
+      startOffseason(state, draftClass);
+      lottery = state.offseason?.lottery ?? null;
+    }
+  } else if (stage === 'draft') {
+    runAnnualDraft(state, new Map((rows.draft_lists ?? []).map((l) => [code(l.team_id), l.player_ids])));
+    scaleContracts(state);
+  } else if (stage === 'renewals') {
+    const asked = new Map(requests.filter((q) => q.kind === 'renew').map((q) => [q.player_id, q.id]));
+    const decisions = new Map<string, 'renew' | 'release' | 'bot'>();
+    for (const p of expiringPlayers(state)) {
+      const team = state.teams.find((t) => t.id === p.teamId);
+      if (!team?.human) continue;
+      if (asked.has(p.id)) decisions.set(p.id, 'renew');
+      else {
+        // Senza risposta: con l'allenatore decide la logica del bot, altrimenti il giocatore se ne va
+        const open = alerts.some(
+          (a) => a.kind === ALERT_KINDS.renewals && a.team_id === uuid(team.id) && a.status === 'open',
+        );
+        decisions.set(p.id, team.coach && open ? 'bot' : 'release');
+      }
+    }
+    const result = closeRenewals(state, decisions);
+    for (const [playerId, id] of asked)
+      renewalResults.push({ id, status: result.renewed.includes(playerId) ? 'done' : 'invalid' });
+  } else if (stage === 'preparation') {
+    startNewSeason(state);
+    newSeason = true;
+  }
   const ps = state.postseason as PostseasonState | null;
   // Fine della regular season in questo turno: tassa, monte minimo e primo turno di play-in
   const seasonOver = regular && state.phase !== 'regular';
-  const next =
-    state.phase === 'regular'
-      ? { number: state.turn, kind: 'regular' }
-      : state.phase === 'offseason'
-        ? { number: turn + 1, kind: 'offseason' }
-        : {
-            number: seasonOver ? REGULAR_SEASON_TURNS : turn + 1,
-            kind: ps?.stage === 'playoffs' ? 'playoffs' : 'play-in',
-          };
+  const next: { number: number; kind: string; stage?: OffseasonStage } = newSeason
+    ? { number: 0, kind: 'regular' }
+    : offseason
+      ? { number: turn + 1, kind: 'offseason', stage: nextStage(stage as OffseasonStage) as OffseasonStage }
+      : state.phase === 'regular'
+        ? { number: state.turn, kind: 'regular' }
+        : state.phase === 'offseason'
+          ? { number: turn + 1, kind: 'offseason', stage: 'draft' }
+          : {
+              number: seasonOver ? REGULAR_SEASON_TURNS : turn + 1,
+              kind: ps?.stage === 'playoffs' ? 'playoffs' : 'play-in',
+            };
 
   // ------------------------------------------------ avvisi nuovi
   const humans = new Set(state.teams.filter((t) => t.human).map((t) => t.id));
@@ -231,6 +303,22 @@ export function serverTurn(
         payload: { standard, minimum: MIN_STANDARD },
         deadline: null,
       });
+    }
+  }
+  // Turni di offseason che chiedono decisioni: avviso bloccante per i manager interessati
+  if (next.kind === 'offseason' && next.stage) {
+    const fa = freeAgencyRoundOf(next.stage);
+    for (const team of humans) {
+      const alert = (kind: string, payload: Record<string, unknown>) =>
+        newAlerts.push({ team_id: uuid(team), kind, blocking: true, payload, deadline: null });
+      if (next.stage === 'draft') {
+        const picks = (state.offseason?.slots ?? []).filter((s) => s.ownerId === team).map((s) => s.pick);
+        if (picks.length) alert(ALERT_KINDS.draft, { picks, draft_year: state.offseason?.draftYear });
+      } else if (next.stage === 'renewals') {
+        const n = expiringPlayers(state, team).length;
+        if (n) alert(ALERT_KINDS.renewals, { players: n });
+      } else if (fa !== null) alert(ALERT_KINDS.freeAgency, { round: fa + 1 });
+      else alert(ALERT_KINDS.preparation, {});
     }
   }
   for (const n of market.notes) {
@@ -338,11 +426,32 @@ export function serverTurn(
 
   // ------------------------------------------------ giocatori, contratti, infortuni, scelte
   const beforePlayer = new Map(before.players.map((p) => [p.id, p]));
+  const rawPlayer = new Map(rows.players.map((r) => [r.id, r]));
   const status: Row[] = [];
   const moves: Row[] = [];
+  // Righe intere: prospetti nuovi, giocatori cambiati in offseason (crescita, età) e ritirati
+  const fullRows: Row[] = [];
+  const hiddenRows: Row[] = [];
+  const prospects: Row[] = [];
+  const card = (p: PlayerState) =>
+    JSON.stringify([p.age, p.ratings, p.tendencies, p.yearsInLeague, p.scoutedPotential]);
   for (const p of state.players) {
     const b = beforePlayer.get(p.id) as PlayerState | undefined;
-    if (!b) throw new Error(`Giocatore nuovo durante la stagione: ${p.id}`);
+    if (!b) {
+      if (!offseason && !lottery) throw new Error(`Giocatore nuovo durante la stagione: ${p.id}`);
+      fullRows.push(playerRow(p, rawPlayer.get(p.id)?.slug, uuid, false));
+      hiddenRows.push({ player_id: p.id, hidden: p.hidden });
+      if (p.prospect) prospects.push({ id: p.id, draft_prospect: p.prospect });
+      continue;
+    }
+    if (JSON.stringify(p.hidden) !== JSON.stringify(b.hidden))
+      hiddenRows.push({ player_id: p.id, hidden: p.hidden });
+    if ((p.prospect ?? null) !== (b.prospect ?? null))
+      prospects.push({ id: p.id, draft_prospect: p.prospect ?? null });
+    if (card(p) !== card(b)) {
+      fullRows.push(playerRow(p, rawPlayer.get(p.id)?.slug, uuid, false));
+      continue;
+    }
     const energy = round1(p.energy);
     const morale = round1(p.morale);
     if (
@@ -354,6 +463,12 @@ export function serverTurn(
       status.push({ id: p.id, energy, morale, two_way_games: p.twoWayGames, season_stats: p.stats });
     if (p.teamId !== b.teamId) moves.push({ id: p.id, team_id: p.teamId === null ? null : uuid(p.teamId) });
   }
+
+  // Ritirati: restano nel database, fuori dalle squadre, per lo storico delle statistiche
+  const stillHere = new Set(state.players.map((p) => p.id));
+  for (const b of before.players)
+    if (!stillHere.has(b.id))
+      fullRows.push(playerRow({ ...b, teamId: null }, rawPlayer.get(b.id)?.slug, uuid, true));
 
   const beforeContract = new Map(before.contracts.map((c) => [c.playerId, JSON.stringify(c)]));
   const contracts = state.contracts
@@ -370,10 +485,11 @@ export function serverTurn(
   const contractsRemoved = before.contracts.map((c) => c.playerId).filter((id) => !kept.has(id));
 
   const beforePick = new Map(before.picks.map((k) => [k.id, JSON.stringify(k)]));
-  const picks = state.picks
+  const picks: Row[] = state.picks
     .filter((k) => beforePick.get(k.id) !== JSON.stringify(k))
     .map((k) => ({
-      id: k.id,
+      // Le scelte nuove (un anno in più di scelte future) non hanno ancora un uuid
+      id: UUID.test(k.id) ? k.id : opts.newId(),
       draft_year: k.draftYear,
       round: k.round,
       original_team_id: uuid(k.originalTeamId),
@@ -382,6 +498,36 @@ export function serverTurn(
       deferrals: k.deferrals,
       position: null,
       player_id: null,
+    }));
+  // Scelte usate nel draft dell'anno: restano nel database con la loro posizione
+  const afterPick = new Set(state.picks.map((k) => k.id));
+  for (const k of before.picks) {
+    if (afterPick.has(k.id)) continue;
+    const slot = state.offseason?.slots.find(
+      (s) => s.round === k.round && s.originalTeamId === k.originalTeamId,
+    );
+    picks.push({
+      id: k.id,
+      draft_year: k.draftYear,
+      round: k.round,
+      original_team_id: uuid(k.originalTeamId),
+      owner_team_id: uuid(k.ownerId),
+      protection: k.protection,
+      deferrals: k.deferrals,
+      position: slot?.number ?? 0,
+      player_id: null,
+    });
+  }
+  const afterSwaps = new Set(state.swaps.map((w) => w.id));
+  const swapsDone = before.swaps
+    .filter((w) => !afterSwaps.has(w.id))
+    .map((w) => ({
+      id: w.id,
+      draft_year: w.draftYear,
+      round: w.round,
+      holder_team_id: uuid(w.holderId),
+      other_team_id: uuid(w.otherId),
+      result: 'risolto',
     }));
   const beforeSwaps = new Set(before.swaps.map((w) => w.id));
   const swaps = state.swaps
@@ -530,7 +676,48 @@ export function serverTurn(
       salaries: d.salaries,
     }));
   if (picks.length) payload.draft_picks = picks;
-  if (swaps.length) payload.draft_swaps = swaps;
+  if (swaps.length || swapsDone.length) payload.draft_swaps = [...swaps, ...swapsDone];
+  if (fullRows.length) payload.players = fullRows;
+  if (hiddenRows.length) payload.player_hidden = hiddenRows;
+  if (prospects.length) payload.draft_prospects = prospects;
+  if (
+    state.offseason &&
+    JSON.stringify(state.offseason.slots) !== JSON.stringify(before.offseason?.slots ?? null)
+  )
+    payload.draft_order = state.offseason.slots.map((s) => ({
+      draft_year: state.offseason?.draftYear,
+      pick_no: s.pick,
+      round: s.round,
+      number: s.number,
+      team_id: uuid(s.ownerId),
+      original_team_id: uuid(s.originalTeamId),
+      player_id: s.playerId,
+    }));
+  if (lottery && state.offseason)
+    payload.draft_lottery = [{ draft_year: state.offseason.draftYear, pick_order: lottery.map(uuid) }];
+  if (newSeason) {
+    const c = state.config;
+    payload.new_season = {
+      year: c.year,
+      phase: 'regular',
+      salary_cap: Math.round(c.salaryCap),
+      luxury_tax: Math.round(c.luxuryTax),
+      first_apron: Math.round(c.firstApron),
+      second_apron: Math.round(c.secondApron),
+      minimum_team_salary: Math.round(c.minimumTeamSalary),
+      minimum_salary: c.minimumSalary.map(Math.round),
+      rookie_scale: c.rookieScale,
+      revenue: Math.round(c.revenue),
+      growth: c.growth,
+    };
+    payload.new_games = state.schedule.map((g) => ({
+      id: opts.newId(),
+      round_number: g.turn,
+      kind: 'regular',
+      home_team_id: uuid(g.homeId),
+      away_team_id: uuid(g.awayId),
+    }));
+  }
   if (state.transactions.length)
     payload.transactions = state.transactions.map((t) => ({
       season_year: t.year,
@@ -544,9 +731,11 @@ export function serverTurn(
   if (seriesRows.length) payload.playoff_series = seriesRows;
   if (market.trades.length) payload.trades = market.trades;
   if (market.bids.length) payload.bids = market.bids;
-  if (market.requests.length) payload.requests = market.requests;
+  if (market.requests.length || renewalResults.length)
+    payload.requests = [...market.requests, ...renewalResults];
   if (newTrades.length) payload.new_trades = newTrades;
-  if (next.kind !== round.kind) payload.season_phase = next.kind;
+  // La stagione nuova nasce già in regular season; quella vecchia resta in offseason
+  if (next.kind !== round.kind && !newSeason) payload.season_phase = next.kind;
 
   return {
     payload,
@@ -577,6 +766,42 @@ export function compactPlayByPlay(events: GameResult['playByPlay']): StoredPlay[
     e.home,
     e.away,
   ]);
+}
+
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/** Riga intera di players (prospetti nuovi, cambi dell'offseason, ritiri). */
+function playerRow(
+  p: PlayerState & { slug?: string },
+  slug: string | undefined,
+  uuid: (code: string) => string,
+  retired: boolean,
+): Row {
+  return {
+    id: p.id,
+    slug: slug ?? p.slug ?? p.id,
+    team_id: p.teamId === null ? null : uuid(p.teamId),
+    first_name: p.firstName,
+    last_name: p.lastName,
+    nationality: p.nationality,
+    role: p.role,
+    secondary_role: p.secondaryRole,
+    hand: p.hand,
+    archetype: p.archetype,
+    age: p.age,
+    height_cm: p.heightCm,
+    wingspan_cm: p.wingspanCm,
+    weight_kg: p.weightKg,
+    years_in_league: p.yearsInLeague,
+    ratings: p.ratings,
+    tendencies: p.tendencies,
+    energy: round1(p.energy),
+    morale: round1(p.morale),
+    scouted_potential: Math.round(p.scoutedPotential),
+    two_way_games: p.twoWayGames,
+    season_stats: p.stats,
+    retired,
+  };
 }
 
 /** Proposta di scambio salvata -> scambio del motore (A = chi propone, B = chi riceve). */

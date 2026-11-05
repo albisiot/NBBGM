@@ -22,7 +22,8 @@ import {
 } from '../src/season/picks.ts';
 import { applyPostseasonResult, postseasonGames, startPostseason } from '../src/season/postseason.ts';
 import { validateSchedule } from '../src/season/schedule.ts';
-import { createLeagueState, simulateSeason } from '../src/season/season.ts';
+import { simulateSeason } from '../src/season/offseason.ts';
+import { createLeagueState } from '../src/season/season.ts';
 import { rankTeams, records } from '../src/season/standings.ts';
 import type { DraftSwap, GameRecord } from '../src/season/state.ts';
 import { validateTrade } from '../src/season/trades.ts';

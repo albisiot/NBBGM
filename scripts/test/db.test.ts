@@ -129,6 +129,8 @@ describe('permessi', () => {
       'coach_delegations:DELETE',
       'coach_delegations:INSERT',
       'coach_delegations:UPDATE',
+      'draft_lists:INSERT',
+      'draft_lists:UPDATE',
       'initial_draft_lists:DELETE',
       'initial_draft_lists:INSERT',
       'initial_draft_lists:UPDATE',

@@ -121,7 +121,19 @@ export async function freeAgentPlayers(leagueId: string): Promise<RosterPlayer[]
     .select(PLAYER_COLUMNS)
     .eq('league_id', leagueId)
     .is('team_id', null)
+    .is('draft_prospect', null)
     .eq('retired', false);
+  if (error) throw error;
+  return withContractsAndInjuries((data ?? []) as unknown as PlayerRow[]);
+}
+
+/** Prospetti del draft annuale in attesa di essere scelti. */
+export async function draftProspects(leagueId: string, draftYear: number): Promise<RosterPlayer[]> {
+  const { data, error } = await supabase
+    .from('players')
+    .select(PLAYER_COLUMNS)
+    .eq('league_id', leagueId)
+    .eq('draft_prospect', draftYear);
   if (error) throw error;
   return withContractsAndInjuries((data ?? []) as unknown as PlayerRow[]);
 }
