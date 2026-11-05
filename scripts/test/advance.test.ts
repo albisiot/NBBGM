@@ -183,8 +183,14 @@ describe('una sola simulazione per turno', () => {
       reason: 'ready',
       reclaimed: false,
     };
-    const first = serverTurn(rows, claim, { newId: randomUUID });
-    const again = serverTurn(rows, claim, { newId: randomUUID });
+    // Le righe nuove (per esempio una proposta di un bot a un umano) prendono un id nuovo a ogni simulazione:
+    // per il confronto gli id sono in sequenza, così conta solo il caso, che viene tutto dal seed
+    const ids = () => {
+      let n = 0;
+      return () => `00000000-0000-4000-8000-${String(++n).padStart(12, '0')}`;
+    };
+    const first = serverTurn(rows, claim, { newId: ids() });
+    const again = serverTurn(rows, claim, { newId: ids() });
     expect(JSON.stringify(again.payload)).toBe(JSON.stringify(first.payload));
 
     // Prima dei 5 minuti nessuno la riprende
