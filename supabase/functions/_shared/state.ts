@@ -120,6 +120,20 @@ export interface LeagueStateRows {
     home_score: number | null;
     away_score: number | null;
     overtimes: number | null;
+    series_id?: string | null;
+  }[];
+  /** Serie di playoff della stagione corrente. */
+  playoff_series?: {
+    id: string;
+    round: number;
+    conference: string | null;
+    high_team_id: string;
+    low_team_id: string;
+    high_seed: number;
+    low_seed: number;
+    wins_high: number;
+    wins_low: number;
+    winner_team_id: string | null;
   }[];
   /** Squadre umane con l'allenatore attivo nel turno corrente. */
   coach?: string[];
@@ -283,11 +297,13 @@ export function leagueStateFromRows(r: LeagueStateRows): { state: LeagueState; i
       .filter((g) => g.kind === 'regular')
       .map((g) => ({ turn: g.round_number, homeId: codeOf(g.home_team_id), awayId: codeOf(g.away_team_id) })),
     games,
-    // Play-in e playoff si salvano dalla Fase 10
+    // Play-in e playoff si ricostruiscono dalle partite giocate (replayPostseason in serverTurn)
     postseason: null,
     transactions: [],
     history: [],
     talentReference: num(r.league.talent_reference),
+    // Gli spareggi in classifica usano l'id della lega, che l'app conosce: il seed della lega resta segreto
+    publicSeed: r.league.id,
   };
   return { state, ids: { team, code } };
 }

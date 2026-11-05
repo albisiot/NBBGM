@@ -124,6 +124,11 @@ export interface LeagueState {
   history: SeasonSummary[];
   /** Livello della lega alla creazione (media dei migliori 150): ogni offseason ci si riporta lì. */
   talentReference: number;
+  /**
+   * Seed pubblico (sul server l'id della lega) per i sorteggi che tutti devono poter rifare, come gli spareggi
+   * in classifica. Senza, si usa seed: va bene offline, non sul server, dove seed resta segreto.
+   */
+  publicSeed?: string;
   /** Luxury tax e monte stipendi minimo pagati all'ultima fine di regular season (per il bilancio del server). */
   lastSettlement?: { teamId: string; payroll: number; tax: number; shortfall: number }[];
 }

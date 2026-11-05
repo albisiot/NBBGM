@@ -6,13 +6,18 @@ import { AuthProvider, useAuth } from './lib/auth.tsx';
 import { configured } from './lib/supabase.ts';
 import { CreateLeaguePage } from './pages/CreateLeaguePage.tsx';
 import { DraftPage } from './pages/DraftPage.tsx';
+import { GamePage } from './pages/GamePage.tsx';
 import { JoinLeaguePage } from './pages/JoinLeaguePage.tsx';
 import { LeaguePage } from './pages/LeaguePage.tsx';
 import { LeaguesPage } from './pages/LeaguesPage.tsx';
 import { LoginPage } from './pages/LoginPage.tsx';
 import { PlayerPage } from './pages/PlayerPage.tsx';
+import { PlayoffPage } from './pages/PlayoffPage.tsx';
 import { ProfilePage } from './pages/ProfilePage.tsx';
+import { ResultsPage } from './pages/ResultsPage.tsx';
 import { RosterPage } from './pages/RosterPage.tsx';
+import { StandingsPage } from './pages/StandingsPage.tsx';
+import { StatsPage } from './pages/StatsPage.tsx';
 
 function Routed() {
   const { session, loading } = useAuth();
@@ -35,6 +40,12 @@ function Routed() {
         <Route path="lega/:id/draft" element={<DraftPage />} />
         <Route path="lega/:id/squadra" element={<RosterPage />} />
         <Route path="lega/:id/giocatore/:pid" element={<PlayerPage />} />
+        <Route path="lega/:id/risultati" element={<ResultsPage />} />
+        <Route path="lega/:id/risultati/:round" element={<ResultsPage />} />
+        <Route path="lega/:id/partita/:gid" element={<GamePage />} />
+        <Route path="lega/:id/classifica" element={<StandingsPage />} />
+        <Route path="lega/:id/playoff" element={<PlayoffPage />} />
+        <Route path="lega/:id/statistiche" element={<StatsPage />} />
         <Route path="profilo" element={<ProfilePage />} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Route>

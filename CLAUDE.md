@@ -13,7 +13,7 @@ Riassunto del documento di design (versione 2.4, 4 novembre 2026). È la fonte d
 
 ## Stato del lavoro
 
-- Fasi 1-9 completate (ramo `fasi-1-3`); della Fase 6 manca solo la prova del login con codice da iPhone. La logica di stagione sta in `packages/engine/src/season/`; database e sicurezza in `supabase/migrations/` (vedi `supabase/README.md`).
+- Fasi 1-10 completate (ramo `fasi-1-3`); della Fase 6 manca solo la prova del login con codice da iPhone. La logica di stagione sta in `packages/engine/src/season/`; database e sicurezza in `supabase/migrations/` (vedi `supabase/README.md`).
 - App: `pnpm dev` (o `pnpm dev:lan` per provarla dal telefono sulla stessa Wi-Fi). Legge URL e chiave publishable da `apps/web/.env.local` (modello in `.env.example`).
 - Edge Functions `create-league`, `draft` e `advance-turn` in `supabase/functions/`; il codice comune a Edge Function e script sta in `supabase/functions/_shared/`: `league.ts` (dati di partenza <-> motore, righe per `insert_league`), `draft.ts` (draft iniziale), `state.ts` (stato della lega dal database al motore, con `league_state`) e `turn.ts` (un turno: dal motore alle sezioni di `apply_turn`). Si pubblicano con `npx.cmd --yes supabase@3.0.0 functions deploy create-league draft advance-turn --use-api`.
 - `pnpm db:seed` scrive `supabase/seed.sql` (lega di prova generata, utenti anna, bruno e carla `@nbbgm.test`) e `data/base.sql` (giocatori reali per le tabelle `base_*`); nessuno dei due va nel repo. I test del database girano su PGlite (`scripts/test/db.test.ts`), senza Docker.
@@ -87,6 +87,17 @@ Riassunto del documento di design (versione 2.4, 4 novembre 2026). È la fonte d
 - **Seed del turno:** tutto il caso del turno (partite e mercato dei bot) viene dal seed del turno, non da quello della lega.
 - **Fine regular season:** dopo la giornata 82 si apre il turno di play-in, che per ora non si gioca (Fase 10).
 - **Lega "ciao" in pausa:** all'avvio della Fase 9 la sua scadenza di 15 minuti era passata da ore; per non farla avanzare da sola ogni 15 minuti è stata messa in pausa. La riprende il commissario dalla pagina della lega.
+
+## Scelte prese nella Fase 10 (non erano nel documento)
+
+- **Tabellone ricostruito dalle partite:** play-in e playoff non hanno uno stato salvato; `replayPostseason` rifà il tabellone dalle prime 10 di ogni conference e dalle partite di post-season giocate, turno per turno. Le serie stanno in `playoff_series` (una serie è riconosciuta da giro, conference e squadre); le partite del turno successivo si scrivono in `games` senza punteggio appena il turno prima finisce.
+- **Chi deve essere pronto in post-season:** solo le squadre umane con una partita nel turno; le altre risultano "Non gioca". Se nessun umano gioca, la lega avanza da sola al ritmo massimo.
+- **Spareggi in classifica con un seed pubblico** (`standingsSeed(id della lega, anno)`, `LeagueState.publicSeed`): l'app rifà con il motore la stessa classifica che il server usa per il tabellone. L'ordine delle squadre conta per il sorteggio: si passano ordinate per sigla, come le legge il server.
+- **`leagues.seed` chiuso al client:** con il motore nel bundle, dal seed della lega si ricavavano il rumore delle stime del potenziale (quindi il potenziale vero), la crescita e le classi del draft. Il client legge tutte le altre colonne.
+- **Classifica:** calcolata nell'app (`standingsTable` nel motore) dalle partite di regular season: V, P, %, distacco, casa, trasferta, ultime 10, serie, differenza punti; per conference (1-6 playoff, 7-10 play-in) o per division.
+- **Statistiche individuali:** solo regular season, medie per partita da `players.season_stats`; per le classifiche della lega servono almeno metà delle partite del più presente. Le statistiche dei playoff restano nei box score (`player_game_stats`).
+- **Post-season senza movimenti di bilancio** e senza firme dei bot: ricavi e stipendi si contano solo nelle 82 giornate.
+- **Dopo la finale** si apre il turno di offseason, che per ora non si gioca (Fase 12): la pagina della lega mostra il campione.
 
 ## Visione
 

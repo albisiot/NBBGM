@@ -27,18 +27,19 @@ Senza `--remote` i comandi `db` puntano al database locale di Docker.
 
 ## Migrazioni
 
-| File                                     | Contenuto                                                                                                                                          |
-| ---------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `20261105090000_schema.sql`              | Le tabelle del modello dati (CLAUDE.md, Modello dati essenziale), più `league_members` e `dead_money`.                                             |
-| `20261105090100_security.sql`            | RLS su ogni tabella, permessi minimi, `player_hidden` e `base_*` chiuse al client, controllo di quintetto e minuti, profilo per ogni nuovo utente. |
-| `20261105090200_turns.sql`               | `set_ready`, `round_all_ready`, `close_round`, `reclaim_round` e `apply_turn`.                                                                     |
-| `20261105100000_private_helpers.sql`     | Le funzioni delle policy passano nello schema `private`, che l'API non espone; `coach_ready` e `round_all_ready` solo per il server.               |
-| `20261105100100_foreign_key_indexes.sql` | Un indice per ogni chiave esterna.                                                                                                                 |
-| `20261105110000_leagues.sql`             | `insert_league` (solo server), `league_preview` e `join_league` per entrare con il codice invito.                                                  |
-| `20261105120000_initial_draft.sql`       | Draft iniziale: tabelle, liste dei preferiti (solo del manager), `draft_snapshot` e `apply_draft_picks` (solo server), `insert_league` esteso.     |
-| `20261105130000_roster.sql`              | `league_state` (solo server: lo stato della lega per il motore) e `player_scouting` (stime dei valori nascosti per la scheda giocatore).           |
-| `20261105140000_advance.sql`             | Avanzamento dei turni: `try_close_round`, `force_round`, `answer_alert`, `set_ready` che chiama advance-turn, pg_net, pg_cron, tempo reale.        |
-| `20261105140100_pause_deadline.sql`      | La pausa ferma anche la scadenza: alla ripresa la scadenza del turno aperto riparte da adesso.                                                     |
+| File                                     | Contenuto                                                                                                                                                |
+| ---------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `20261105090000_schema.sql`              | Le tabelle del modello dati (CLAUDE.md, Modello dati essenziale), più `league_members` e `dead_money`.                                                   |
+| `20261105090100_security.sql`            | RLS su ogni tabella, permessi minimi, `player_hidden` e `base_*` chiuse al client, controllo di quintetto e minuti, profilo per ogni nuovo utente.       |
+| `20261105090200_turns.sql`               | `set_ready`, `round_all_ready`, `close_round`, `reclaim_round` e `apply_turn`.                                                                           |
+| `20261105100000_private_helpers.sql`     | Le funzioni delle policy passano nello schema `private`, che l'API non espone; `coach_ready` e `round_all_ready` solo per il server.                     |
+| `20261105100100_foreign_key_indexes.sql` | Un indice per ogni chiave esterna.                                                                                                                       |
+| `20261105110000_leagues.sql`             | `insert_league` (solo server), `league_preview` e `join_league` per entrare con il codice invito.                                                        |
+| `20261105120000_initial_draft.sql`       | Draft iniziale: tabelle, liste dei preferiti (solo del manager), `draft_snapshot` e `apply_draft_picks` (solo server), `insert_league` esteso.           |
+| `20261105130000_roster.sql`              | `league_state` (solo server: lo stato della lega per il motore) e `player_scouting` (stime dei valori nascosti per la scheda giocatore).                 |
+| `20261105140000_advance.sql`             | Avanzamento dei turni: `try_close_round`, `force_round`, `answer_alert`, `set_ready` che chiama advance-turn, pg_net, pg_cron, tempo reale.              |
+| `20261105140100_pause_deadline.sql`      | La pausa ferma anche la scadenza: alla ripresa la scadenza del turno aperto riparte da adesso.                                                           |
+| `20261105150000_postseason.sql`          | Play-in e playoff: si gioca anche lì, conta solo chi ha una partita nel turno, `league_state` con le serie; `leagues.seed` non più leggibile dal client. |
 
 `supabase db advisors` lascia solo avvisi voluti:
 
@@ -71,7 +72,7 @@ Senza `--remote` i comandi `db` puntano al database locale di Docker.
 
 ## Turni, pg_net e pg_cron
 
-- Il turno si chiude quando `private.round_due` dà un motivo: `forced` (il commissario), `deadline` (scadenza passata, solo se la lega ne ha una), `ready` (tutti pronti e almeno un Pronto premuto) o `coach` (tutti con l'allenatore, passato il ritmo massimo dall'apertura del turno). Mai con il draft iniziale in corso, con la lega in pausa (salvo `forced`) e, fino alla Fase 10, nei turni di play-in e playoff.
+- Il turno si chiude quando `private.round_due` dà un motivo: `forced` (il commissario), `deadline` (scadenza passata, solo se la lega ne ha una), `ready` (tutti pronti e almeno un Pronto premuto) o `coach` (tutti con l'allenatore, passato il ritmo massimo dall'apertura del turno). Mai con il draft iniziale in corso, con la lega in pausa (salvo `forced`) e, fino alla Fase 12, nei turni di offseason. In play-in e playoff devono essere pronte solo le squadre umane con una partita nel turno.
 - pg_net chiama le Edge Functions all'indirizzo in `private.settings` (`functions_url`), che non è segreto. In un progetto nuovo va scritto una volta:
 
   ```sql
@@ -83,6 +84,7 @@ Senza `--remote` i comandi `db` puntano al database locale di Docker.
 
 - pg_cron esegue `private.cron_tick()` ogni 15 secondi (job `nbbgm-turni`): turni da chiudere, turni fermi in chiusura da più di 5 minuti e scelte del draft dal vivo con il tempo scaduto. Le esecuzioni si vedono in `cron.job_run_details`, le risposte delle funzioni in `net._http_response`.
 - Tempo reale: `rounds`, `ready_flags`, `coach_delegations` e `alerts` sono nella pubblicazione `supabase_realtime`; la RLS decide che cosa arriva a ciascuno.
+- Post-season: il tabellone non si salva come stato. advance-turn lo ricostruisce dalle partite giocate (`replayPostseason` nel motore), aggiorna `playoff_series` e mette in `games` le partite del turno successivo (senza punteggio), così tutti vedono chi gioca.
 
 ## apply_turn
 

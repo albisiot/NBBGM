@@ -95,6 +95,11 @@ describe('permessi', () => {
       'player_scouting(uuid)',
       'set_ready(uuid,boolean)',
     ]);
+    // Il seed della lega resta al server: con il motore si rifarebbero stime del potenziale e crescita
+    const seed = await db.query<{ ok: boolean }>(
+      `select has_column_privilege('authenticated', 'public.leagues', 'seed', 'SELECT') as ok`,
+    );
+    expect(seed.rows[0]!.ok).toBe(false);
     // Chiamate alle Edge Functions, controllo di pg_cron e chiusura dei turni: solo dal database
     for (const f of [
       'private.kick(text,jsonb)',

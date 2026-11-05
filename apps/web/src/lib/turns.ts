@@ -47,13 +47,17 @@ export interface TurnStatus {
   /** Avvisi aperti della propria squadra (gli altri non si vedono). */
   alerts: AlertItem[];
   lastGame: LastGame | null;
+  /** In play-in e playoff le squadre con una partita nel turno; null in regular season (giocano tutte). */
+  playing: Set<string> | null;
+  /** A stagione finita, il campione. */
+  championId: string | null;
 }
 
 export async function turnStatus(leagueId: string, myTeamId: string | null): Promise<TurnStatus> {
   const league = await supabase
     .from('leagues')
     .select(
-      'paused, max_pace_seconds, round:rounds!leagues_current_round(id, number, kind, state, deadline, created_at, forced_at)',
+      'paused, max_pace_seconds, current_season_id, round:rounds!leagues_current_round(id, number, kind, state, deadline, created_at, forced_at)',
     )
     .eq('id', leagueId)
     .maybeSingle();
@@ -61,6 +65,7 @@ export async function turnStatus(leagueId: string, myTeamId: string | null): Pro
   const l = league.data as unknown as {
     paused: boolean;
     max_pace_seconds: number;
+    current_season_id: string | null;
     round: {
       id: string;
       number: number;
@@ -100,6 +105,33 @@ export async function turnStatus(leagueId: string, myTeamId: string | null): Pro
       : Promise.resolve({ data: [], error: null }),
   ]);
   for (const r of [flags, delegations, alerts, games]) if (r.error) throw r.error;
+  let playing: Set<string> | null = null;
+  let championId: string | null = null;
+  const season = l?.current_season_id ?? null;
+  if (round && season && (round.kind === 'play-in' || round.kind === 'playoffs')) {
+    const r = await supabase
+      .from('games')
+      .select('home_team_id, away_team_id')
+      .eq('season_id', season)
+      .eq('round_number', round.number);
+    if (r.error) throw r.error;
+    playing = new Set(
+      ((r.data ?? []) as { home_team_id: string; away_team_id: string }[]).flatMap((g) => [
+        g.home_team_id,
+        g.away_team_id,
+      ]),
+    );
+  }
+  if (round?.kind === 'offseason' && season) {
+    const r = await supabase
+      .from('playoff_series')
+      .select('winner_team_id')
+      .eq('season_id', season)
+      .eq('round', 4)
+      .maybeSingle();
+    if (r.error) throw r.error;
+    championId = (r.data as { winner_team_id: string | null } | null)?.winner_team_id ?? null;
+  }
   const g = (games.data ?? [])[0] as
     | {
         round_number: number;
@@ -156,6 +188,8 @@ export async function turnStatus(leagueId: string, myTeamId: string | null): Pro
           overtimes: g.overtimes ?? 0,
         }
       : null,
+    playing,
+    championId,
   };
 }
 
@@ -167,10 +201,14 @@ export function coachActive(d: Delegation | undefined, roundNumber: number, now 
   return true;
 }
 
-export type Readiness = 'ready' | 'coach' | 'waiting';
+export type Readiness = 'ready' | 'coach' | 'waiting' | 'out';
 
-/** Stato di una squadra umana nel turno: Pronto premuto, allenatore attivo o in attesa. */
+/**
+ * Stato di una squadra umana nel turno: Pronto premuto, allenatore attivo, in attesa, oppure fuori dal turno
+ * (in play-in e playoff chi non gioca non deve essere pronto).
+ */
 export function readiness(status: TurnStatus, teamId: string, now = Date.now()): Readiness {
+  if (status.playing && !status.playing.has(teamId)) return 'out';
   if (status.ready.has(teamId)) return 'ready';
   const d = status.delegations.find((x) => x.teamId === teamId);
   if (status.round && coachActive(d, status.round.number, now)) return 'coach';

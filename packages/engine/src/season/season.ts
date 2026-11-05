@@ -39,7 +39,12 @@ import {
   resolveOffers,
 } from './freeAgency.ts';
 import { PICK_YEARS, drawLottery, initialPicks, newPick, resolveDraft } from './picks.ts';
-import { applyPostseasonResult, postseasonGames, startPostseason } from './postseason.ts';
+import {
+  applyPostseasonResult,
+  postseasonGames,
+  startPostseason,
+  type PostseasonState,
+} from './postseason.ts';
 import { REGULAR_SEASON_TURNS, generateSchedule } from './schedule.ts';
 import { conferenceStandings, leagueStandings, records } from './standings.ts';
 import {
@@ -231,23 +236,66 @@ function regularGames(state: LeagueState): GameRecord[] {
   return state.games.filter((g) => g.phase === 'regular');
 }
 
+/** Seed degli spareggi in classifica di una stagione: pubblico, così l'app rifà la stessa classifica del server. */
+export function standingsSeed(publicSeed: string, year: number): string {
+  return `${publicSeed}:${year}`;
+}
+
+function seasonStandingsSeed(state: LeagueState): string {
+  return standingsSeed(state.publicSeed ?? state.seed, state.config.year);
+}
+
+/** Prime 10 di ogni conference a fine regular season: 1-6 ai playoff, 7-10 al play-in. */
+export function postseasonSeeds(state: LeagueState): Record<Conference, string[]> {
+  const games = regularGames(state);
+  const seed = seasonStandingsSeed(state);
+  return {
+    East: conferenceStandings(state.teams, games, 'East', seed).slice(0, 10),
+    West: conferenceStandings(state.teams, games, 'West', seed).slice(0, 10),
+  };
+}
+
+function betterRecord(state: LeagueState): (a: string, b: string) => string {
+  const order = leagueStandings(state.teams, regularGames(state), seasonStandingsSeed(state));
+  return (a, b) => (order.indexOf(a) <= order.indexOf(b) ? a : b);
+}
+
 function endRegularSeason(state: LeagueState): void {
   state.lastSettlement = settleSeason(state);
-  const games = regularGames(state);
-  const seeds = {
-    East: conferenceStandings(state.teams, games, 'East', `${state.seed}:${state.config.year}`).slice(0, 10),
-    West: conferenceStandings(state.teams, games, 'West', `${state.seed}:${state.config.year}`).slice(0, 10),
-  } as Record<Conference, string[]>;
-  state.postseason = startPostseason(seeds);
+  state.postseason = startPostseason(postseasonSeeds(state));
   state.phase = 'postseason';
+}
+
+/**
+ * Ricostruisce play-in e playoff dalle partite giocate (sul server non si salva lo stato del tabellone):
+ * dalle prime 10 di ogni conference, ogni turno di post-season in ordine, partita per partita.
+ */
+export function replayPostseason(state: LeagueState): PostseasonState {
+  const ps = startPostseason(postseasonSeeds(state));
+  const better = betterRecord(state);
+  const played = state.games.filter((g) => g.phase !== 'regular');
+  for (const turn of [...new Set(played.map((g) => g.turn))].sort((a, b) => a - b)) {
+    const expected = postseasonGames(ps);
+    const games = played.filter((g) => g.turn === turn);
+    for (const g of games) {
+      const match = expected.find((x) => x.homeId === g.homeId && x.awayId === g.awayId);
+      if (!match)
+        throw new Error(`Partita di post-season fuori tabellone: ${g.homeId}-${g.awayId} (turno ${turn})`);
+      applyPostseasonResult(ps, match.ref, g.homeScore > g.awayScore ? g.homeId : g.awayId, better);
+    }
+    if (games.length !== expected.length)
+      throw new Error(
+        `Turno ${turn} di post-season incompleto: ${games.length} partite su ${expected.length}`,
+      );
+  }
+  return ps;
 }
 
 /** Gioca un turno di post-season (play-in o una partita per ogni serie aperta). */
 export function playPostseasonTurn(state: LeagueState, playGame: PlayGame = simulateGame): void {
   const ps = state.postseason;
   if (state.phase !== 'postseason' || !ps) throw new Error('Non siamo in post-season');
-  const order = leagueStandings(state.teams, regularGames(state), `${state.seed}:${state.config.year}`);
-  const better = (a: string, b: string) => (order.indexOf(a) <= order.indexOf(b) ? a : b);
+  const better = betterRecord(state);
   const played = new Map<string, { won: boolean; result: GameResult }>();
   // Numero del turno: 82 + turni di post-season già giocati
   const turn =
@@ -278,7 +326,7 @@ export function runOffseason(state: LeagueState, opts: { draftClass?: Player[] }
   const year = state.config.year;
   const rng = new Rng(`${state.seed}:offseason:${year}`);
   const games = regularGames(state);
-  const standings = leagueStandings(state.teams, games, `${state.seed}:${year}`);
+  const standings = leagueStandings(state.teams, games, seasonStandingsSeed(state));
   const worstFirst = [...standings].reverse();
   const rows = records(state.teams, games);
   const final = state.postseason.series.find((s) => s.round === 4);

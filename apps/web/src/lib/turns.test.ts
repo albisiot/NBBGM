@@ -20,6 +20,8 @@ function status(over: Partial<TurnStatus> = {}): TurnStatus {
     delegations: [],
     alerts: [],
     lastGame: null,
+    playing: null,
+    championId: null,
     ...over,
   };
 }
@@ -43,6 +45,11 @@ describe('chi è pronto', () => {
       'waiting',
       'waiting',
     ]);
+  });
+
+  it('in play-in e playoff chi non gioca non deve essere pronto', () => {
+    const s = status({ playing: new Set(['a', 'b']), ready: new Set(['a']) });
+    expect(['a', 'b', 'c'].map((t) => readiness(s, t, NOW))).toEqual(['ready', 'waiting', 'out']);
   });
 
   it('la delega fino a un turno vale fino a quel turno compreso', () => {

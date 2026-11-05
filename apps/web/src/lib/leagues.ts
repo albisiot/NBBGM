@@ -32,7 +32,9 @@ export interface LeagueDetail {
   maxPaceSeconds: number;
   rosterMode: 'real' | 'draft';
   rookieSource: 'generated' | 'real';
+  seasonId: string | null;
   seasonYear: number | null;
+  seasonPhase: string | null;
   roundNumber: number | null;
   roundKind: string | null;
   roundState: string | null;
@@ -68,10 +70,10 @@ export const PICK_SECONDS_OPTIONS: { label: string; value: number }[] = [
 
 // Le relazioni con più chiavi esterne vanno indicate per nome del vincolo
 const LEAGUE_STATUS =
-  'season:seasons!leagues_current_season(year), round:rounds!leagues_current_round(number, kind, state)';
+  'season:seasons!leagues_current_season(id, year, phase), round:rounds!leagues_current_round(number, kind, state)';
 
 interface StatusRow {
-  season: { year: number } | null;
+  season: { id: string; year: number; phase: string } | null;
   round: { number: number; kind: string; state: string } | null;
 }
 
@@ -150,7 +152,9 @@ export async function leagueDetail(id: string): Promise<LeagueDetail | null> {
     maxPaceSeconds: l.max_pace_seconds,
     rosterMode: l.roster_mode,
     rookieSource: l.rookie_source,
+    seasonId: l.season?.id ?? null,
     seasonYear: l.season?.year ?? null,
+    seasonPhase: l.season?.phase ?? null,
     roundNumber: l.round?.number ?? null,
     roundKind: l.round?.kind ?? null,
     roundState: l.round?.state ?? null,

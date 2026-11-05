@@ -1,6 +1,7 @@
 // Turno corrente nella pagina della lega: stato, scadenza, chi è pronto (in tempo reale), il proprio Pronto,
 // gli avvisi della propria squadra e, per il commissario, forza l'avanzamento e pausa.
 import { useEffect, useRef, useState } from 'react';
+import { Link } from 'react-router';
 import { friendlyError } from '../lib/errors.ts';
 import type { LeagueDetail } from '../lib/leagues.ts';
 import {
@@ -26,7 +27,10 @@ const BADGE: Record<Readiness, { label: string; className: string }> = {
     label: 'In attesa',
     className: 'bg-slate-100 text-slate-600 dark:bg-slate-700 dark:text-slate-300',
   },
+  out: { label: 'Non gioca', className: 'bg-slate-50 text-slate-400 dark:bg-slate-800 dark:text-slate-500' },
 };
+
+const LINK = 'font-semibold text-orange-700 hover:underline dark:text-orange-300';
 
 export function TurnCard({
   league,
@@ -72,7 +76,10 @@ export function TurnCard({
   const draftPending = league.draftState !== null && league.draftState !== 'done';
   const myState = mine ? readiness(status, mine.id, now) : null;
   const blocked = status.alerts.some((a) => a.blocking);
-  const readyCount = humans.filter((t) => readiness(status, t.id, now) !== 'waiting').length;
+  // In play-in e playoff contano solo le squadre che giocano
+  const inRound = humans.filter((t) => readiness(status, t.id, now) !== 'out');
+  const readyCount = inRound.filter((t) => readiness(status, t.id, now) !== 'waiting').length;
+  const champion = status.championId ? league.teams.find((t) => t.id === status.championId) : null;
   const code = (id: string) => league.teams.find((t) => t.id === id)?.code ?? '?';
 
   async function run(action: () => Promise<unknown>) {
@@ -121,7 +128,8 @@ export function TurnCard({
         {status.lastGame && (
           <p className="text-sm">
             <span className="text-slate-500 dark:text-slate-400">
-              Ultima partita (giornata {status.lastGame.roundNumber + 1}):
+              Ultima partita
+              {status.lastGame.roundNumber < 82 ? ` (giornata ${status.lastGame.roundNumber + 1})` : ''}:
             </span>{' '}
             <span className="font-semibold">
               {code(status.lastGame.awayTeamId)} {status.lastGame.awayScore} – {status.lastGame.homeScore}{' '}
@@ -137,11 +145,25 @@ export function TurnCard({
             Il primo turno parte quando il draft iniziale è finito.
           </p>
         )}
-        {round.kind !== 'regular' && (
+        {round.kind === 'offseason' && (
           <p className="text-sm text-slate-600 dark:text-slate-300">
-            La regular season è finita: play-in e playoff non sono ancora disponibili.
+            {champion ? `Stagione finita: campioni i ${champion.fullName}. ` : 'Stagione finita. '}
+            L’offseason non è ancora disponibile.
           </p>
         )}
+        <p className="flex flex-wrap gap-x-4 gap-y-1 text-sm">
+          <Link to={`/lega/${league.id}/risultati`} className={LINK}>
+            Risultati
+          </Link>
+          <Link to={`/lega/${league.id}/classifica`} className={LINK}>
+            Classifica
+          </Link>
+          {round.kind !== 'regular' && (
+            <Link to={`/lega/${league.id}/playoff`} className={LINK}>
+              Tabellone
+            </Link>
+          )}
+        </p>
         {open && round.deadline && !status.paused && (
           <p className="text-sm">
             Scadenza del turno: <span className="font-semibold">{timeLeft(round.deadline, now)}</span>
@@ -155,7 +177,7 @@ export function TurnCard({
 
         <div>
           <p className="mb-1 text-xs font-semibold tracking-wide text-slate-500 uppercase dark:text-slate-400">
-            Pronti {readyCount} su {humans.length}
+            Pronti {readyCount} su {inRound.length}
           </p>
           <ul className="divide-y divide-slate-100 dark:divide-slate-700">
             {humans.map((t) => {
@@ -179,16 +201,25 @@ export function TurnCard({
               );
             })}
           </ul>
-          {readyCount === humans.length && open && !status.paused && !draftPending && (
-            <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
-              {humans.every((t) => readiness(status, t.id, now) === 'coach')
-                ? 'Tutti con l’allenatore: la lega avanza da sola, al ritmo scelto dal commissario.'
-                : 'Tutti pronti: il turno parte a momenti.'}
-            </p>
-          )}
+          {readyCount === inRound.length &&
+            open &&
+            !status.paused &&
+            !draftPending &&
+            round.kind !== 'offseason' && (
+              <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+                {inRound.every((t) => readiness(status, t.id, now) === 'coach')
+                  ? 'Tutti con l’allenatore: la lega avanza da sola, al ritmo scelto dal commissario.'
+                  : 'Tutti pronti: il turno parte a momenti.'}
+              </p>
+            )}
         </div>
 
-        {mine && open && (
+        {mine && open && myState === 'out' && (
+          <p className="text-sm text-slate-600 dark:text-slate-300">
+            La tua squadra non gioca in questo turno: non devi fare nulla.
+          </p>
+        )}
+        {mine && open && myState !== 'out' && round.kind !== 'offseason' && (
           <div className="space-y-2">
             {myState === 'coach' && (
               <p className="text-sm text-sky-800 dark:text-sky-200">
@@ -208,7 +239,7 @@ export function TurnCard({
           </div>
         )}
 
-        {isCommissioner && open && round.kind === 'regular' && !draftPending && (
+        {isCommissioner && open && round.kind !== 'offseason' && !draftPending && (
           <div className="flex flex-wrap gap-2 border-t border-slate-100 pt-3 dark:border-slate-700">
             <Button
               variant="secondary"

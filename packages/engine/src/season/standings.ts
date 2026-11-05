@@ -116,3 +116,80 @@ export function leagueStandings(
     `${seed}:lega`,
   );
 }
+
+export interface StandingsLine extends StandingRow {
+  /** Posto nella conference (1-15), come conferenceStandings. */
+  confRank: number;
+  /** Posto nella division (1-5). */
+  divRank: number;
+  /** Partite di distacco dalla prima della conference. */
+  gamesBehind: number;
+  home: { w: number; l: number };
+  away: { w: number; l: number };
+  last10: { w: number; l: number };
+  /** Serie in corso: +3 tre vittorie di fila, -2 due sconfitte, 0 nessuna partita. */
+  streak: number;
+}
+
+/**
+ * Classifica completa di ogni conference, nell'ordine di conferenceStandings (lo stesso che decide play-in e
+ * playoff), con distacco, record in casa e in trasferta, ultime 10 e serie. games: le partite di regular season.
+ */
+export function standingsTable(
+  teams: readonly Team[],
+  games: readonly GameRecord[],
+  seed: string,
+): Record<Conference, StandingsLine[]> {
+  const rows = records(teams, games);
+  const ordered = [...games].sort((a, b) => a.turn - b.turn);
+  const extra = new Map(
+    teams.map((t) => [t.id, { home: { w: 0, l: 0 }, away: { w: 0, l: 0 }, results: [] as boolean[] }]),
+  );
+  for (const g of ordered) {
+    const homeWon = g.homeScore > g.awayScore;
+    const h = extra.get(g.homeId);
+    const a = extra.get(g.awayId);
+    if (!h || !a) continue;
+    h.home[homeWon ? 'w' : 'l']++;
+    a.away[homeWon ? 'l' : 'w']++;
+    h.results.push(homeWon);
+    a.results.push(!homeWon);
+  }
+  const divRank = new Map<string, number>();
+  for (const division of new Set(teams.map((t) => t.division))) {
+    const ids = teams.filter((t) => t.division === division).map((t) => t.id);
+    rankTeams(ids, rows, games, `${seed}:${division}`).forEach((id, i) => divRank.set(id, i + 1));
+  }
+  const out = {} as Record<Conference, StandingsLine[]>;
+  for (const conference of ['East', 'West'] as Conference[]) {
+    const order = conferenceStandings(teams, games, conference, seed);
+    const leader = rows.get(order[0] as string) as StandingRow;
+    out[conference] = order.map((id, i) => {
+      const r = rows.get(id) as StandingRow;
+      const x = extra.get(id) as {
+        home: { w: number; l: number };
+        away: { w: number; l: number };
+        results: boolean[];
+      };
+      const last = x.results.slice(-10);
+      let streak = 0;
+      for (let k = x.results.length - 1; k >= 0; k--) {
+        const won = x.results[k] as boolean;
+        if (streak === 0) streak = won ? 1 : -1;
+        else if (won === streak > 0) streak += won ? 1 : -1;
+        else break;
+      }
+      return {
+        ...r,
+        confRank: i + 1,
+        divRank: divRank.get(id) as number,
+        gamesBehind: (leader.w - r.w + (r.l - leader.l)) / 2,
+        home: x.home,
+        away: x.away,
+        last10: { w: last.filter(Boolean).length, l: last.filter((w) => !w).length },
+        streak,
+      };
+    });
+  }
+  return out;
+}

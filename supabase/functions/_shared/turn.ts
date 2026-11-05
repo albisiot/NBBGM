@@ -5,19 +5,32 @@
 // l'allenatore con la logica del bot) e firma al minimo per le squadre umane rimaste sotto 13. Poi il motore
 // gioca il turno; alla fine si confronta lo stato prima e dopo e si scrive solo quello che è cambiato.
 // Tutto il caso viene dal seed salvato nel turno: una ripresa dà lo stesso risultato.
+//
+// In play-in e playoff il tabellone si ricostruisce dalle partite giocate (replayPostseason); il turno salva le
+// serie aggiornate e mette in calendario le partite del turno successivo, così tutti vedono chi gioca.
 import {
   BODY_PART_LABEL,
   fillRosterAtMinimum,
   MIN_STANDARD,
   payroll,
+  playPostseasonTurn,
   playRegularTurn,
+  postseasonGames,
   REGULAR_SEASON_TURNS,
+  replayPostseason,
   simulateGame,
   standardRoster,
   twoWayRoster,
   twoWaySalary,
 } from '../../../packages/engine/src/index.ts';
-import type { GameResult, LeagueState, PlayerState } from '../../../packages/engine/src/index.ts';
+import type {
+  GameResult,
+  LeagueState,
+  PlayerState,
+  PostseasonGame,
+  PostseasonState,
+  TeamSetup,
+} from '../../../packages/engine/src/index.ts';
 import { leagueStateFromRows, type LeagueStateRows } from './state.ts';
 
 /** Risultato di public.try_close_round: il turno da simulare. */
@@ -32,7 +45,10 @@ export interface TurnClaim {
 
 export interface TurnSummary {
   round: number;
+  kind: string;
   games: number;
+  /** Campione, quando il turno chiude la finale. */
+  championId: string | null;
   signings: number;
   alerts: number;
   next: { number: number; kind: string };
@@ -67,17 +83,29 @@ export function serverTurn(
 ): { payload: Row; summary: TurnSummary } {
   const round = rows.round;
   if (!round || round.id !== claim.round_id) throw new Error('Il turno da simulare non è quello corrente');
-  if (round.kind !== 'regular') throw new Error('Play-in e playoff arrivano con la Fase 10');
+  const regular = round.kind === 'regular';
+  if (!regular && round.kind !== 'play-in' && round.kind !== 'playoffs')
+    throw new Error("L'offseason arriva con la Fase 12");
   const now = opts.now ?? new Date();
   const { state, ids } = leagueStateFromRows(rows);
-  if (state.phase !== 'regular') throw new Error('La stagione non è in regular season');
+  if (regular !== (state.phase === 'regular'))
+    throw new Error(`Il turno (${round.kind}) non corrisponde alla fase della stagione`);
   state.seed = claim.seed;
   const uuid = (code: string): string => {
     const id = ids.team.get(code);
     if (!id) throw new Error(`Squadra sconosciuta: ${code}`);
     return id;
   };
-  const turn = state.turn;
+  let scheduled: PostseasonGame[] = [];
+  if (!regular) {
+    state.postseason = replayPostseason(state);
+    scheduled = postseasonGames(state.postseason);
+  }
+  const turn = regular
+    ? state.turn
+    : REGULAR_SEASON_TURNS +
+      new Set(state.games.filter((g) => g.phase !== 'regular').map((g) => g.turn)).size;
+  if (turn !== round.number) throw new Error(`Turno ${round.number} fuori sequenza (atteso ${turn})`);
   const before = clone(state);
   const alerts = rows.alerts ?? [];
 
@@ -98,34 +126,47 @@ export function serverTurn(
     if (a.blocking && a.status === 'open' && !closed.has(a.id)) closed.set(a.id, 'expired');
 
   // ------------------------------------------------ partite
-  // Ricavi e stipendi del turno con le rose che vanno in campo, come li conta il motore (chargeTurn)
+  // Ricavi e stipendi del turno con le rose che vanno in campo, come li conta il motore (chargeTurn); in
+  // post-season non ci sono movimenti
   const charge = new Map(
     state.teams.map((t) => [
       t.id,
-      {
-        revenue: Math.round(state.config.revenue / PERIODS),
-        salary: Math.round(payroll(state, t.id) / PERIODS),
-        twoWay: Math.round((twoWayRoster(state, t.id).length * twoWaySalary(state.config)) / PERIODS),
-      },
+      regular
+        ? {
+            revenue: Math.round(state.config.revenue / PERIODS),
+            salary: Math.round(payroll(state, t.id) / PERIODS),
+            twoWay: Math.round((twoWayRoster(state, t.id).length * twoWaySalary(state.config)) / PERIODS),
+          }
+        : { revenue: 0, salary: 0, twoWay: 0 },
     ]),
   );
   const games: { result: GameResult; seed: string }[] = [];
-  playRegularTurn(state, (home, away, seed) => {
+  const play = (home: TeamSetup, away: TeamSetup, seed: string) => {
     const result = simulateGame(home, away, seed);
     games.push({ result, seed });
     return result;
-  });
-  const seasonOver = state.phase !== 'regular';
-  const next = seasonOver
-    ? { number: REGULAR_SEASON_TURNS, kind: 'play-in' }
-    : { number: state.turn, kind: 'regular' };
+  };
+  if (regular) playRegularTurn(state, play);
+  else playPostseasonTurn(state, play);
+  const ps = state.postseason as PostseasonState | null;
+  // Fine della regular season in questo turno: tassa, monte minimo e primo turno di play-in
+  const seasonOver = regular && state.phase !== 'regular';
+  const next =
+    state.phase === 'regular'
+      ? { number: state.turn, kind: 'regular' }
+      : state.phase === 'offseason'
+        ? { number: turn + 1, kind: 'offseason' }
+        : {
+            number: seasonOver ? REGULAR_SEASON_TURNS : turn + 1,
+            kind: ps?.stage === 'playoffs' ? 'playoffs' : 'play-in',
+          };
 
   // ------------------------------------------------ avvisi nuovi
   const humans = new Set(state.teams.filter((t) => t.human).map((t) => t.id));
   const newAlerts: Row[] = [];
   for (const code of humans) {
     const standard = standardRoster(state, code).length;
-    if (standard < MIN_STANDARD) {
+    if (next.kind !== 'offseason' && standard < MIN_STANDARD) {
       newAlerts.push({
         team_id: uuid(code),
         kind: ALERT_KINDS.rosterMinimum,
@@ -179,8 +220,10 @@ export function serverTurn(
     const tax = Math.round(s?.tax ?? 0);
     const shortfall = Math.round(s?.shortfall ?? 0);
     const id = uuid(t.id);
-    ledger.push({ team_id: id, kind: 'revenue', amount: c.revenue, note });
-    ledger.push({ team_id: id, kind: 'salary', amount: -c.salary, note });
+    if (regular) {
+      ledger.push({ team_id: id, kind: 'revenue', amount: c.revenue, note });
+      ledger.push({ team_id: id, kind: 'salary', amount: -c.salary, note });
+    }
     if (c.twoWay > 0) ledger.push({ team_id: id, kind: 'two-way', amount: -c.twoWay, note });
     if (tax > 0) ledger.push({ team_id: id, kind: 'tax', amount: -tax, note: 'Luxury tax' });
     if (shortfall > 0)
@@ -205,7 +248,7 @@ export function serverTurn(
   const moves: Row[] = [];
   for (const p of state.players) {
     const b = beforePlayer.get(p.id) as PlayerState | undefined;
-    if (!b) throw new Error(`Giocatore nuovo in regular season: ${p.id}`);
+    if (!b) throw new Error(`Giocatore nuovo durante la stagione: ${p.id}`);
     const energy = round1(p.energy);
     const morale = round1(p.morale);
     if (
@@ -258,6 +301,38 @@ export function serverTurn(
       result: null,
     }));
 
+  // ------------------------------------------------ serie di playoff
+  // Una serie è la stessa da un turno all'altro: stesso giro, stessa conference, stesse squadre
+  const seriesKey = (r: number, conference: string | null, high: string, low: string) =>
+    `${r}:${conference ?? ''}:${high}:${low}`;
+  const savedSeries = new Map(
+    (rows.playoff_series ?? []).map((x) => [
+      seriesKey(x.round, x.conference, x.high_team_id, x.low_team_id),
+      x.id,
+    ]),
+  );
+  const seriesId = new Map<string, string>(); // id del motore -> uuid
+  const seriesRows: Row[] = [];
+  for (const x of ps?.series ?? []) {
+    const high = uuid(x.highId);
+    const low = uuid(x.lowId);
+    const id = savedSeries.get(seriesKey(x.round, x.conference, high, low)) ?? opts.newId();
+    seriesId.set(x.id, id);
+    seriesRows.push({
+      id,
+      season_id: null,
+      round: x.round,
+      conference: x.conference,
+      high_team_id: high,
+      low_team_id: low,
+      high_seed: x.highSeed,
+      low_seed: x.lowSeed,
+      wins_high: x.winsHigh,
+      wins_low: x.winsLow,
+      winner_team_id: x.winnerId === null ? null : uuid(x.winnerId),
+    });
+  }
+
   // ------------------------------------------------ partite e box score
   const gameId = new Map(rows.games.map((g) => [`${g.round_number}:${g.home_team_id}`, g.id]));
   const gameRows: Row[] = [];
@@ -265,15 +340,20 @@ export function serverTurn(
   for (const { result, seed } of games) {
     const home = uuid(result.home.teamId);
     const away = uuid(result.away.teamId);
-    const id = gameId.get(`${turn}:${home}`);
-    if (!id) throw new Error(`Partita non in calendario: ${result.home.teamId}-${result.away.teamId}`);
+    let id = gameId.get(`${turn}:${home}`);
+    const ref = scheduled.find((g) => g.homeId === result.home.teamId && g.awayId === result.away.teamId);
+    if (!id) {
+      // In post-season una partita che non era in calendario (turno aperto prima della Fase 10) si aggiunge
+      if (regular) throw new Error(`Partita non in calendario: ${result.home.teamId}-${result.away.teamId}`);
+      id = opts.newId();
+    }
     gameRows.push({
       id,
       round_number: turn,
-      kind: 'regular',
+      kind: regular ? 'regular' : (ref?.phase ?? 'playoffs'),
       home_team_id: home,
       away_team_id: away,
-      series_id: null,
+      series_id: ref && ref.phase === 'playoffs' ? (seriesId.get(ref.ref) ?? null) : null,
       home_score: result.home.score,
       away_score: result.away.score,
       overtimes: result.overtimes,
@@ -306,6 +386,27 @@ export function serverTurn(
           plus_minus: l.plusMinus,
         });
       }
+    }
+  }
+
+  // Le partite del prossimo turno di post-season vanno in calendario: tutti vedono chi gioca, e nei turni di
+  // play-in e playoff devono essere pronte solo le squadre che giocano
+  if (ps && ps.stage !== 'done') {
+    for (const g of postseasonGames(ps)) {
+      gameRows.push({
+        id: opts.newId(),
+        round_number: next.number,
+        kind: g.phase,
+        home_team_id: uuid(g.homeId),
+        away_team_id: uuid(g.awayId),
+        series_id: g.phase === 'playoffs' ? (seriesId.get(g.ref) ?? null) : null,
+        home_score: null,
+        away_score: null,
+        overtimes: null,
+        quarters: null,
+        play_by_play: null,
+        seed: null,
+      });
     }
   }
 
@@ -346,13 +447,16 @@ export function serverTurn(
   if (newAlerts.length) payload.alerts = newAlerts;
   if (closed.size) payload.alerts_closed = [...closed].map(([id, s]) => ({ id, status: s }));
   if (coachExpired.length) payload.coach_expired = coachExpired;
-  if (seasonOver) payload.season_phase = 'play-in';
+  if (seriesRows.length) payload.playoff_series = seriesRows;
+  if (next.kind !== round.kind) payload.season_phase = next.kind;
 
   return {
     payload,
     summary: {
       round: turn,
+      kind: round.kind,
       games: games.length,
+      championId: ps?.championId ? uuid(ps.championId) : null,
       signings: state.transactions.filter((t) => t.type === 'signing').length,
       alerts: newAlerts.length,
       next,

@@ -118,3 +118,55 @@ export function Choice<T extends string | number | null>({
     </fieldset>
   );
 }
+
+/** Scelta tra poche viste (es. Conference / Division): pulsanti affiancati. */
+export function Segmented<T extends string | number>({
+  label,
+  options,
+  value,
+  onChange,
+}: {
+  label: string;
+  options: { label: string; value: T }[];
+  value: T;
+  onChange: (v: T) => void;
+}) {
+  return (
+    <div
+      role="group"
+      aria-label={label}
+      className="inline-flex flex-wrap gap-1 rounded-lg bg-slate-100 p-1 dark:bg-slate-800"
+    >
+      {options.map((o) => (
+        <button
+          key={String(o.value)}
+          type="button"
+          aria-pressed={o.value === value}
+          onClick={() => onChange(o.value)}
+          className={`min-h-9 rounded-md px-3 text-sm font-medium ${
+            o.value === value
+              ? 'bg-white text-orange-700 shadow-sm dark:bg-slate-700 dark:text-orange-300'
+              : 'text-slate-600 hover:text-slate-900 dark:text-slate-300 dark:hover:text-white'
+          }`}
+        >
+          {o.label}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+/** Sigla della squadra in un riquadro. */
+export function TeamCode({ code, strong = false }: { code: string; strong?: boolean }) {
+  return (
+    <span
+      className={`inline-block w-11 shrink-0 rounded px-1 text-center text-xs font-bold ${
+        strong
+          ? 'bg-orange-100 text-orange-800 dark:bg-orange-900 dark:text-orange-100'
+          : 'bg-slate-100 text-slate-700 dark:bg-slate-700 dark:text-slate-200'
+      }`}
+    >
+      {code}
+    </span>
+  );
+}

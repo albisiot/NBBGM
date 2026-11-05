@@ -1,5 +1,5 @@
-// Intestazione con il selettore delle leghe e il profilo, poi la pagina.
-import { Link, Outlet, useMatch, useNavigate } from 'react-router';
+// Intestazione con il selettore delle leghe e il profilo, il menu della lega aperta, poi la pagina.
+import { Link, NavLink, Outlet, useMatch, useNavigate } from 'react-router';
 import { useAuth, useUserId } from '../lib/auth.tsx';
 import { myLeagues } from '../lib/leagues.ts';
 import { useAsync } from '../lib/useAsync.ts';
@@ -10,7 +10,7 @@ export function Layout() {
   const userId = useUserId();
   const { displayName } = useAuth();
   const navigate = useNavigate();
-  const match = useMatch('/lega/:id');
+  const match = useMatch('/lega/:id/*');
   const current = match?.params.id ?? '';
   const { data: leagues } = useAsync(() => myLeagues(userId), [userId, current]);
 
@@ -52,10 +52,46 @@ export function Layout() {
             {displayName || 'Profilo'}
           </Link>
         </div>
+        {current && <LeagueNav id={current} />}
       </header>
       <main className="mx-auto max-w-4xl px-4 py-6">
         <Outlet />
       </main>
     </div>
+  );
+}
+
+const LEAGUE_LINKS: { to: string; label: string }[] = [
+  { to: '', label: 'Lega' },
+  { to: 'squadra', label: 'Squadra' },
+  { to: 'risultati', label: 'Risultati' },
+  { to: 'classifica', label: 'Classifica' },
+  { to: 'playoff', label: 'Playoff' },
+  { to: 'statistiche', label: 'Statistiche' },
+];
+
+function LeagueNav({ id }: { id: string }) {
+  return (
+    <nav aria-label="Menu della lega" className="mx-auto max-w-4xl overflow-x-auto px-2">
+      <ul className="flex gap-1 text-sm">
+        {LEAGUE_LINKS.map((l) => (
+          <li key={l.to}>
+            <NavLink
+              to={l.to ? `/lega/${id}/${l.to}` : `/lega/${id}`}
+              end={l.to === ''}
+              className={({ isActive }) =>
+                `inline-flex min-h-10 items-center border-b-2 px-3 whitespace-nowrap ${
+                  isActive
+                    ? 'border-orange-600 font-semibold text-orange-700 dark:text-orange-300'
+                    : 'border-transparent text-slate-600 hover:text-slate-900 dark:text-slate-300 dark:hover:text-white'
+                }`
+              }
+            >
+              {l.label}
+            </NavLink>
+          </li>
+        ))}
+      </ul>
+    </nav>
   );
 }
