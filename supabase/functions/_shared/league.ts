@@ -26,6 +26,11 @@ import type {
 /** Dataset dei dati di partenza usato per le leghe nuove. */
 export const BASE_DATASET = '2026-27';
 
+/** Leghe che un utente può avere create (come private.max_leagues_per_user nel database). */
+export const MAX_LEAGUES_PER_USER = 5;
+
+export const LEAGUE_LIMIT_MESSAGE = `Hai già creato ${MAX_LEAGUES_PER_USER} leghe: eliminane una per crearne un'altra`;
+
 export interface BaseTeamRow {
   code: string;
   city: string;

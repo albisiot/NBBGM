@@ -31,4 +31,4 @@ pnpm test
 
 Regole, motore, economia, modello dati e scelte prese fase per fase sono in [CLAUDE.md](CLAUDE.md); database,
 sicurezza e pubblicazione in [supabase/README.md](supabase/README.md). A ogni push su `main` GitHub Actions fa i
-controlli, pubblica l'app su GitHub Pages e, se cambiano, migrazioni ed Edge Functions su Supabase.
+controlli e, solo se passano, pubblica l'app su GitHub Pages e migrazioni ed Edge Functions su Supabase.

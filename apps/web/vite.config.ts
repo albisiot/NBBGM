@@ -1,7 +1,9 @@
 import tailwindcss from '@tailwindcss/vite';
 import react from '@vitejs/plugin-react';
 import { createHash } from 'node:crypto';
+import { readFileSync } from 'node:fs';
 import { defineConfig, type Plugin } from 'vite';
+import { serviceWorkerSource } from './src/pwa/serviceWorker.ts';
 
 // File di public/ che il service worker tiene in cache insieme a quelli della build
 const PUBLIC_FILES = [
@@ -16,7 +18,8 @@ const PUBLIC_FILES = [
 
 /**
  * Service worker generato in build con l'elenco dei file: l'app installata si apre anche senza rete (i dati no,
- * vengono sempre da Supabase) e a ogni pubblicazione la versione cambia, quindi la cache si rinnova.
+ * vengono sempre da Supabase) e a ogni pubblicazione la versione cambia, quindi la cache si rinnova. Le regole
+ * stanno in src/pwa/serviceWorker.ts.
  */
 function serviceWorker(): Plugin {
   return {
@@ -26,49 +29,15 @@ function serviceWorker(): Plugin {
       const files = Object.keys(bundle)
         .filter((f) => !f.endsWith('.map'))
         .sort();
-      const version = createHash('sha256').update(files.join('|')).digest('hex').slice(0, 12);
+      // La versione cambia con i file della build, con quelli di public/ e con le regole del service worker
+      const hash = createHash('sha256').update(files.join('|')).update(serviceWorkerSource('', []));
+      for (const f of PUBLIC_FILES) hash.update(readFileSync(new URL(`./public/${f}`, import.meta.url)));
+      const version = hash.digest('hex').slice(0, 12);
       const shell = ['./', ...[...files, ...PUBLIC_FILES].map((f) => `./${f}`)];
       this.emitFile({
         type: 'asset',
         fileName: 'sw.js',
-        source: `// Service worker di NBBGM, generato in build (apps/web/vite.config.ts).
-const CACHE = 'nbbgm-${version}';
-const SHELL = ${JSON.stringify(shell)};
-
-self.addEventListener('install', (event) => {
-  event.waitUntil(caches.open(CACHE).then((c) => c.addAll(SHELL)).then(() => self.skipWaiting()));
-});
-
-self.addEventListener('activate', (event) => {
-  event.waitUntil(
-    caches
-      .keys()
-      .then((keys) => Promise.all(keys.filter((k) => k.startsWith('nbbgm-') && k !== CACHE).map((k) => caches.delete(k))))
-      .then(() => self.clients.claim()),
-  );
-});
-
-self.addEventListener('fetch', (event) => {
-  const request = event.request;
-  if (request.method !== 'GET') return;
-  // Supabase e gli altri siti: sempre dalla rete
-  if (new URL(request.url).origin !== self.location.origin) return;
-  if (request.mode === 'navigate') {
-    // La pagina: dalla rete se c'è (così arriva subito l'ultima versione), altrimenti dalla cache
-    event.respondWith(
-      fetch(request)
-        .then((response) => {
-          const copy = response.clone();
-          caches.open(CACHE).then((c) => c.put('./', copy));
-          return response;
-        })
-        .catch(() => caches.match('./')),
-    );
-    return;
-  }
-  event.respondWith(caches.match(request).then((hit) => hit || fetch(request)));
-});
-`,
+        source: serviceWorkerSource(version, shell),
       });
     },
   };

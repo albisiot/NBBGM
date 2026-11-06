@@ -2,6 +2,7 @@
 // loro manager (o il bot) e impostazioni. Risultati, classifiche e mercato arrivano con le fasi successive.
 import { useEffect, useState } from 'react';
 import { Link, useParams, useSearchParams } from 'react-router';
+import { LeagueAdmin } from '../components/LeagueAdmin.tsx';
 import { TurnCard } from '../components/TurnCard.tsx';
 import { Button, Card, ErrorText, PageTitle, Spinner } from '../components/ui.tsx';
 import { LAST_LEAGUE_KEY } from '../components/Layout.tsx';
@@ -125,6 +126,8 @@ export function LeaguePage() {
           </p>
         )}
       </Card>
+
+      <LeagueAdmin league={league} userId={userId} onChange={reload} />
     </div>
   );
 }

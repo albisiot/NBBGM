@@ -13,9 +13,9 @@ Riassunto del documento di design (versione 2.4, 4 novembre 2026). È la fonte d
 
 ## Stato del lavoro
 
-- Fasi 1-13 completate: l'app è pubblicata e installata dal telefono, e in produzione una lega ha giocato i suoi turni (con il Pronto e con l'allenatore). Dopo la Fase 13 sono stati corretti sette bug trovati analizzando l'app (vedi "Scelte prese dopo la Fase 13"). Si lavora su `main`; `fasi-1-3` è il ramo storico delle fasi. La logica di stagione sta in `packages/engine/src/season/`; database e sicurezza in `supabase/migrations/` (vedi `supabase/README.md`).
+- Fasi 1-13 completate: l'app è pubblicata e installata dal telefono, e in produzione una lega ha giocato i suoi turni (con il Pronto e con l'allenatore). Dopo la Fase 13 sono stati corretti sette bug trovati analizzando l'app e rinforzati server e app: turni bloccati, spazio del database, strumenti del commissario, service worker, pubblicazione dopo i controlli (vedi "Scelte prese dopo la Fase 13"). Si lavora su `main`; `fasi-1-3` è il ramo storico delle fasi. La logica di stagione sta in `packages/engine/src/season/`; database e sicurezza in `supabase/migrations/` (vedi `supabase/README.md`).
 - App: `pnpm dev` (o `pnpm dev:lan` per provarla dal telefono sulla stessa Wi-Fi). Legge URL e chiave publishable da `apps/web/.env.local` (modello in `.env.example`).
-- Pubblicata su **GitHub Pages**: `https://albisiot.github.io/NBBGM/` (repository pubblico `albisiot/NBBGM`, ramo `main`). Workflow in `.github/workflows/`: `ci.yml` (controlli), `pages.yml` (app, con le variabili `SUPABASE_URL` e `SUPABASE_PUBLISHABLE_KEY`), `supabase.yml` (migrazioni e funzioni, con il segreto `SUPABASE_ACCESS_TOKEN`). Icone della PWA con `pnpm icons`.
+- Pubblicata su **GitHub Pages**: `https://albisiot.github.io/NBBGM/` (repository pubblico `albisiot/NBBGM`, ramo `main`). Workflow in `.github/workflows/`: `ci.yml` (controlli), e dopo i controlli riusciti su `main` `pages.yml` (app, con le variabili `SUPABASE_URL` e `SUPABASE_PUBLISHABLE_KEY`) e `supabase.yml` (migrazioni e funzioni, con il segreto `SUPABASE_ACCESS_TOKEN`). Icone della PWA con `pnpm icons`.
 - Edge Functions `create-league`, `draft`, `advance-turn` e `market` in `supabase/functions/`; il codice comune a Edge Function e script sta in `supabase/functions/_shared/`: `league.ts` (dati di partenza <-> motore, righe per `insert_league`), `draft.ts` (draft iniziale), `state.ts` (stato della lega dal database al motore, con `league_state`) `turn.ts` (un turno: dal motore alle sezioni di `apply_turn`) e `market.ts` (controllo delle azioni di mercato). Si pubblicano con `npx.cmd --yes supabase@3.0.0 functions deploy create-league draft advance-turn market --use-api`.
 - `pnpm db:seed` scrive `supabase/seed.sql` (lega di prova generata, utenti anna, bruno e carla `@nbbgm.test`) e `data/base.sql` (giocatori reali per le tabelle `base_*`); nessuno dei due va nel repo. I test del database girano su PGlite (`scripts/test/db.test.ts`), senza Docker.
 - Progetto Supabase **NBBGM** (`sojimrnmsrbntgfsgxmj`, Francoforte): migrazioni applicate, giocatori reali caricati nelle tabelle `base_*`. Si lavora con la CLI (`npx.cmd --yes supabase@3.0.0 ...`, comandi in `supabase/README.md`), non con il connettore.
@@ -152,6 +152,40 @@ Correzioni dei bug trovati analizzando l'app pubblicata.
 - **Firme automatiche al minimo** (bot e `fillRosterAtMinimum`):
   - Solo svincolati sani che chiedono al massimo il 20% sopra il minimo (`minimumSigningPool`), con la richiesta dell'ultimo turno di free agency. Chi chiede di più va preso sul mercato.
   - Se non c'è nessuno così, si firma quello che chiede meno rispetto al suo minimo.
+
+Robustezza e piano Free di Supabase.
+
+- **Turni bloccati in chiusura:**
+  - Ogni simulazione conta un tentativo (`rounds.attempts`) e l'Edge Function salva l'errore (`record_round_error`, solo server).
+  - La ripresa automatica dopo 5 minuti non parte con la lega in pausa.
+  - Dopo 3 tentativi falliti il turno si ferma (`rounds.failed_at`): la pagina della lega lo mostra a tutti, l'errore solo al commissario (`round_error`).
+  - Il commissario lo riapre (`reopen_round`), con lo stesso seed o con uno nuovo. Il turno torna aperto con i Pronto da rifare, senza avanzamento forzato e con la scadenza, se c'è, contata da adesso.
+  - Nulla resta a metà: apply_turn scrive tutto o niente e accetta solo turni in chiusura, quindi una simulazione arrivata dopo la riapertura non scrive.
+- **Pulizia notturna** (`private.daily_cleanup`, job pg_cron `nbbgm-pulizia` alle 3:23 UTC):
+  - lo storico di pg_cron (`cron.job_run_details`) tiene gli ultimi 3 giorni;
+  - la cronaca delle partite (`games.play_by_play`) resta per la stagione in corso e per quella prima; nelle più vecchie diventa null, mentre punteggi, parziali e box score restano.
+- **Leghe per utente:** al massimo 5 create (trigger su `leagues`; `MAX_LEAGUES_PER_USER` in `_shared/league.ts`). Per crearne un'altra se ne elimina una.
+- **Eliminare la lega:** solo il commissario, ripetendo il nome (`delete_league`), e non durante una simulazione. Spariscono tutte le righe della lega (on delete cascade).
+- **Membri e squadre:** in una lega chi è membro guida una squadra, e viceversa.
+  - Il commissario libera la squadra di un manager (`free_team`): torna al bot, il manager esce dalla lega e può rientrare con il codice invito.
+  - Oppure lo espelle (`expel_manager`): come sopra, ma non può più rientrare (`league_bans`, letta solo dal server).
+  - Un manager che non è il commissario lascia la lega (`leave_league`). Il commissario non libera la propria squadra e non lascia la lega: la elimina.
+  - Nessuna di queste azioni durante una simulazione.
+- **Squadra liberata:**
+  - Si chiudono il Pronto del turno, la delega all'allenatore e i preferiti del draft.
+  - Gli avvisi aperti scadono; offerte agli svincolati, tagli e rinnovi richiesti si ritirano.
+  - Le proposte di scambio in sospeso o già accettate si ritirano, e scade l'avviso dell'altra squadra.
+  - Quintetto e tattiche salvati restano: il bot gioca con le sue scelte e con le tattiche salvate.
+  - Se dopo l'uscita i rimasti sono tutti pronti, il turno parte.
+- **Account cancellato:** le leghe del commissario passano al membro entrato per primo, o spariscono se non c'è nessun altro; le sue squadre tornano al bot come sopra. Prima `leagues.commissioner_id` bloccava la cancellazione.
+- **Service worker:**
+  - chiede la pagina senza cache HTTP;
+  - salva come pagina dell'app solo l'`index.html` vero, riconosciuto da `<meta name="application-name" content="NBBGM">`;
+  - all'installazione scarica i file senza cache HTTP;
+  - la versione cambia anche con i file di `public/`.
+- **Aggiornamenti e errori nell'app:** l'app cerca aggiornamenti al ritorno in primo piano e ogni ora, e mostra "Nuova versione" con Ricarica. Un errore nel disegno di una pagina mostra un messaggio con Ricarica (`ErrorBoundary`), non più lo schermo bianco.
+- **Pubblicazione dopo i controlli:** `pages.yml` e `supabase.yml` partono con `workflow_run` solo dopo i Controlli riusciti su un push a `main`, sullo stesso commit. Supabase pubblica a ogni push: migrazioni già applicate e funzioni uguali non cambiano nulla.
+- **create-league:** dalla Fase 7 aveva una variabile dichiarata due volte, che impedisce alla funzione di partire. Ora un test controlla che ogni Edge Function, tolti i tipi, sia JavaScript valido (`scripts/test/functions.test.ts`).
 
 ## Visione
 

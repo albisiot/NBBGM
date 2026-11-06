@@ -840,7 +840,9 @@ export type AdvanceResult =
 
 /**
  * Avanza la lega di un turno se è il momento: try_close_round (vince solo la prima chiamata), league_state,
- * motore, apply_turn. Se la scrittura fallisce il turno resta in chiusura e si riprende dopo 5 minuti.
+ * motore, apply_turn. Se qualcosa fallisce il turno resta in chiusura senza aver scritto nulla: l'errore si
+ * salva nel turno (record_round_error) e pg_cron lo riprende dopo 5 minuti, fino a 3 tentativi; poi aspetta il
+ * commissario.
  */
 export async function advanceLeague(
   db: ServerDb,
@@ -849,8 +851,27 @@ export async function advanceLeague(
 ): Promise<AdvanceResult> {
   const claim = await db.rpc<TurnClaim | null>('try_close_round', { p_league: leagueId });
   if (!claim) return { advanced: false };
-  const rows = await db.rpc<LeagueStateRows>('league_state', { p_league: leagueId });
-  const { payload, summary } = serverTurn(rows, claim, opts);
-  const nextRoundId = await db.rpc<string>('apply_round', { p_round: claim.round_id, p_payload: payload });
-  return { advanced: true, reason: claim.reason, reclaimed: claim.reclaimed, nextRoundId, summary };
+  try {
+    const rows = await db.rpc<LeagueStateRows>('league_state', { p_league: leagueId });
+    const { payload, summary } = serverTurn(rows, claim, opts);
+    const nextRoundId = await db.rpc<string>('apply_round', { p_round: claim.round_id, p_payload: payload });
+    return { advanced: true, reason: claim.reason, reclaimed: claim.reclaimed, nextRoundId, summary };
+  } catch (e) {
+    // Se non si riesce nemmeno a salvare l'errore, conta comunque il tentativo: il turno si ferma lo stesso
+    await db
+      .rpc('record_round_error', { p_round: claim.round_id, p_error: errorText(e) })
+      .catch(() => undefined);
+    throw e;
+  }
+}
+
+/** Testo di un errore qualsiasi, per il commissario. */
+export function errorText(e: unknown): string {
+  if (e instanceof Error) return e.message || e.name;
+  if (typeof e === 'string') return e;
+  try {
+    return JSON.stringify(e) ?? String(e);
+  } catch {
+    return String(e);
+  }
 }

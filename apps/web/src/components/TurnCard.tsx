@@ -9,7 +9,11 @@ import {
   alertText,
   answerAlert,
   forceRound,
+  MAX_ROUND_ATTEMPTS,
   readiness,
+  reopenRound,
+  roundError,
+  roundStuck,
   setPaused,
   setReady,
   subscribeTurn,
@@ -17,6 +21,7 @@ import {
   turnStatus,
   type AlertItem,
   type Readiness,
+  type RoundTrouble,
 } from '../lib/turns.ts';
 import { useAsync } from '../lib/useAsync.ts';
 import { Button, Card, ErrorText } from './ui.tsx';
@@ -101,6 +106,8 @@ export function TurnCard({
   const readyCount = inRound.filter((t) => readiness(status, t.id, now) !== 'waiting').length;
   const champion = status.championId ? league.teams.find((t) => t.id === status.championId) : null;
   const code = (id: string) => league.teams.find((t) => t.id === id)?.code ?? '?';
+  const stuck = roundStuck(round, status.trouble, now);
+  const failed = stuck && status.trouble?.failedAt != null;
 
   async function run(action: () => Promise<unknown>) {
     setBusy(true);
@@ -135,14 +142,24 @@ export function TurnCard({
           </div>
           <span
             className={`rounded-full px-3 py-1 text-xs font-semibold ${
-              !open
-                ? 'bg-orange-100 text-orange-800 dark:bg-orange-900 dark:text-orange-100'
-                : status.paused
-                  ? 'bg-slate-200 text-slate-700 dark:bg-slate-700 dark:text-slate-200'
-                  : 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-100'
+              failed
+                ? 'bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-100'
+                : !open
+                  ? 'bg-orange-100 text-orange-800 dark:bg-orange-900 dark:text-orange-100'
+                  : status.paused
+                    ? 'bg-slate-200 text-slate-700 dark:bg-slate-700 dark:text-slate-200'
+                    : 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-100'
             }`}
           >
-            {!open ? 'Simulazione in corso…' : status.paused ? 'Lega in pausa' : 'Aperto'}
+            {failed
+              ? 'Turno bloccato'
+              : stuck
+                ? 'Simulazione in ritardo'
+                : !open
+                  ? 'Simulazione in corso…'
+                  : status.paused
+                    ? 'Lega in pausa'
+                    : 'Aperto'}
           </span>
         </div>
 
@@ -204,6 +221,16 @@ export function TurnCard({
           <p className="text-sm text-orange-700 dark:text-orange-300">
             Il commissario ha forzato l’avanzamento.
           </p>
+        )}
+        {stuck && (
+          <StuckRound
+            leagueId={league.id}
+            trouble={status.trouble}
+            paused={status.paused}
+            isCommissioner={isCommissioner}
+            busy={busy}
+            onReopen={(newSeed) => void run(() => reopenRound(league.id, newSeed))}
+          />
         )}
 
         <div>
@@ -306,6 +333,71 @@ export function TurnCard({
         </Card>
       )}
     </>
+  );
+}
+
+/**
+ * Turno rimasto in chiusura: il server riprova da solo ogni 5 minuti, fino a 3 tentativi; poi il turno si ferma
+ * e il commissario lo riapre (vede anche l'errore). Riaperto, torna aperto e tutti confermano di nuovo.
+ */
+function StuckRound({
+  leagueId,
+  trouble,
+  paused,
+  isCommissioner,
+  busy,
+  onReopen,
+}: {
+  leagueId: string;
+  trouble: RoundTrouble | null;
+  paused: boolean;
+  isCommissioner: boolean;
+  busy: boolean;
+  onReopen: (newSeed: boolean) => void;
+}) {
+  const failed = trouble?.failedAt != null;
+  const { data: lastError } = useAsync(
+    () => (isCommissioner ? roundError(leagueId) : Promise.resolve(null)),
+    [leagueId, isCommissioner, trouble?.attempts, trouble?.failedAt],
+  );
+  const [confirm, setConfirm] = useState<'same' | 'new' | null>(null);
+  const click = (choice: 'same' | 'new') => {
+    if (confirm !== choice) return setConfirm(choice);
+    setConfirm(null);
+    onReopen(choice === 'new');
+  };
+  return (
+    <div className="space-y-2 rounded-lg border border-red-300 bg-red-50 p-3 text-sm dark:border-red-800 dark:bg-red-950">
+      <p className="font-semibold text-red-800 dark:text-red-100">
+        {failed
+          ? `La simulazione di questo turno non è riuscita (${MAX_ROUND_ATTEMPTS} tentativi).`
+          : 'La simulazione di questo turno non è ancora riuscita.'}
+      </p>
+      <p className="text-slate-700 dark:text-slate-200">
+        {failed
+          ? isCommissioner
+            ? 'Il turno è fermo finché non lo riapri. Non è stato scritto nulla: riaperto, torna come prima e tutti confermano di nuovo il Pronto.'
+            : 'Il turno è fermo finché il commissario non lo riapre. Non è stato scritto nulla.'
+          : paused
+            ? 'Il server riproverà quando la lega non sarà più in pausa.'
+            : `Il server riprova da solo ogni 5 minuti${
+                trouble ? ` (tentativo ${trouble.attempts} di ${MAX_ROUND_ATTEMPTS})` : ''
+              }.`}
+      </p>
+      {isCommissioner && lastError && (
+        <p className="font-mono text-xs break-words text-red-800 dark:text-red-200">Errore: {lastError}</p>
+      )}
+      {isCommissioner && (
+        <div className="flex flex-wrap gap-2">
+          <Button variant="secondary" disabled={busy} onClick={() => click('same')}>
+            {confirm === 'same' ? 'Confermi? Il turno si riapre' : 'Riapri il turno'}
+          </Button>
+          <Button variant="ghost" disabled={busy} onClick={() => click('new')}>
+            {confirm === 'new' ? 'Confermi? Risultati diversi' : 'Riapri con una simulazione nuova'}
+          </Button>
+        </div>
+      )}
+    </div>
   );
 }
 

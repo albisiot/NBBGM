@@ -229,7 +229,13 @@ function BoxTable({ leagueId, lines }: { leagueId: string; lines: BoxLine[] }) {
 function Plays({ game, away, home }: { game: GameDetail; away: LeagueTeam; home: LeagueTeam }) {
   const periods = [...new Set(game.plays.map((p) => p[0]))].sort((a, b) => a - b);
   const [period, setPeriod] = useState(periods[0] ?? 1);
-  if (!game.plays.length) return <p className="text-sm text-slate-500">Cronaca non disponibile.</p>;
+  if (!game.plays.length)
+    return (
+      <p className="text-sm text-slate-500 dark:text-slate-400">
+        Cronaca non disponibile: si conserva per la stagione in corso e per quella prima. Punteggi e box score
+        restano.
+      </p>
+    );
   return (
     <Card className="space-y-3 !p-4">
       <Segmented

@@ -9,8 +9,10 @@ import {
   BASE_DATASET,
   DEFAULT_SETTINGS,
   keyedIds,
+  LEAGUE_LIMIT_MESSAGE,
   leagueFromBaseRows,
   leaguePayload,
+  MAX_LEAGUES_PER_USER,
   type BaseRows,
   type LeagueSettings,
 } from '../_shared/league.ts';
@@ -97,6 +99,14 @@ Deno.serve(async (req) => {
     if (!TEAMS.some((t) => t.id === team)) throw new RequestError('Squadra non valida');
     const settings = readSettings(body?.settings);
 
+    // Il limite lo ricontrolla il database (trigger su leagues): qui si evita di preparare la lega per niente
+    const { count, error: countError } = await admin
+      .from('leagues')
+      .select('id', { count: 'exact', head: true })
+      .eq('commissioner_id', auth.user.id);
+    if (countError) throw new Error(`Conteggio delle leghe: ${countError.message}`);
+    if ((count ?? 0) >= MAX_LEAGUES_PER_USER) throw new RequestError(LEAGUE_LIMIT_MESSAGE, 409);
+
     const load = async <T>(table: string): Promise<T[]> => {
       const { data, error } = await admin.from(table).select('*').eq('dataset', BASE_DATASET);
       if (error) throw new Error(`Lettura di ${table}: ${error.message}`);
@@ -110,9 +120,12 @@ Deno.serve(async (req) => {
     if (rows.players.length === 0) throw new Error(`Nessun giocatore nel dataset ${BASE_DATASET}`);
 
     // Con il draft iniziale le rose partono vuote e i contratti del file passano a chi sceglie i giocatori
-    const data = leagueFromBaseRows(rows);
+    const leagueData = leagueFromBaseRows(rows);
     const draft = settings.roster_mode === 'draft';
-    const state = createLeagueState(data, crypto.randomUUID(), { humanTeams: [team], emptyRosters: draft });
+    const state = createLeagueState(leagueData, crypto.randomUUID(), {
+      humanTeams: [team],
+      emptyRosters: draft,
+    });
     const { pick_seconds: pickSeconds, ...leagueSettings } = settings;
     const payload = leaguePayload(state, {
       id: keyedIds(() => crypto.randomUUID()),
@@ -120,9 +133,12 @@ Deno.serve(async (req) => {
       commissionerId: auth.user.id,
       owners: { [team]: auth.user.id },
       settings: leagueSettings,
-      initialDraft: draft ? { mode: settings.draft_mode, pickSeconds, contracts: data.contracts } : undefined,
+      initialDraft: draft
+        ? { mode: settings.draft_mode, pickSeconds, contracts: leagueData.contracts }
+        : undefined,
     });
     const { data, error } = await admin.rpc('insert_league', { p_league: payload });
+    if (error?.hint === 'league_limit') throw new RequestError(LEAGUE_LIMIT_MESSAGE, 409);
     if (error) throw new Error(`Scrittura della lega: ${error.message}`);
     return json(data);
   } catch (e) {

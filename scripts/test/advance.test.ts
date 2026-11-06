@@ -505,3 +505,132 @@ describe('dopo i turni', () => {
     expect(round.state).toBe('open');
   });
 });
+
+describe('turni bloccati in chiusura', () => {
+  // Una simulazione che fallisce sempre, come un errore del motore
+  const failing = () =>
+    advanceLeague(serviceRpc(db), LEAGUE, {
+      newId: randomUUID,
+      botProposals: false,
+      playGame: () => {
+        throw new Error('motore rotto');
+      },
+    });
+  const roundRow = async (id: string) =>
+    (
+      await db.query<{
+        state: string;
+        attempts: number;
+        last_error: string | null;
+        failed_at: string | null;
+        seed: string | null;
+      }>('select state, attempts, last_error, failed_at, seed from public.rounds where id = $1', [id])
+    ).rows[0]!;
+  const fiveMinutesAgo = (id: string) =>
+    db.query(`update public.rounds set closing_started_at = now() - interval '6 minutes' where id = $1`, [
+      id,
+    ]);
+  const reopen = (user: string, newSeed = false) =>
+    asUser(db, user, (tx) => tx.query('select public.reopen_round($1, $2)', [LEAGUE, newSeed]));
+  const roundError = (user: string) =>
+    asUser(
+      db,
+      user,
+      async (tx) =>
+        (await tx.query<{ e: string | null }>('select public.round_error($1) as e', [LEAGUE])).rows[0]!.e,
+    );
+
+  it('dopo 3 tentativi falliti il turno si ferma e il commissario lo riapre', async () => {
+    await allReady();
+    const round = await current();
+    await expect(failing()).rejects.toThrow(/motore rotto/);
+    expect(await roundRow(round.id)).toMatchObject({
+      state: 'closing',
+      attempts: 1,
+      last_error: 'motore rotto',
+      failed_at: null,
+    });
+    // Nulla di scritto: le partite del turno sono ancora da giocare
+    const unplayed = await db.query<{ n: number }>(
+      `select count(*)::int as n from public.games
+       where league_id = $1 and round_number = $2 and home_score is null`,
+      [LEAGUE, round.number],
+    );
+    expect(unplayed.rows[0]!.n).toBe(15);
+    // Nei primi 5 minuti la simulazione potrebbe essere ancora in corso: non si riapre
+    await expect(reopen(ANNA)).rejects.toThrow(/in corso/);
+
+    // In pausa la ripresa automatica aspetta
+    await asUser(db, ANNA, (tx) =>
+      tx.query('update public.leagues set paused = true where id = $1', [LEAGUE]),
+    );
+    await fiveMinutesAgo(round.id);
+    expect((await advance()).advanced).toBe(false);
+    expect((await roundRow(round.id)).attempts).toBe(1);
+    await asUser(db, ANNA, (tx) =>
+      tx.query('update public.leagues set paused = false where id = $1', [LEAGUE]),
+    );
+
+    await expect(failing()).rejects.toThrow(/motore rotto/);
+    expect(await roundRow(round.id)).toMatchObject({ attempts: 2, failed_at: null });
+    await fiveMinutesAgo(round.id);
+    await expect(failing()).rejects.toThrow(/motore rotto/);
+    // Al terzo tentativo fallito il turno si ferma subito
+    expect((await roundRow(round.id)).failed_at).not.toBeNull();
+    await fiveMinutesAgo(round.id);
+    expect((await advance()).advanced).toBe(false);
+    expect((await roundRow(round.id)).attempts).toBe(3);
+
+    // Tutti vedono che il turno è fermo; l'errore e lo sblocco sono del commissario
+    const seen = await asUser(db, BRUNO, (tx) =>
+      tx.query<{ failed_at: string | null }>('select failed_at, attempts from public.rounds where id = $1', [
+        round.id,
+      ]),
+    );
+    expect(seen.rows[0]!.failed_at).not.toBeNull();
+    await expect(
+      asUser(db, BRUNO, (tx) => tx.query('select last_error from public.rounds where id = $1', [round.id])),
+    ).rejects.toThrow(/permission denied/);
+    await expect(roundError(BRUNO)).rejects.toThrow(/Solo il commissario/);
+    await expect(reopen(BRUNO)).rejects.toThrow(/Solo il commissario/);
+    expect(await roundError(ANNA)).toBe('motore rotto');
+
+    // Il commissario lo riapre con un seed nuovo: Pronto da rifare
+    const before = (await roundRow(round.id)).seed;
+    await reopen(ANNA, true);
+    expect(await roundRow(round.id)).toMatchObject({
+      state: 'open',
+      attempts: 0,
+      failed_at: null,
+      last_error: null,
+      seed: null,
+    });
+    expect(before).not.toBeNull();
+    const flags = await db.query<{ n: number }>(
+      'select count(*)::int as n from public.ready_flags where round_id = $1',
+      [round.id],
+    );
+    expect(flags.rows[0]!.n).toBe(0);
+    expect((await advance()).advanced).toBe(false);
+    await allReady();
+    expect(await advance()).toMatchObject({ advanced: true, reason: 'ready', reclaimed: false });
+    expect((await current()).number).toBe(round.number + 1);
+  });
+
+  it('se la Edge Function muore senza salvare l’errore il turno si ferma lo stesso', async () => {
+    await allReady();
+    const round = await current();
+    await expect(failing()).rejects.toThrow(/motore rotto/);
+    // Tre tentativi già fatti, l'ultimo senza traccia (per esempio un timeout)
+    await db.query(`update public.rounds set attempts = 3, last_error = null where id = $1`, [round.id]);
+    await fiveMinutesAgo(round.id);
+    expect((await advance()).advanced).toBe(false);
+    expect((await roundRow(round.id)).failed_at).not.toBeNull();
+    // Riaperto con lo stesso seed, il turno riparte
+    const seed = (await roundRow(round.id)).seed;
+    await reopen(ANNA);
+    expect((await roundRow(round.id)).seed).toBe(seed);
+    await allReady();
+    expect(await advance()).toMatchObject({ advanced: true, reason: 'ready' });
+  });
+});

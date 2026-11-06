@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { alertText, coachActive, readiness, timeLeft, type TurnStatus } from './turns.ts';
+import { alertText, coachActive, readiness, roundStuck, timeLeft, type TurnStatus } from './turns.ts';
 
 const NOW = Date.parse('2026-11-05T12:00:00Z');
 
@@ -13,6 +13,7 @@ function status(over: Partial<TurnStatus> = {}): TurnStatus {
       deadline: null,
       createdAt: '2026-11-05T11:59:00Z',
       forcedAt: null,
+      closingStartedAt: null,
     },
     paused: false,
     maxPaceSeconds: 60,
@@ -22,6 +23,7 @@ function status(over: Partial<TurnStatus> = {}): TurnStatus {
     lastGame: null,
     playing: null,
     championId: null,
+    trouble: null,
     ...over,
   };
 }
@@ -77,5 +79,24 @@ describe('testi', () => {
     expect(timeLeft('2026-11-05T12:12:00Z', NOW)).toBe('tra 12 min');
     expect(timeLeft('2026-11-05T15:20:00Z', NOW)).toBe('tra 3 h 20 min');
     expect(timeLeft('2026-11-05T11:00:00Z', NOW)).toBe('scaduta');
+  });
+});
+
+describe('turno fermo in chiusura', () => {
+  const closing = (startedMinutesAgo: number) => ({
+    ...(status().round as NonNullable<TurnStatus['round']>),
+    state: 'closing' as const,
+    closingStartedAt: new Date(NOW - startedMinutesAgo * 60_000).toISOString(),
+  });
+
+  it('un turno aperto o in chiusura da poco non è fermo', () => {
+    expect(roundStuck(status().round!, null, NOW)).toBe(false);
+    expect(roundStuck(closing(2), { attempts: 1, failedAt: null }, NOW)).toBe(false);
+  });
+
+  it('è fermo dopo 5 minuti in chiusura o dopo l’ultimo tentativo', () => {
+    expect(roundStuck(closing(6), { attempts: 1, failedAt: null }, NOW)).toBe(true);
+    expect(roundStuck(closing(6), null, NOW)).toBe(true);
+    expect(roundStuck(closing(1), { attempts: 3, failedAt: new Date(NOW).toISOString() }, NOW)).toBe(true);
   });
 });

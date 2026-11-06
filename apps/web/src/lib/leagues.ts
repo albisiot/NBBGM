@@ -206,6 +206,35 @@ export async function joinLeague(code: string, team: string): Promise<string> {
   return data as string;
 }
 
+/** Il commissario libera la squadra di un manager: torna al bot, il manager esce e può rientrare con il codice. */
+export async function freeTeam(teamId: string): Promise<void> {
+  const { error } = await supabase.rpc('free_team', { p_team: teamId });
+  if (error) throw error;
+}
+
+/** Il commissario espelle un manager: la sua squadra torna al bot e lui non può più rientrare. */
+export async function expelManager(teamId: string): Promise<void> {
+  const { error } = await supabase.rpc('expel_manager', { p_team: teamId });
+  if (error) throw error;
+}
+
+/** Il manager esce dalla lega: la sua squadra torna al bot. */
+export async function leaveLeague(leagueId: string): Promise<void> {
+  const { error } = await supabase.rpc('leave_league', { p_league: leagueId });
+  if (error) throw error;
+}
+
+/** Il commissario elimina la lega con tutto quello che contiene; per conferma ne ripete il nome. */
+export async function deleteLeague(leagueId: string, name: string): Promise<void> {
+  const { error } = await supabase.rpc('delete_league', { p_league: leagueId, p_name: name });
+  if (error) throw error;
+}
+
+/** Il nome scritto per confermare l'eliminazione corrisponde a quello della lega (come nel server). */
+export function sameLeagueName(typed: string, name: string): boolean {
+  return typed.trim().toLowerCase() === name.trim().toLowerCase();
+}
+
 export async function updateDisplayName(userId: string, name: string): Promise<void> {
   const { error } = await supabase.from('profiles').update({ display_name: name }).eq('id', userId);
   if (error) throw error;

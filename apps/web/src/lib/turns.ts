@@ -11,6 +11,14 @@ export interface RoundInfo {
   deadline: string | null;
   createdAt: string;
   forcedAt: string | null;
+  /** Inizio della chiusura (o dell'ultima ripresa) della simulazione. */
+  closingStartedAt: string | null;
+}
+
+/** Simulazione che non riesce: tentativi fatti e, dopo l'ultimo, quando il turno si è fermato. */
+export interface RoundTrouble {
+  attempts: number;
+  failedAt: string | null;
 }
 
 export interface Delegation {
@@ -51,13 +59,15 @@ export interface TurnStatus {
   playing: Set<string> | null;
   /** A stagione finita, il campione. */
   championId: string | null;
+  /** Solo per un turno in chiusura: tentativi di simulazione e stato fermo. */
+  trouble: RoundTrouble | null;
 }
 
 export async function turnStatus(leagueId: string, myTeamId: string | null): Promise<TurnStatus> {
   const league = await supabase
     .from('leagues')
     .select(
-      'paused, max_pace_seconds, current_season_id, round:rounds!leagues_current_round(id, number, kind, state, deadline, created_at, forced_at)',
+      'paused, max_pace_seconds, current_season_id, round:rounds!leagues_current_round(id, number, kind, state, deadline, created_at, forced_at, closing_started_at)',
     )
     .eq('id', leagueId)
     .maybeSingle();
@@ -74,6 +84,7 @@ export async function turnStatus(leagueId: string, myTeamId: string | null): Pro
       deadline: string | null;
       created_at: string;
       forced_at: string | null;
+      closing_started_at: string | null;
     } | null;
   } | null;
   const round = l?.round ?? null;
@@ -132,6 +143,7 @@ export async function turnStatus(leagueId: string, myTeamId: string | null): Pro
     if (r.error) throw r.error;
     championId = (r.data as { winner_team_id: string | null } | null)?.winner_team_id ?? null;
   }
+  const trouble = round?.state === 'closing' ? await roundTrouble(round.id) : null;
   const g = (games.data ?? [])[0] as
     | {
         round_number: number;
@@ -151,6 +163,7 @@ export async function turnStatus(leagueId: string, myTeamId: string | null): Pro
       deadline: round.deadline,
       createdAt: round.created_at,
       forcedAt: round.forced_at,
+      closingStartedAt: round.closing_started_at,
     },
     paused: l?.paused ?? false,
     maxPaceSeconds: l?.max_pace_seconds ?? 60,
@@ -190,7 +203,36 @@ export async function turnStatus(leagueId: string, myTeamId: string | null): Pro
       : null,
     playing,
     championId,
+    trouble,
   };
+}
+
+/**
+ * Tentativi di simulazione del turno. Letti a parte: se il database non ha ancora le colonne (l'app si pubblica
+ * insieme alle migrazioni) la scheda del turno funziona lo stesso, senza queste informazioni.
+ */
+async function roundTrouble(roundId: string): Promise<RoundTrouble | null> {
+  const { data, error } = await supabase
+    .from('rounds')
+    .select('attempts, failed_at')
+    .eq('id', roundId)
+    .maybeSingle();
+  if (error || !data) return null;
+  const r = data as { attempts: number; failed_at: string | null };
+  return { attempts: r.attempts, failedAt: r.failed_at };
+}
+
+/** Tentativi di simulazione prima che il turno si fermi (come private.max_round_attempts nel database). */
+export const MAX_ROUND_ATTEMPTS = 3;
+
+/** Minuti dopo i quali un turno in chiusura si considera fermo (il server lo riprende o il commissario lo riapre). */
+export const STUCK_AFTER_MS = 5 * 60_000;
+
+/** Turno in chiusura che non si è chiuso: fermo dopo l'ultimo tentativo o in chiusura da più di 5 minuti. */
+export function roundStuck(round: RoundInfo, trouble: RoundTrouble | null, now = Date.now()): boolean {
+  if (round.state !== 'closing') return false;
+  if (trouble?.failedAt) return true;
+  return round.closingStartedAt !== null && now - Date.parse(round.closingStartedAt) > STUCK_AFTER_MS;
 }
 
 /** Allenatore attivo per quel turno, come lo conta il server (gli avvisi bloccanti a parte). */
@@ -234,6 +276,19 @@ export async function setReady(teamId: string, ready: boolean, roundId: string):
 
 export async function forceRound(leagueId: string): Promise<void> {
   const { error } = await supabase.rpc('force_round', { p_league: leagueId });
+  if (error) throw error;
+}
+
+/** Ultimo errore della simulazione del turno corrente: solo per il commissario. */
+export async function roundError(leagueId: string): Promise<string | null> {
+  const { data, error } = await supabase.rpc('round_error', { p_league: leagueId });
+  if (error) throw error;
+  return (data as string | null) ?? null;
+}
+
+/** Il commissario riapre il turno fermo in chiusura; con newSeed la simulazione si rifà con un caso diverso. */
+export async function reopenRound(leagueId: string, newSeed: boolean): Promise<void> {
+  const { error } = await supabase.rpc('reopen_round', { p_league: leagueId, p_new_seed: newSeed });
   if (error) throw error;
 }
 

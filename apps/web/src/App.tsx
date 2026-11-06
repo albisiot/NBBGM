@@ -1,7 +1,9 @@
 // Rotte dell'app. HashRouter perché GitHub Pages non gestisce le rotte di una single page app.
 import { HashRouter, Navigate, Route, Routes } from 'react-router';
+import { ErrorBoundary } from './components/ErrorBoundary.tsx';
 import { Layout } from './components/Layout.tsx';
 import { ErrorText, Spinner } from './components/ui.tsx';
+import { UpdateBanner } from './components/UpdateBanner.tsx';
 import { AuthProvider, useAuth } from './lib/auth.tsx';
 import { configured } from './lib/supabase.ts';
 import { AnnualDraftPage } from './pages/AnnualDraftPage.tsx';
@@ -67,10 +69,15 @@ export function App() {
       </main>
     );
   return (
-    <AuthProvider>
-      <HashRouter>
-        <Routed />
-      </HashRouter>
-    </AuthProvider>
+    <>
+      <ErrorBoundary>
+        <AuthProvider>
+          <HashRouter>
+            <Routed />
+          </HashRouter>
+        </AuthProvider>
+      </ErrorBoundary>
+      <UpdateBanner />
+    </>
   );
 }

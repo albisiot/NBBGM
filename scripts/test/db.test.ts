@@ -89,13 +89,25 @@ describe('permessi', () => {
       .map((r) => r.name);
     expect(userFunctions).toEqual([
       'answer_alert(uuid)',
+      'delete_league(uuid,text)',
+      'expel_manager(uuid)',
       'force_round(uuid)',
+      'free_team(uuid)',
       'join_league(text,text)',
       'league_preview(text)',
+      'leave_league(uuid)',
       'player_scouting(uuid)',
+      'reopen_round(uuid,boolean)',
+      'round_error(uuid)',
       'set_ready(uuid,boolean,uuid)',
       'team_balance(uuid)',
     ]);
+    // Solo il server salva l'errore di una simulazione fallita
+    for (const role of ['anon', 'authenticated'])
+      expect(rows.some((r) => r.name === 'record_round_error(uuid,text)' && r.role === role)).toBe(false);
+    expect(rows.some((r) => r.name === 'record_round_error(uuid,text)' && r.role === 'service_role')).toBe(
+      true,
+    );
     // I seed restano al server: con il motore si rifarebbero stime del potenziale, crescita e classe del draft
     for (const table of ['leagues', 'rounds', 'games']) {
       const seed = await db.query<{ ok: boolean }>(
