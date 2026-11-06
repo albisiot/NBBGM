@@ -293,31 +293,47 @@ export async function playerSeasons(leagueId: string): Promise<PlayerSeason[]> {
     role: string;
     season_stats: Record<string, number> | null;
   };
-  const pct = (m: number, a: number) => (a > 0 ? m / a : null);
   return ((data ?? []) as Row[])
     .filter((p) => (p.season_stats?.g ?? 0) > 0)
-    .map((p) => {
-      const s = p.season_stats as Record<string, number>;
-      const v = (k: string) => s[k] ?? 0;
-      const g = v('g');
-      return {
-        id: p.id,
-        teamId: p.team_id,
-        name: `${p.first_name} ${p.last_name}`,
-        role: p.role,
-        g,
-        min: v('seconds') / 60 / g,
-        pts: v('pts') / g,
-        reb: (v('orb') + v('drb')) / g,
-        ast: v('ast') / g,
-        stl: v('stl') / g,
-        blk: v('blk') / g,
-        tov: v('tov') / g,
-        fgPct: pct(v('fgm'), v('fga')),
-        tpPct: pct(v('tpm'), v('tpa')),
-        ftPct: pct(v('ftm'), v('fta')),
-      };
-    });
+    .map((p) =>
+      perGame(
+        p.id,
+        p.team_id,
+        `${p.first_name} ${p.last_name}`,
+        p.role,
+        p.season_stats as Record<string, number>,
+      ),
+    );
+}
+
+/** Medie per partita dalle statistiche di stagione (players.season_stats o player_seasons.stats). */
+export function perGame(
+  id: string,
+  teamId: string | null,
+  name: string,
+  role: string,
+  s: Record<string, number>,
+): PlayerSeason {
+  const pct = (m: number, a: number) => (a > 0 ? m / a : null);
+  const v = (k: string) => Number(s[k] ?? 0);
+  const g = Math.max(1, v('g'));
+  return {
+    id,
+    teamId,
+    name,
+    role,
+    g: v('g'),
+    min: v('seconds') / 60 / g,
+    pts: v('pts') / g,
+    reb: (v('orb') + v('drb')) / g,
+    ast: v('ast') / g,
+    stl: v('stl') / g,
+    blk: v('blk') / g,
+    tov: v('tov') / g,
+    fgPct: pct(v('fgm'), v('fga')),
+    tpPct: pct(v('tpm'), v('tpa')),
+    ftPct: pct(v('ftm'), v('fta')),
+  };
 }
 
 /** "2:35" da secondi; "12:00" all'inizio del periodo. */

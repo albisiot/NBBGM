@@ -2,14 +2,18 @@ import { CONFIG_2026_27, luxuryTax, nextConfig, salaryRun } from '@nbbgm/engine'
 import { describe, expect, it } from 'vitest';
 import {
   contractFirstYear,
+  DEFAULT_FA_QUERY,
   effectiveConfig,
   faRoundOf,
+  filterFreeAgents,
+  minimumOf,
   millions,
   missingPlayerIds,
   offerInput,
   offerSalary,
   projectedTax,
   salaryRunOf,
+  type FreeAgentQuery,
 } from './market.ts';
 
 describe('stagioni dei contratti', () => {
@@ -76,5 +80,92 @@ describe('giocatori da descrivere nel mercato', () => {
 
   it('niente offerte e niente scambi: nessuna richiesta in più', () => {
     expect(missingPlayerIds([], [], new Map())).toEqual([]);
+  });
+});
+
+describe('ricerca tra gli svincolati', () => {
+  const MIN = 1_300_000;
+  const fa = (
+    firstName: string,
+    lastName: string,
+    over: Partial<{ role: string; secondaryRole: string | null; age: number; scoutedPotential: number }>,
+    ovr: number,
+    ask: number,
+  ) => ({
+    p: { firstName, lastName, role: 'SG', secondaryRole: null, age: 27, scoutedPotential: 60, ...over },
+    ovr,
+    ask,
+    minimum: MIN,
+  });
+  const rows = [
+    fa('Luka', 'Dončić', { role: 'PG', age: 27, scoutedPotential: 90 }, 88, 40_000_000),
+    fa('Mario', 'Rossi', { role: 'C', age: 33, scoutedPotential: 50 }, 60, MIN + 4_000),
+    fa(
+      'Gianni',
+      'Bianchi',
+      { role: 'SF', secondaryRole: 'PF', age: 22, scoutedPotential: 75 },
+      62,
+      MIN + 1_500_000,
+    ),
+    fa('Paolo', 'Verdi', { role: 'PF', age: 29, scoutedPotential: 55 }, 62, MIN + 4_500_000),
+  ];
+  const q = (over: Partial<FreeAgentQuery>) => ({ ...DEFAULT_FA_QUERY, ...over });
+  const names = (r: { p: { lastName: string } }[]) => r.map((x) => x.p.lastName);
+
+  it('per overall, a parità per nome', () => {
+    expect(names(filterFreeAgents(rows, DEFAULT_FA_QUERY, 0))).toEqual([
+      'Dončić',
+      'Bianchi',
+      'Verdi',
+      'Rossi',
+    ]);
+  });
+
+  it('nome senza accenti e maiuscole, anche con più parole', () => {
+    expect(names(filterFreeAgents(rows, q({ name: 'doncic' }), 0))).toEqual(['Dončić']);
+    expect(names(filterFreeAgents(rows, q({ name: 'LUKA don' }), 0))).toEqual(['Dončić']);
+    expect(names(filterFreeAgents(rows, q({ name: 'xyz' }), 0))).toEqual([]);
+  });
+
+  it('ruolo principale o secondario, fasce d’età', () => {
+    expect(names(filterFreeAgents(rows, q({ role: 'PF' }), 0))).toEqual(['Bianchi', 'Verdi']);
+    expect(names(filterFreeAgents(rows, q({ age: 'young' }), 0))).toEqual(['Bianchi']);
+    expect(names(filterFreeAgents(rows, q({ age: 'prime' }), 0))).toEqual(['Dončić', 'Verdi']);
+    expect(names(filterFreeAgents(rows, q({ age: 'veteran' }), 0))).toEqual(['Rossi']);
+  });
+
+  it('richiesta: al minimo (con la tolleranza della cifra mostrata), minimo + X, spazio sotto il cap', () => {
+    expect(names(filterFreeAgents(rows, q({ ask: 'min' }), 0))).toEqual(['Rossi']);
+    expect(names(filterFreeAgents(rows, q({ ask: 'min2' }), 0))).toEqual(['Bianchi', 'Rossi']);
+    expect(names(filterFreeAgents(rows, q({ ask: 'min5' }), 0))).toEqual(['Bianchi', 'Verdi', 'Rossi']);
+    // Sopra il cap: solo chi chiede il minimo; con 3 milioni di spazio anche Bianchi
+    expect(names(filterFreeAgents(rows, q({ ask: 'space' }), 0))).toEqual(['Rossi']);
+    expect(names(filterFreeAgents(rows, q({ ask: 'space' }), 3_000_000))).toEqual(['Bianchi', 'Rossi']);
+  });
+
+  it('ordinamento per potenziale, età e richiesta', () => {
+    expect(names(filterFreeAgents(rows, q({ sort: 'potential' }), 0))).toEqual([
+      'Dončić',
+      'Bianchi',
+      'Verdi',
+      'Rossi',
+    ]);
+    expect(names(filterFreeAgents(rows, q({ sort: 'age' }), 0))).toEqual([
+      'Bianchi',
+      'Dončić',
+      'Verdi',
+      'Rossi',
+    ]);
+    expect(names(filterFreeAgents(rows, q({ sort: 'ask' }), 0))).toEqual([
+      'Rossi',
+      'Bianchi',
+      'Verdi',
+      'Dončić',
+    ]);
+  });
+
+  it('il minimo dipende dall’anzianità', () => {
+    expect(minimumOf(CONFIG_2026_27, { yearsInLeague: 0 })).toBe(CONFIG_2026_27.minimumSalary[0]);
+    expect(minimumOf(CONFIG_2026_27, { yearsInLeague: 15 })).toBe(CONFIG_2026_27.minimumSalary[10]);
   });
 });

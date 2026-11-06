@@ -10,7 +10,8 @@
     "calibrate": "tsx src/calibrate.ts",
     "seasons": "tsx src/seasons.ts",
     "db-seed": "tsx src/db/build-seed.ts",
-    "icons": "tsx src/make-icons.ts"
+    "icons": "tsx src/make-icons.ts",
+    "push-keys": "tsx src/push-keys.ts"
   },
   "dependencies": {
     "@nbbgm/engine": "workspace:*",

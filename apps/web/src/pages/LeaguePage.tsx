@@ -2,7 +2,9 @@
 // loro manager (o il bot) e impostazioni. Risultati, classifiche e mercato arrivano con le fasi successive.
 import { useEffect, useState } from 'react';
 import { Link, useParams, useSearchParams } from 'react-router';
+import { LatestNews } from '../components/ChronicleText.tsx';
 import { LeagueAdmin } from '../components/LeagueAdmin.tsx';
+import { WelcomeCard } from '../components/Onboarding.tsx';
 import { TurnCard } from '../components/TurnCard.tsx';
 import { Button, Card, ErrorText, PageTitle, Spinner } from '../components/ui.tsx';
 import { LAST_LEAGUE_KEY } from '../components/Layout.tsx';
@@ -58,7 +60,11 @@ export function LeaguePage() {
         </p>
       </Card>
 
+      {mine && <WelcomeCard leagueId={league.id} teamName={mine.fullName} />}
+
       <TurnCard league={league} userId={userId} onRoundChange={reload} />
+
+      <LatestNews key={league.roundId ?? ''} leagueId={league.id} codes={league.teams.map((t) => t.code)} />
 
       {league.draftState && (
         <Card className="space-y-2">
@@ -103,6 +109,7 @@ export function LeaguePage() {
               title={conf === 'East' ? 'Eastern Conference' : 'Western Conference'}
               teams={league.teams.filter((t) => t.conference === conf)}
               userId={userId}
+              leagueId={league.id}
             />
           ))}
         </div>
@@ -132,7 +139,17 @@ export function LeaguePage() {
   );
 }
 
-function TeamList({ title, teams, userId }: { title: string; teams: LeagueTeam[]; userId: string }) {
+function TeamList({
+  title,
+  teams,
+  userId,
+  leagueId,
+}: {
+  title: string;
+  teams: LeagueTeam[];
+  userId: string;
+  leagueId: string;
+}) {
   return (
     <div>
       <h3 className="mb-1 text-xs font-semibold tracking-wide text-slate-500 uppercase dark:text-slate-400">
@@ -148,7 +165,9 @@ function TeamList({ title, teams, userId }: { title: string; teams: LeagueTeam[]
               <span className="w-10 shrink-0 rounded bg-slate-100 px-1 text-center text-xs font-bold text-slate-700 dark:bg-slate-700 dark:text-slate-200">
                 {t.code}
               </span>
-              <span className="truncate">{t.fullName}</span>
+              <Link to={`/lega/${leagueId}/squadre/${t.code}`} className="truncate hover:underline">
+                {t.fullName}
+              </Link>
             </span>
             <span
               className={`shrink-0 text-xs ${t.ownerId ? 'text-orange-700 dark:text-orange-300' : 'text-slate-500'}`}

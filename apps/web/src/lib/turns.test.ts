@@ -1,12 +1,15 @@
 import { describe, expect, it } from 'vitest';
 import {
   alertText,
+  barView,
   coachActive,
   countsAsReady,
   readiness,
   readinessNote,
   roundStuck,
+  roundTitle,
   timeLeft,
+  type BarStatus,
   type TurnStatus,
 } from './turns.ts';
 
@@ -175,5 +178,64 @@ describe('turno fermo in chiusura', () => {
     expect(roundStuck(closing(6), { attempts: 1, failedAt: null }, NOW)).toBe(true);
     expect(roundStuck(closing(6), null, NOW)).toBe(true);
     expect(roundStuck(closing(1), { attempts: 3, failedAt: new Date(NOW).toISOString() }, NOW)).toBe(true);
+  });
+});
+
+describe('barra del turno', () => {
+  const round = { id: 'r', number: 12, kind: 'regular', state: 'open' as const, stage: null };
+  const bar = (over: Partial<BarStatus> = {}): BarStatus => ({
+    round,
+    paused: false,
+    draftPending: false,
+    myTeamId: 't',
+    myState: 'waiting',
+    decisions: [],
+    ...over,
+  });
+
+  it('titolo del turno', () => {
+    expect(roundTitle('regular', 12, null)).toBe('Giornata 13 di 82');
+    expect(roundTitle('play-in', 82, null)).toBe('Play-in');
+    expect(roundTitle('playoffs', 90, null)).toBe('Playoff');
+    expect(roundTitle('offseason', 3, 'renewals')).toBe('Offseason · Rinnovi');
+    expect(roundTitle('offseason', 3, null)).toBe('Offseason');
+  });
+
+  it('non pronto: si segna pronto; pronto: toglie il Pronto', () => {
+    expect(barView(bar())).toMatchObject({
+      title: 'Giornata 13 di 82',
+      badge: { label: 'Non pronto' },
+      action: 'ready',
+    });
+    expect(barView(bar({ myState: 'ready' }))).toMatchObject({
+      badge: { label: 'Pronto' },
+      action: 'unready',
+    });
+  });
+
+  it('allenatore fermo da un avviso: da decidere, con il numero delle decisioni', () => {
+    const v = barView(bar({ myState: 'blocked', decisions: [{ id: 'a', kind: 'trade_offer' }] }));
+    expect(v).toMatchObject({
+      badge: { label: 'Da decidere', tone: 'amber' },
+      action: 'ready',
+      decisions: 1,
+    });
+  });
+
+  it('chi non gioca in play-in e playoff non ha il pulsante', () => {
+    expect(barView(bar({ myState: 'out' }))).toMatchObject({ badge: { label: 'Non gioca' }, action: null });
+  });
+
+  it('simulazione in corso e draft iniziale: niente pulsante', () => {
+    expect(barView(bar({ round: { ...round, state: 'closing' } }))).toMatchObject({
+      badge: { label: 'Simulazione…' },
+      action: null,
+    });
+    expect(barView(bar({ draftPending: true }))).toMatchObject({ title: 'Draft iniziale', action: null });
+  });
+
+  it('senza turno o senza squadra la barra non c’è', () => {
+    expect(barView(bar({ round: null }))).toBeNull();
+    expect(barView(bar({ myTeamId: null }))).toBeNull();
   });
 });

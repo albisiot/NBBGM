@@ -11,9 +11,12 @@ import { LoginPage } from './pages/LoginPage.tsx';
 
 // Le pagine arrivano a pezzi quando si aprono (lib/lazyPage.ts); l'accesso no, perché è la prima cosa che si vede
 const AnnualDraftPage = lazyPage(() => import('./pages/AnnualDraftPage.tsx'), 'AnnualDraftPage');
+const ChroniclePage = lazyPage(() => import('./pages/ChroniclePage.tsx'), 'ChroniclePage');
 const CreateLeaguePage = lazyPage(() => import('./pages/CreateLeaguePage.tsx'), 'CreateLeaguePage');
 const DraftPage = lazyPage(() => import('./pages/DraftPage.tsx'), 'DraftPage');
 const GamePage = lazyPage(() => import('./pages/GamePage.tsx'), 'GamePage');
+const GuidePage = lazyPage(() => import('./pages/GuidePage.tsx'), 'GuidePage');
+const HistoryPage = lazyPage(() => import('./pages/HistoryPage.tsx'), 'HistoryPage');
 const JoinLeaguePage = lazyPage(() => import('./pages/JoinLeaguePage.tsx'), 'JoinLeaguePage');
 const LeaguePage = lazyPage(() => import('./pages/LeaguePage.tsx'), 'LeaguePage');
 const LeaguesPage = lazyPage(() => import('./pages/LeaguesPage.tsx'), 'LeaguesPage');
@@ -25,6 +28,7 @@ const ResultsPage = lazyPage(() => import('./pages/ResultsPage.tsx'), 'ResultsPa
 const RosterPage = lazyPage(() => import('./pages/RosterPage.tsx'), 'RosterPage');
 const StandingsPage = lazyPage(() => import('./pages/StandingsPage.tsx'), 'StandingsPage');
 const StatsPage = lazyPage(() => import('./pages/StatsPage.tsx'), 'StatsPage');
+const TeamPage = lazyPage(() => import('./pages/TeamPage.tsx'), 'TeamPage');
 
 function Routed() {
   const { session, loading } = useAuth();
@@ -47,6 +51,7 @@ function Routed() {
         <Route path="lega/:id" element={<LeaguePage />} />
         <Route path="lega/:id/draft" element={<DraftPage />} />
         <Route path="lega/:id/squadra" element={<RosterPage />} />
+        <Route path="lega/:id/squadre/:code" element={<TeamPage />} />
         <Route path="lega/:id/giocatore/:pid" element={<PlayerPage />} />
         <Route path="lega/:id/risultati" element={<ResultsPage />} />
         <Route path="lega/:id/risultati/:round" element={<ResultsPage />} />
@@ -56,7 +61,10 @@ function Routed() {
         <Route path="lega/:id/statistiche" element={<StatsPage />} />
         <Route path="lega/:id/mercato" element={<MarketPage />} />
         <Route path="lega/:id/draft-annuale" element={<AnnualDraftPage />} />
+        <Route path="lega/:id/cronaca" element={<ChroniclePage />} />
+        <Route path="lega/:id/storico" element={<HistoryPage />} />
         <Route path="profilo" element={<ProfilePage />} />
+        <Route path="guida" element={<GuidePage />} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Route>
     </Routes>

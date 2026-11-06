@@ -90,6 +90,7 @@ describe('permessi', () => {
     expect(userFunctions).toEqual([
       'answer_alert(uuid)',
       'delete_league(uuid,text)',
+      'delete_push_subscription(text)',
       'expel_manager(uuid)',
       'force_round(uuid)',
       'free_team(uuid)',
@@ -100,6 +101,7 @@ describe('permessi', () => {
       'reopen_round(uuid,boolean)',
       'round_error(uuid)',
       'round_readiness(uuid)',
+      'save_push_subscription(text,text,text,text)',
       'set_ready(uuid,boolean,uuid)',
       'team_balance(uuid)',
     ]);
@@ -180,6 +182,8 @@ describe('permessi', () => {
       'initial_draft_lists:INSERT',
       'initial_draft_lists:UPDATE',
       'leagues:UPDATE',
+      'notification_settings:INSERT',
+      'notification_settings:UPDATE',
       'profiles:UPDATE',
       'team_settings:DELETE',
       'team_settings:INSERT',
@@ -311,6 +315,11 @@ describe('la propria squadra e basta', () => {
     expect(await asUser(db, BRUNO, (tx) => changed(tx, sql, [ids.league]))).toBe(0);
     expect(await asUser(db, ANNA, (tx) => changed(tx, sql, [ids.league]))).toBe(1);
     await db.query('update public.leagues set deadline_minutes = null where id = $1', [ids.league]);
+    // Anche il ritmo massimo con gli allenatori, dopo la creazione della lega
+    const pace = 'update public.leagues set max_pace_seconds = 300 where id = $1';
+    expect(await asUser(db, BRUNO, (tx) => changed(tx, pace, [ids.league]))).toBe(0);
+    expect(await asUser(db, ANNA, (tx) => changed(tx, pace, [ids.league]))).toBe(1);
+    await db.query('update public.leagues set max_pace_seconds = 60 where id = $1', [ids.league]);
   });
 
   it('il quintetto è della squadra e i minuti fanno 240', async () => {

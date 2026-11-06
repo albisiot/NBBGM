@@ -2,7 +2,7 @@
 // classifica, spareggi compresi, che il server usa per il tabellone.
 import type { StandingsLine } from '@nbbgm/engine';
 import { useState } from 'react';
-import { useParams } from 'react-router';
+import { Link, useParams } from 'react-router';
 import { Card, ErrorText, PageTitle, Segmented, Spinner, TeamCode } from '../components/ui.tsx';
 import { useUserId } from '../lib/auth.tsx';
 import type { LeagueTeam } from '../lib/leagues.ts';
@@ -45,13 +45,14 @@ export function StandingsPage() {
         view === 'conference' ? (
           <Card key={conf} className="!p-4">
             <h2 className="mb-2 font-semibold">{conf === 'East' ? 'Eastern' : 'Western'} Conference</h2>
-            <StandingsTable lines={table[conf]} team={team} mine={mine} seeds />
+            <StandingsTable leagueId={league.id} lines={table[conf]} team={team} mine={mine} seeds />
           </Card>
         ) : (
           DIVISIONS[conf].map((div) => (
             <Card key={div} className="!p-4">
               <h2 className="mb-2 font-semibold">{div}</h2>
               <StandingsTable
+                leagueId={league.id}
                 lines={table[conf].filter((l) => l.division === div).sort((a, b) => a.divRank - b.divRank)}
                 team={team}
                 mine={mine}
@@ -78,11 +79,13 @@ export function StandingsPage() {
 }
 
 function StandingsTable({
+  leagueId,
   lines,
   team,
   mine,
   seeds = false,
 }: {
+  leagueId: string;
   lines: StandingsLine[];
   team: Map<string, LeagueTeam>;
   mine: string | undefined;
@@ -137,7 +140,12 @@ function StandingsTable({
                   <span className="flex items-center gap-2">
                     <span className="w-5 shrink-0 font-normal">{rank}</span>
                     <TeamCode code={t?.code ?? '?'} strong={l.teamId === mine} />
-                    <span className="truncate">{t?.fullName}</span>
+                    <Link
+                      to={`/lega/${leagueId}/squadre/${t?.code ?? ''}`}
+                      className="truncate hover:underline"
+                    >
+                      {t?.fullName}
+                    </Link>
                   </span>
                 </td>
                 <td className={td}>{l.w}</td>

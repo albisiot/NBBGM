@@ -49,5 +49,5 @@ jobs:
       - name: Edge Functions
         if: env.SKIP != '1'
         run: >-
-          npx --yes supabase@3.0.0 functions deploy create-league draft advance-turn market
+          npx --yes supabase@3.0.0 functions deploy create-league draft advance-turn market push
           --remote="$PROJECT_REF" --use-api --yes

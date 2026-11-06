@@ -1,9 +1,12 @@
-// Profilo: il nome che vedono gli altri manager e l'uscita.
+// Profilo: il nome che vedono gli altri manager, le notifiche e l'uscita.
 import { useEffect, useState, type FormEvent } from 'react';
+import { Link } from 'react-router';
+import { PushSettings } from '../components/PushSettings.tsx';
 import { Button, Card, ErrorText, PageTitle, TextInput } from '../components/ui.tsx';
 import { useAuth, useUserId } from '../lib/auth.tsx';
 import { friendlyError } from '../lib/errors.ts';
 import { updateDisplayName } from '../lib/leagues.ts';
+import { disablePush } from '../lib/push.ts';
 
 export function ProfilePage() {
   const userId = useUserId();
@@ -48,7 +51,21 @@ export function ProfilePage() {
           </Button>
         </form>
       </Card>
-      <Button variant="secondary" onClick={() => void signOut()}>
+      <PushSettings userId={userId} />
+      <p className="text-sm">
+        <Link to="/guida" className="font-semibold text-orange-700 hover:underline dark:text-orange-300">
+          Come si gioca
+        </Link>
+      </p>
+      <Button
+        variant="secondary"
+        onClick={() =>
+          // Le notifiche di questo dispositivo smettono di arrivare a chi è uscito
+          void disablePush()
+            .catch(() => undefined)
+            .then(signOut)
+        }
+      >
         Esci
       </Button>
     </div>

@@ -1,11 +1,13 @@
 // Statistiche individuali di regular season, per partita: si ordinano toccando l'intestazione di una colonna e
-// si filtrano per squadra e per partite giocate.
+// si filtrano per squadra e per partite giocate. Le stagioni passate (?stagione=2026) vengono da quelle salvate a
+// fine regular season.
 import { useMemo, useState } from 'react';
-import { Link, useParams } from 'react-router';
+import { Link, useParams, useSearchParams } from 'react-router';
 import { Card, ErrorText, PageTitle, Spinner, TeamCode } from '../components/ui.tsx';
 import { useUserId } from '../lib/auth.tsx';
 import { leagueDetail } from '../lib/leagues.ts';
-import { playerSeasons, type PlayerSeason } from '../lib/results.ts';
+import { leagueSeasons, seasonLabel, seasonPlayers } from '../lib/history.ts';
+import { perGame, type PlayerSeason } from '../lib/results.ts';
 import { useAsync } from '../lib/useAsync.ts';
 
 type SortKey = 'pts' | 'reb' | 'ast' | 'stl' | 'blk' | 'tov' | 'min' | 'g' | 'fgPct' | 'tpPct' | 'ftPct';
@@ -35,10 +37,22 @@ export function StatsPage() {
   const [sort, setSort] = useState<SortKey>('pts');
   const [teamFilter, setTeamFilter] = useState<string>('all');
   const [minGames, setMinGames] = useState(true);
+  const [search, setSearch] = useSearchParams();
+  const wanted = Number(search.get('stagione')) || null;
   const { data, error, loading } = useAsync(async () => {
-    const [league, players] = await Promise.all([leagueDetail(id), playerSeasons(id)]);
-    return { league, players };
-  }, [id]);
+    const league = await leagueDetail(id);
+    if (!league) return { league, players: [], seasons: [], year: null };
+    const seasons = await leagueSeasons(id, league.seasonId);
+    const season = seasons.find((s) => s.year === wanted) ?? seasons.find((s) => s.current) ?? seasons[0];
+    if (!season) return { league, players: [], seasons, year: null };
+    const { players } = await seasonPlayers(id, season);
+    return {
+      league,
+      seasons,
+      year: season.year,
+      players: players.map((p) => perGame(p.id, p.teamId, p.name, p.role, { ...p.stats })),
+    };
+  }, [id, wanted]);
 
   const rows = useMemo(() => {
     if (!data) return [];
@@ -63,6 +77,23 @@ export function StatsPage() {
     <div className="space-y-4">
       <PageTitle sub="Regular season, medie per partita.">Statistiche</PageTitle>
       <div className="flex flex-wrap items-center gap-3 text-sm">
+        {data.seasons.length > 1 && data.year !== null && (
+          <label className="flex items-center gap-2">
+            Stagione
+            <select
+              className="min-h-11 rounded-lg border border-slate-300 bg-white px-2 dark:border-slate-600 dark:bg-slate-800"
+              value={data.year}
+              onChange={(e) => setSearch({ stagione: e.target.value }, { replace: true })}
+            >
+              {data.seasons.map((s) => (
+                <option key={s.id} value={s.year}>
+                  {seasonLabel(s.year)}
+                  {s.current ? ' (in corso)' : ''}
+                </option>
+              ))}
+            </select>
+          </label>
+        )}
         <label className="flex items-center gap-2">
           Squadra
           <select

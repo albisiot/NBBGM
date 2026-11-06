@@ -20,7 +20,7 @@ npx.cmd --yes supabase@3.0.0 db push --remote --dry-run
 npx.cmd --yes supabase@3.0.0 db push --remote
 npx.cmd --yes supabase@3.0.0 db advisors --remote --type all
 npx.cmd --yes supabase@3.0.0 db query --remote -f data/base.sql
-npx.cmd --yes supabase@3.0.0 functions deploy create-league draft advance-turn market --use-api
+npx.cmd --yes supabase@3.0.0 functions deploy create-league draft advance-turn market push --use-api
 ```
 
 Senza `--remote` i comandi `db` puntano al database locale di Docker.
@@ -42,6 +42,9 @@ Senza `--remote` i comandi `db` puntano al database locale di Docker.
 | `20261105150000_postseason.sql`          | Play-in e playoff: si gioca anche lì, conta solo chi ha una partita nel turno, `league_state` con le serie; `leagues.seed` non più leggibile dal client.                                                         |
 | `20261105160000_market.sql`              | Mercato: `market_write` (solo server, a turno aperto), `apply_round`, `roster_requests`, protezioni negli scambi, `team_balance`; niente scritture dirette su offerte e scambi, saldo non leggibile dagli altri. |
 | `20261105170000_offseason.sql`           | Offseason a turni: `rounds.stage`, prospetti (`players.draft_prospect`), `draft_order`, `draft_lists` (del manager), `apply_round` con draft e stagione nuova, l'offseason si gioca.                             |
+| `20261106120000_chronicle.sql`           | Cronaca della lega: `transactions.team_codes`, le sigle delle squadre citate, ricavate dal testo da un trigger (anche per le righe già scritte), con gli indici per leggerla dalla più recente.                  |
+| `20261106130000_season_history.sql`      | Storico: `player_seasons` (statistiche di regular season salvate a fine regular season, per i membri), `apply_round` con la sezione `player_seasons`, stagioni già giocate ricostruite dai box score.            |
+| `20261106140000_push.sql`                | Notifiche push: `push_subscriptions` e `notification_settings` (ognuno le sue), coda `push_outbox` (solo server) riempita dai trigger, `push_take` e `push_gone` per la Edge Function, job `nbbgm-notifiche`.    |
 
 `supabase db advisors` lascia solo avvisi voluti:
 
@@ -54,6 +57,7 @@ Senza `--remote` i comandi `db` puntano al database locale di Docker.
 
 - **Manager** (utente autenticato): legge le leghe di cui fa parte; cambia solo impostazioni e allenatore della propria squadra, e solo a turno aperto; preme Pronto con `set_ready`, risponde agli avvisi con `answer_alert` e legge il proprio saldo con `team_balance`. Offerte agli svincolati, scambi, tagli e rinnovi passano dalla Edge Function market: il client non scrive direttamente `free_agent_bids`, `trade_offers` e `roster_requests`. Le offerte agli svincolati le vede solo chi le fa; scambi e avvisi solo le squadre coinvolte; il bilancio la propria squadra (il commissario tutte).
 - **Commissario:** in più cambia nome, scadenza, ritmo e pausa della lega e forza l'avanzamento (`force_round`).
+- **Notifiche:** ognuno vede e scrive solo le proprie iscrizioni (con `save_push_subscription` e `delete_push_subscription`) e le proprie preferenze (`notification_settings`). La coda `push_outbox` la legge solo il server.
 - **Senza login:** niente.
 - **Server** (`service_role`, Edge Functions): tutto il resto. Solo lui chiude il turno (`try_close_round`) e scrive il risultato (`apply_turn`), e solo lui legge `player_hidden` e i dati di partenza.
 
@@ -63,8 +67,30 @@ Senza `--remote` i comandi `db` puntano al database locale di Docker.
 - **draft** (`functions/draft/index.ts`): `POST { league_id, action, player_id? }` con `action` tra `start` (commissario), `pick` (il manager di turno, dal vivo), `tick` (tempo scaduto) e `to-list` (commissario: chiude con le liste). Legge lo stato con `draft_snapshot`, fa decidere al motore (`planDraft`) e scrive con `apply_draft_picks`.
 - **advance-turn** (`functions/advance-turn/index.ts`): `POST { league_id }`, senza utente. La chiamano il database con pg_net (ultimo Pronto, risposta all'ultimo avviso, avanzamento forzato) e pg_cron. Non si fida di chi chiama: `try_close_round` decide nel database se il turno va chiuso e lascia passare solo la prima chiamata; poi `league_state`, il motore (`serverTurn`) e `apply_turn`. Risponde `{ advanced: false }` se non c'è niente da fare.
 - **market** (`functions/market/index.ts`): `POST { league_id, action }` con il JWT dell'utente. Azioni: `bid`, `withdraw_bid`, `propose_trade`, `respond_trade`, `withdraw_trade`, `release`, `renew`, `withdraw_request`. Legge lo stato con `league_state`, controlla l'azione con il motore (`checkMarketAction` in `_shared/market.ts`: rosa, cap, bilancio, trade deadline, regola Stepien, protezioni, swap, richieste degli svincolati) e la scrive con `market_write`, che la accetta solo se il turno è ancora quello aperto. Tutto si esegue alla chiusura del turno: advance-turn passa il risultato ad `apply_round`, che scrive le sezioni del mercato e chiama `apply_turn`.
+- **push** (`functions/push/index.ts`): `POST` senza corpo né utente. La chiamano il database con pg_net (quando mette in coda una notifica) e pg_cron. Prende la coda con `push_take`, fa un messaggio per persona e lega (`_shared/push.ts`), lo cifra e lo manda a ogni dispositivo (`_shared/webpush.ts`, Web Push con WebCrypto, senza librerie) e cancella le iscrizioni scadute con `push_gone`. Risponde `{ taken, messages, sent, gone, failed }`. Senza le chiavi VAPID svuota la coda e non manda nulla.
 - Il `tick` di **draft** si può chiamare anche senza utente (lo fa pg_cron): sceglie solo se il tempo della chiamata è scaduto.
-- Il codice comune a funzioni e script sta in `functions/_shared/`: `league.ts`, `draft.ts`, `state.ts` (stato della lega dal database al motore) e `turn.ts` (un turno: dal motore alle sezioni di `apply_turn`).
+- Il codice comune a funzioni e script sta in `functions/_shared/`: `league.ts`, `draft.ts`, `state.ts` (stato della lega dal database al motore), `turn.ts` (un turno: dal motore alle sezioni di `apply_turn`), `push.ts` e `webpush.ts` (notifiche).
+
+## Notifiche push
+
+Il database mette in coda (`push_outbox`) una notifica quando la lega passa al turno successivo (non a chi ha l'allenatore attivo), quando arriva un avviso bloccante e, nel draft iniziale dal vivo, quando la propria scelta entra nelle prossime 3 chiamate; solo per chi ha un dispositivo iscritto e quel tipo acceso nel profilo. La prima notifica di una transazione chiama la Edge Function `push` con pg_net (lo stesso `functions_url` di `private.settings` che usa advance-turn); il job pg_cron `nbbgm-notifiche` riprova ogni minuto e butta le notifiche più vecchie di 10 minuti. Su iPhone le notifiche arrivano da iOS 16.4 e solo nell'app installata sulla schermata Home.
+
+Finché mancano le chiavi l'app non mostra nulla delle notifiche, nessuno si iscrive e la coda resta vuota. Per attivarle, una volta:
+
+1. Crea le chiavi sul tuo computer, dalla radice del repository: `pnpm push:keys`. Scrive la chiave pubblica e la privata (la privata non va nel repository né nell'app).
+2. Mettile tra i segreti delle Edge Functions del progetto (con il login della CLI come Owner e il progetto collegato, vedi sopra):
+
+   ```
+   npx.cmd --yes supabase@3.0.0 secrets set --remote VAPID_PUBLIC_KEY=<pubblica> VAPID_PRIVATE_KEY=<privata> VAPID_SUBJECT=mailto:mondiali2014@gmail.com
+   ```
+
+   In alternativa dalla dashboard: Edge Functions > Secrets, con gli stessi tre nomi.
+
+3. Su GitHub, Settings > Secrets and variables > Actions > Variables: aggiungi la variabile `VAPID_PUBLIC_KEY` con la chiave pubblica (non è segreta). `pages.yml` la passa alla build come `VITE_VAPID_PUBLIC_KEY`.
+4. Fai un push su `main` (o lancia a mano i workflow Supabase e GitHub Pages): `supabase.yml` applica la migrazione `20261106140000_push.sql` e pubblica la funzione `push` (`verify_jwt = false` in `config.toml`, come advance-turn); `pages.yml` pubblica l'app con la chiave. In `private.settings` non serve nulla di nuovo: basta la riga `functions_url` che c'è già.
+5. Prova: dal telefono, Profilo > Notifiche > Attiva su questo dispositivo (su iPhone prima installa l'app), poi un turno che avanza. Le risposte della funzione si vedono in `net._http_response` e nei log della funzione nella dashboard; la coda con `select * from public.push_outbox;` (si svuota in pochi secondi).
+
+Per provarle in locale serve la build (il service worker c'è solo lì): `VITE_VAPID_PUBLIC_KEY` in `apps/web/.env.local`, `pnpm build` e `vite preview`. Se si cambiano le chiavi, le iscrizioni vecchie non valgono più: ognuno riattiva le notifiche dal profilo (le iscrizioni scadute si cancellano da sole al primo invio).
 
 ## Accesso (Auth)
 
@@ -109,4 +135,4 @@ La Edge Function simula il turno con il pacchetto engine e passa il risultato ad
 
 ## Test
 
-`pnpm test` prova le migrazioni su PGlite (Postgres in WebAssembly) con lo stesso seed: `scripts/test/db.test.ts`; l'avanzamento dei turni con i tre account del seed è in `scripts/test/advance.test.ts` (compresi i turni bloccati); strumenti del commissario, cancellazione di leghe e account, limite delle leghe e pulizia notturna in `scripts/test/commissioner.test.ts`; `scripts/test/functions.test.ts` controlla che le Edge Functions, tolti i tipi, siano JavaScript valido e che la pubblicazione aspetti i Controlli. Non servono Docker né un progetto Supabase; `scripts/src/db/shim.sql` ricrea ruoli, `auth.users` e `auth.uid()` come in Supabase. I permessi di ogni ruolo su tabelle e funzioni sono stati confrontati con quelli del progetto vero e coincidono (169 voci, con "Automatically expose new tables" acceso o spento).
+`pnpm test` prova le migrazioni su PGlite (Postgres in WebAssembly) con lo stesso seed: `scripts/test/db.test.ts`; l'avanzamento dei turni con i tre account del seed è in `scripts/test/advance.test.ts` (compresi i turni bloccati); strumenti del commissario, cancellazione di leghe e account, limite delle leghe e pulizia notturna in `scripts/test/commissioner.test.ts`; cronaca, storico delle stagioni e notifiche (cifratura compresa, decifrata come fa il browser) in `scripts/test/chronicle.test.ts`, `history.test.ts` e `push.test.ts`; `scripts/test/functions.test.ts` controlla che le Edge Functions, tolti i tipi, siano JavaScript valido e che la pubblicazione aspetti i Controlli. Non servono Docker né un progetto Supabase; `scripts/src/db/shim.sql` ricrea ruoli, `auth.users` e `auth.uid()` come in Supabase. I permessi di ogni ruolo su tabelle e funzioni sono stati confrontati con quelli del progetto vero e coincidono (169 voci, con "Automatically expose new tables" acceso o spento).

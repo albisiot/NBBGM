@@ -4,7 +4,6 @@ import { useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router';
 import { friendlyError } from '../lib/errors.ts';
 import type { LeagueDetail } from '../lib/leagues.ts';
-import { STAGE_LABEL } from '../lib/market.ts';
 import {
   alertText,
   answerAlert,
@@ -14,6 +13,7 @@ import {
   readiness,
   readinessNote,
   reopenRound,
+  roundTitle,
   roundError,
   roundStuck,
   setPaused,
@@ -139,14 +139,7 @@ export function TurnCard({
     }
   }
 
-  const title =
-    round.kind === 'regular'
-      ? `Giornata ${round.number + 1} di 82`
-      : round.kind === 'play-in'
-        ? 'Play-in'
-        : round.kind === 'playoffs'
-          ? 'Playoff'
-          : `Offseason · ${STAGE_LABEL[league.roundStage ?? ''] ?? ''}`;
+  const title = roundTitle(round.kind, round.number, league.roundStage);
 
   return (
     <>

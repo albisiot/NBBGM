@@ -1,5 +1,6 @@
 // Le leghe dell'utente, con i pulsanti per crearne una o entrare con un codice.
 import { Link } from 'react-router';
+import { InstallHint } from '../components/Onboarding.tsx';
 import { Card, ErrorText, PageTitle, Spinner } from '../components/ui.tsx';
 import { useUserId } from '../lib/auth.tsx';
 import { myLeagues, statusLabel } from '../lib/leagues.ts';
@@ -15,6 +16,7 @@ export function LeaguesPage() {
   return (
     <>
       <PageTitle sub="Una squadra per lega: puoi giocare in quante leghe vuoi.">Le tue leghe</PageTitle>
+      <InstallHint />
       <div className="mb-6 grid gap-2 sm:grid-cols-2">
         <Link to="/crea" className={`${ACTION} bg-orange-600 text-white hover:bg-orange-700`}>
           Crea una lega
@@ -36,7 +38,7 @@ export function LeaguesPage() {
           </p>
         </Card>
       )}
-      <ul className="grid gap-3">
+      <ul className="mb-6 grid gap-3">
         {leagues?.map((l) => (
           <li key={l.leagueId}>
             <Link to={`/lega/${l.leagueId}`} className="block">
@@ -60,6 +62,11 @@ export function LeaguesPage() {
           </li>
         ))}
       </ul>
+      <p className="text-sm">
+        <Link to="/guida" className="font-semibold text-orange-700 hover:underline dark:text-orange-300">
+          Come si gioca
+        </Link>
+      </p>
     </>
   );
 }

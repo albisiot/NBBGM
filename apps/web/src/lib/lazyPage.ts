@@ -35,7 +35,15 @@ export function lazyPage<K extends string>(
   load: () => Promise<Record<K, ComponentType>>,
   name: K,
 ): LazyExoticComponent<ComponentType> {
-  return lazy<ComponentType>(() =>
+  return lazyPart<K, object>(load, name);
+}
+
+/** Come lazyPage, per un pezzo d'interfaccia con le sue proprietà (per esempio la barra del turno). */
+export function lazyPart<K extends string, P extends object>(
+  load: () => Promise<Record<K, ComponentType<P>>>,
+  name: K,
+): LazyExoticComponent<ComponentType<P>> {
+  return lazy<ComponentType<P>>(() =>
     load().then(
       (m) => ({ default: m[name] }),
       (e: unknown) => {

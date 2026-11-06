@@ -443,3 +443,8 @@ verify_jwt = false
 # avanza solo se il database dice che è il momento (try_close_round).
 [functions.advance-turn]
 verify_jwt = false
+
+# Edge Function push: la chiamano pg_net e pg_cron, senza utente. Non riceve nulla: svuota la coda delle notifiche
+# del database e le manda. Le chiavi VAPID sono suoi segreti (VAPID_PUBLIC_KEY, VAPID_PRIVATE_KEY, VAPID_SUBJECT).
+[functions.push]
+verify_jwt = false

@@ -5,6 +5,7 @@ import {
   askingSalaryFor,
   IN_SEASON_ASK_ROUND,
   luxuryTax,
+  minimumSalaryFor,
   nextConfig,
   renewalSalaries,
   salaryRun,
@@ -150,15 +151,8 @@ export function expiringAskOf(config: SeasonConfig, p: RosterPlayer): number[] |
   return salaryRun(askingSalaryFor(config, p, 0), typicalYears(p.age));
 }
 
-export const STAGE_LABEL: Record<string, string> = {
-  draft: 'Draft',
-  renewals: 'Rinnovi',
-  fa1: 'Free agency, turno 1 di 4',
-  fa2: 'Free agency, turno 2 di 4',
-  fa3: 'Free agency, turno 3 di 4',
-  fa4: 'Free agency, turno 4 di 4',
-  preparation: 'Preparazione della stagione',
-};
+// Etichette dei turni dell'offseason: stanno in turns.ts, che non carica il motore (serve anche all'intestazione)
+export { STAGE_LABEL } from './turns.ts';
 
 /** Stipendi chiesti per il rinnovo (dalla stagione successiva), come li calcola il server. */
 export function renewalAsk(config: SeasonConfig, p: RosterPlayer): number[] {
@@ -411,4 +405,131 @@ export const BID_STATUS: Record<string, string> = {
 /** "12,35 mln" */
 export function millions(x: number): string {
   return `${(x / 1e6).toFixed(2).replace('.', ',')} mln`;
+}
+
+// ---------------------------------------------------------------- ricerca tra gli svincolati
+
+/** Uno svincolato nell'elenco, con overall, richiesta e minimo per la sua anzianità. */
+export interface FreeAgentRow<P> {
+  p: P;
+  ovr: number;
+  ask: number;
+  minimum: number;
+}
+
+export type FreeAgentSort = 'overall' | 'potential' | 'age' | 'ask';
+export type AgeBand = 'all' | 'young' | 'prime' | 'veteran';
+/** Richiesta: tutte, al minimo, fino al minimo + 2 o + 5 milioni, dentro lo spazio sotto il cap. */
+export type AskBand = 'all' | 'min' | 'min2' | 'min5' | 'space';
+
+export interface FreeAgentQuery {
+  name: string;
+  role: string;
+  age: AgeBand;
+  ask: AskBand;
+  sort: FreeAgentSort;
+}
+
+export const DEFAULT_FA_QUERY: FreeAgentQuery = {
+  name: '',
+  role: 'all',
+  age: 'all',
+  ask: 'all',
+  sort: 'overall',
+};
+
+export const AGE_BANDS: { value: AgeBand; label: string }[] = [
+  { value: 'all', label: 'Tutte le età' },
+  { value: 'young', label: 'Fino a 24 anni' },
+  { value: 'prime', label: 'Da 25 a 30' },
+  { value: 'veteran', label: 'Da 31 in su' },
+];
+
+export const ASK_BANDS: { value: AskBand; label: string }[] = [
+  { value: 'all', label: 'Qualsiasi richiesta' },
+  { value: 'min', label: 'Al minimo' },
+  { value: 'min2', label: 'Fino al minimo + 2 mln' },
+  { value: 'min5', label: 'Fino al minimo + 5 mln' },
+  { value: 'space', label: 'Dentro lo spazio sotto il cap' },
+];
+
+export const FA_SORTS: { value: FreeAgentSort; label: string }[] = [
+  { value: 'overall', label: 'Overall' },
+  { value: 'potential', label: 'Potenziale' },
+  { value: 'age', label: 'Età' },
+  { value: 'ask', label: 'Richiesta' },
+];
+
+/** Svincolati per pagina; "Mostra altri" ne aggiunge altrettanti. */
+export const FA_PAGE = 30;
+
+/** Minimo di uno svincolato (per anzianità), per i filtri sulla richiesta. */
+export function minimumOf(config: SeasonConfig, p: { yearsInLeague: number | null }): number {
+  return minimumSalaryFor(config, p.yearsInLeague);
+}
+
+/** Minuscole e senza accenti: "Dončić" si trova scrivendo "doncic". */
+export function plain(text: string): string {
+  return text
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .trim();
+}
+
+/** Tolleranza sulla richiesta: la cifra mostrata (arrotondata) vale come quella esatta (snapToAsk). */
+const ASK_TOLERANCE = 5_000;
+
+/**
+ * Svincolati filtrati per nome, ruolo (principale o secondario), età e richiesta, e ordinati. space è lo spazio
+ * sotto il cap: sopra il cap si firma solo al minimo, quindi "dentro lo spazio" comprende sempre chi chiede il
+ * minimo. A parità si ordina per overall e poi per nome.
+ */
+export function filterFreeAgents<
+  P extends {
+    firstName: string;
+    lastName: string;
+    role: string;
+    secondaryRole: string | null;
+    age: number;
+    scoutedPotential: number;
+  },
+>(rows: readonly FreeAgentRow<P>[], q: FreeAgentQuery, space: number): FreeAgentRow<P>[] {
+  const words = plain(q.name).split(/\s+/).filter(Boolean);
+  const inAge = (age: number) =>
+    q.age === 'all' ||
+    (q.age === 'young' && age <= 24) ||
+    (q.age === 'prime' && age >= 25 && age <= 30) ||
+    (q.age === 'veteran' && age >= 31);
+  const inAsk = (r: FreeAgentRow<P>) => {
+    const over = r.ask - r.minimum;
+    switch (q.ask) {
+      case 'min':
+        return over <= ASK_TOLERANCE;
+      case 'min2':
+        return over <= 2e6 + ASK_TOLERANCE;
+      case 'min5':
+        return over <= 5e6 + ASK_TOLERANCE;
+      case 'space':
+        return over <= ASK_TOLERANCE || r.ask <= space + ASK_TOLERANCE;
+      default:
+        return true;
+    }
+  };
+  const key: Record<FreeAgentSort, (r: FreeAgentRow<P>) => number> = {
+    overall: (r) => -r.ovr,
+    potential: (r) => -r.p.scoutedPotential,
+    age: (r) => r.p.age,
+    ask: (r) => r.ask,
+  };
+  const name = (r: FreeAgentRow<P>) => `${r.p.lastName} ${r.p.firstName}`;
+  return rows
+    .filter((r) => {
+      if (q.role !== 'all' && r.p.role !== q.role && r.p.secondaryRole !== q.role) return false;
+      if (!inAge(r.p.age) || !inAsk(r)) return false;
+      if (words.length === 0) return true;
+      const full = plain(`${r.p.firstName} ${r.p.lastName}`);
+      return words.every((w) => full.includes(w));
+    })
+    .sort((a, b) => key[q.sort](a) - key[q.sort](b) || b.ovr - a.ovr || name(a).localeCompare(name(b), 'it'));
 }

@@ -4,6 +4,8 @@ import { describe, expect, it } from 'vitest';
 import {
   isAppShellResponse,
   looksLikeAppShell,
+  notificationFromPush,
+  notificationTarget,
   serviceWorkerSource,
   type ResponseInfo,
 } from './serviceWorker.ts';
@@ -144,5 +146,109 @@ describe('service worker', () => {
     expect(await (await w.navigate(SCOPE))!.text()).toBe(INDEX);
     // Una pagina che non è in cache: si apre l'app
     expect(await (await w.navigate(`${SCOPE}altro.html`))!.text()).toBe(INDEX);
+  });
+});
+
+describe('notifiche push nel service worker', () => {
+  it('testo, pagina e numero dal messaggio, con valori di riserva', () => {
+    const n = notificationFromPush(
+      { title: 'Amici', body: 'Turno nuovo', url: './#/lega/L', tag: 'nbbgm-L', badge: 2, renotify: false },
+      SCOPE,
+    );
+    expect(n).toEqual({
+      title: 'Amici',
+      options: {
+        body: 'Turno nuovo',
+        tag: 'nbbgm-L',
+        renotify: false,
+        icon: `${SCOPE}icons/icon-192.png`,
+        badge: `${SCOPE}icons/icon-192.png`,
+        data: { url: `${SCOPE}#/lega/L` },
+      },
+      badge: 2,
+    });
+    const empty = notificationFromPush(null, SCOPE);
+    expect(empty).toMatchObject({
+      title: 'NBBGM',
+      options: { tag: 'nbbgm', data: { url: SCOPE } },
+      badge: null,
+    });
+  });
+
+  it('toccando si apre solo una pagina dell’app', () => {
+    expect(notificationTarget('./#/lega/L/mercato?tab=scambi', SCOPE)).toBe(
+      `${SCOPE}#/lega/L/mercato?tab=scambi`,
+    );
+    expect(notificationTarget('https://altro.example/truffa', SCOPE)).toBe(SCOPE);
+    expect(notificationTarget('https://albisiot.github.io/altro/', SCOPE)).toBe(SCOPE);
+    expect(notificationTarget(42, SCOPE)).toBe(SCOPE);
+  });
+
+  /** sw.js con finti self e clients: si mandano gli eventi push e notificationclick. */
+  function pushWorker(open: { url: string }[]) {
+    const handlers: Record<string, (event: unknown) => void> = {};
+    const shown: { title: string; options: Record<string, unknown> }[] = [];
+    const badges: (number | 'clear')[] = [];
+    const navigated: string[] = [];
+    const opened: string[] = [];
+    const clients = open.map((c) => ({
+      url: c.url,
+      focus: async function () {
+        return this;
+      },
+      navigate: async (url: string) => void navigated.push(url),
+    }));
+    runInNewContext(serviceWorkerSource('prova', ['./']), {
+      self: {
+        addEventListener: (type: string, h: (event: unknown) => void) => (handlers[type] = h),
+        location: new URL(SCOPE),
+        registration: {
+          scope: SCOPE,
+          showNotification: async (title: string, options: Record<string, unknown>) =>
+            void shown.push({ title, options }),
+        },
+        navigator: {
+          setAppBadge: async (n: number) => void badges.push(n),
+          clearAppBadge: async () => void badges.push('clear'),
+        },
+        clients: {
+          matchAll: async () => clients,
+          openWindow: async (url: string) => void opened.push(url),
+        },
+      },
+      URL,
+    });
+    const fire = async (type: string, event: Record<string, unknown>) => {
+      const waits: Promise<unknown>[] = [];
+      handlers[type]!({ ...event, waitUntil: (p: Promise<unknown>) => waits.push(p) });
+      await Promise.all(waits);
+    };
+    return { fire, shown, badges, navigated, opened };
+  }
+
+  it('mostra la notifica e aggiorna il numero sull’icona', async () => {
+    const w = pushWorker([]);
+    await w.fire('push', {
+      data: { json: () => ({ title: 'Amici', body: 'Decidi', badge: 3, url: './#/lega/L' }) },
+    });
+    expect(w.shown).toHaveLength(1);
+    expect(w.shown[0]).toMatchObject({
+      title: 'Amici',
+      options: { body: 'Decidi', data: { url: `${SCOPE}#/lega/L` } },
+    });
+    expect(w.badges).toEqual([3]);
+    // Un messaggio illeggibile mostra comunque una notifica
+    await w.fire('push', { data: { json: () => JSON.parse('{') } });
+    expect(w.shown[1]?.title).toBe('NBBGM');
+  });
+
+  it('toccandola porta l’app aperta alla pagina giusta, o la apre', async () => {
+    const close = () => undefined;
+    const withApp = pushWorker([{ url: `${SCOPE}#/` }]);
+    await withApp.fire('notificationclick', { notification: { close, data: { url: `${SCOPE}#/lega/L` } } });
+    expect(withApp.navigated).toEqual([`${SCOPE}#/lega/L`]);
+    const closed = pushWorker([]);
+    await closed.fire('notificationclick', { notification: { close, data: { url: `${SCOPE}#/lega/L` } } });
+    expect(closed.opened).toEqual([`${SCOPE}#/lega/L`]);
   });
 });

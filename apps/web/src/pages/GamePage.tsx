@@ -61,7 +61,10 @@ export function GamePage() {
         [away, home].map((t) => (
           <Card key={t.id} className="!p-4">
             <h2 className="mb-2 flex items-center gap-2 font-semibold">
-              <TeamCode code={t.code} strong={t.id === mine} /> {t.fullName}
+              <TeamCode code={t.code} strong={t.id === mine} />
+              <Link to={`/lega/${league.id}/squadre/${t.code}`} className="hover:underline">
+                {t.fullName}
+              </Link>
             </h2>
             <BoxTable leagueId={league.id} lines={game.box.filter((l) => l.teamId === t.id)} />
           </Card>

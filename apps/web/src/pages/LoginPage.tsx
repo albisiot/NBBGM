@@ -3,6 +3,7 @@
 import { useEffect, useState, type FormEvent } from 'react';
 import { Button, Card, ErrorText, TextInput } from '../components/ui.tsx';
 import { friendlyError, normalizeOtp } from '../lib/errors.ts';
+import { currentPlatform, preferEmailCode } from '../lib/install.ts';
 import { rememberPage } from '../lib/returnTo.ts';
 import { supabase } from '../lib/supabase.ts';
 
@@ -15,6 +16,8 @@ export function LoginPage() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [wait, setWait] = useState(0);
+  // Nell'app installata su iPhone Google si apre nel browser e l'accesso resta lì: meglio il codice via email
+  const [emailFirst] = useState(() => preferEmailCode(currentPlatform()));
 
   useEffect(() => {
     if (wait <= 0) return;
@@ -79,6 +82,12 @@ export function LoginPage() {
       <Card className="space-y-4">
         {sentTo === null ? (
           <>
+            {emailFirst && (
+              <p className="rounded-lg bg-sky-50 px-3 py-2 text-sm text-sky-900 dark:bg-sky-950 dark:text-sky-100">
+                Nell’app installata su iPhone conviene il <strong>codice via email</strong>: con Google
+                l’accesso si apre nel browser e l’app resta fuori.
+              </p>
+            )}
             <Button variant="secondary" className="w-full" onClick={google}>
               <GoogleIcon /> Continua con Google
             </Button>

@@ -14,6 +14,7 @@ export * from './names.ts';
 export * from './overall.ts';
 export * from './profiles.ts';
 export * from './rng.ts';
+export * from './season/awards.ts';
 export * from './season/bots.ts';
 export * from './season/config.ts';
 export * from './season/development.ts';

@@ -20,7 +20,8 @@
     "sim:calibrate": "pnpm --filter @nbbgm/scripts run calibrate",
     "sim:seasons": "pnpm --filter @nbbgm/scripts run seasons",
     "db:seed": "pnpm --filter @nbbgm/scripts run db-seed",
-    "icons": "pnpm --filter @nbbgm/scripts run icons"
+    "icons": "pnpm --filter @nbbgm/scripts run icons",
+    "push:keys": "pnpm --filter @nbbgm/scripts run push-keys"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",

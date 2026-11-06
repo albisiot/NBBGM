@@ -103,6 +103,9 @@ export const ALERT_KINDS = {
 
 const PERIODS = 82;
 
+/** Partite di stop da cui un infortunio finisce nella cronaca della lega (medi e gravi). */
+export const INJURY_NEWS_GAMES = 4;
+
 function clone<T>(x: T): T {
   return JSON.parse(JSON.stringify(x)) as T;
 }
@@ -359,10 +362,20 @@ export function serverTurn(
     }
   }
   const playerOf = new Map(state.players.map((p) => [p.id, p]));
+  // Gli infortuni medi e gravi (da 4 partite in su) vanno anche nella cronaca della lega, per tutte le squadre;
+  // quelli leggeri no, sarebbero troppi
+  const injuryNews: Row[] = [];
   for (const { result } of games) {
     for (const inj of result.injuries) {
       const code = result[inj.team].teamId;
       const p = playerOf.get(inj.playerId);
+      if (p && inj.games >= INJURY_NEWS_GAMES)
+        injuryNews.push({
+          season_year: state.config.year,
+          round_number: turn,
+          type: 'injury',
+          text: `${code}: ${p.firstName} ${p.lastName} si infortuna (${BODY_PART_LABEL[inj.bodyPart]}), fuori ${inj.games} partite`,
+        });
       if (!humans.has(code) || !p) continue;
       newAlerts.push({
         team_id: uuid(code),
@@ -718,13 +731,26 @@ export function serverTurn(
       away_team_id: uuid(g.awayId),
     }));
   }
-  if (state.transactions.length)
-    payload.transactions = state.transactions.map((t) => ({
-      season_year: t.year,
-      round_number: t.turn,
-      type: t.type,
-      text: t.text,
-    }));
+  if (state.transactions.length || injuryNews.length)
+    payload.transactions = [
+      ...state.transactions.map((t) => ({
+        season_year: t.year,
+        round_number: t.turn,
+        type: t.type,
+        text: t.text,
+      })),
+      ...injuryNews,
+    ];
+  // Fine della regular season: fotografia delle statistiche per lo storico e i premi (player_seasons)
+  if (seasonOver)
+    payload.player_seasons = state.players
+      .filter((p) => p.stats.g > 0)
+      .map((p) => ({
+        player_id: p.id,
+        team_id: p.teamId === null ? null : uuid(p.teamId),
+        rookie: p.yearsInLeague === null ? null : p.yearsInLeague === 0,
+        stats: p.stats,
+      }));
   if (newAlerts.length) payload.alerts = newAlerts;
   if (closed.size) payload.alerts_closed = [...closed].map(([id, s]) => ({ id, status: s }));
   if (coachExpired.length) payload.coach_expired = coachExpired;

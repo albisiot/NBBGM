@@ -1,7 +1,11 @@
 // Turno corrente: chi è pronto, chi ha l'allenatore, avvisi della propria squadra, Pronto e azioni del
 // commissario. Gli aggiornamenti arrivano in tempo reale (Supabase Realtime, con la RLS) e, per sicurezza,
 // con una rilettura ogni 30 secondi.
+import { onResume } from './resume.ts';
 import { supabase } from './supabase.ts';
+
+// onResume sta in un modulo a sé, che l'intestazione usa senza caricare il resto di questo file
+export { onResume };
 
 export interface RoundInfo {
   id: string;
@@ -379,22 +383,6 @@ let channelCount = 0;
 export const channelName = (prefix: string, leagueId: string) => `${prefix}:${leagueId}:${++channelCount}`;
 
 /**
- * Chiama onVisible quando l'app torna in primo piano o la rete torna: mentre era in background (PWA chiusa,
- * telefono bloccato) gli eventi in tempo reale si sono persi. Restituisce la funzione per smettere.
- */
-export function onResume(onVisible: () => void): () => void {
-  const handler = () => {
-    if (document.visibilityState === 'visible') onVisible();
-  };
-  document.addEventListener('visibilitychange', handler);
-  window.addEventListener('online', handler);
-  return () => {
-    document.removeEventListener('visibilitychange', handler);
-    window.removeEventListener('online', handler);
-  };
-}
-
-/**
  * Ascolta in tempo reale turni, Pronto, allenatori e avvisi della lega; onChange si chiama a ogni modifica
  * (la RLS decide che cosa arriva), al ritorno in primo piano e ogni 30 secondi. Restituisce la funzione per
  * smettere di ascoltare.
@@ -495,4 +483,138 @@ export function timeLeft(deadline: string, now = Date.now()): string {
   if (m < 60) return `tra ${m} min`;
   const h = Math.floor(m / 60);
   return m % 60 ? `tra ${h} h ${m % 60} min` : `tra ${h} h`;
+}
+
+export const STAGE_LABEL: Record<string, string> = {
+  draft: 'Draft',
+  renewals: 'Rinnovi',
+  fa1: 'Free agency, turno 1 di 4',
+  fa2: 'Free agency, turno 2 di 4',
+  fa3: 'Free agency, turno 3 di 4',
+  fa4: 'Free agency, turno 4 di 4',
+  preparation: 'Preparazione della stagione',
+};
+
+/** "Giornata 13 di 82", "Play-in", "Playoff", "Offseason · Rinnovi" */
+export function roundTitle(kind: string, number: number, stage: string | null): string {
+  if (kind === 'regular') return `Giornata ${number + 1} di 82`;
+  if (kind === 'play-in') return 'Play-in';
+  if (kind === 'playoffs') return 'Playoff';
+  const label = STAGE_LABEL[stage ?? ''];
+  return label ? `Offseason · ${label}` : 'Offseason';
+}
+
+// ---------------------------------------------------------------- barra del turno su ogni pagina della lega
+
+/** Quanto serve alla barra in cima alle pagine della lega: poche letture, senza partite né tabellone. */
+export interface BarStatus {
+  round: { id: string; number: number; kind: string; state: RoundInfo['state']; stage: string | null } | null;
+  paused: boolean;
+  /** Il draft iniziale non è ancora finito: il primo turno parte dopo. */
+  draftPending: boolean;
+  myTeamId: string | null;
+  /** Stato della propria squadra nel turno (come lo conta il server per la chiusura). */
+  myState: Readiness | null;
+  /** Avvisi bloccanti aperti della propria squadra: le decisioni da prendere. */
+  decisions: { id: string; kind: string }[];
+}
+
+export async function barStatus(leagueId: string, userId: string): Promise<BarStatus> {
+  const [league, team] = await Promise.all([
+    supabase
+      .from('leagues')
+      .select(
+        'paused, round:rounds!leagues_current_round(id, number, kind, state, stage), draft:initial_drafts(state)',
+      )
+      .eq('id', leagueId)
+      .maybeSingle(),
+    supabase.from('teams').select('id').eq('league_id', leagueId).eq('owner_id', userId).maybeSingle(),
+  ]);
+  if (league.error) throw league.error;
+  if (team.error) throw team.error;
+  const l = league.data as unknown as {
+    paused: boolean;
+    round: BarStatus['round'];
+    draft: { state: string } | { state: string }[] | null;
+  } | null;
+  const round = l?.round ?? null;
+  const myTeamId = (team.data as { id: string } | null)?.id ?? null;
+  const draft = Array.isArray(l?.draft) ? l?.draft[0] : l?.draft;
+  const base = {
+    round,
+    paused: l?.paused ?? false,
+    draftPending: draft != null && draft.state !== 'done',
+    myTeamId,
+  };
+  if (!round || !myTeamId) return { ...base, myState: null, decisions: [] };
+  const [alerts, states] = await Promise.all([
+    supabase
+      .from('alerts')
+      .select('id, kind')
+      .eq('team_id', myTeamId)
+      .eq('status', 'open')
+      .eq('blocking', true),
+    serverReadiness(leagueId),
+  ]);
+  if (alerts.error) throw alerts.error;
+  const decisions = (alerts.data ?? []) as { id: string; kind: string }[];
+  const fromServer = states?.get(myTeamId);
+  const myState =
+    fromServer ?? (await localReadiness(myTeamId, round.id, round.number, decisions.length > 0));
+  return { ...base, myState, decisions };
+}
+
+/** Senza round_readiness (database non ancora aggiornato): Pronto e allenatore della propria squadra. */
+async function localReadiness(
+  teamId: string,
+  roundId: string,
+  roundNumber: number,
+  blocked: boolean,
+): Promise<Readiness> {
+  const [flag, coach] = await Promise.all([
+    supabase.from('ready_flags').select('ready').eq('round_id', roundId).eq('team_id', teamId).maybeSingle(),
+    supabase
+      .from('coach_delegations')
+      .select('team_id, active, until_round, until_at')
+      .eq('team_id', teamId)
+      .maybeSingle(),
+  ]);
+  if ((flag.data as { ready: boolean } | null)?.ready) return 'ready';
+  const d = coach.data as { active: boolean; until_round: number | null; until_at: string | null } | null;
+  const active = coachActive(
+    d ? { teamId, active: d.active, untilRound: d.until_round, untilAt: d.until_at } : undefined,
+    roundNumber,
+  );
+  if (!active) return 'waiting';
+  return blocked ? 'blocked' : 'coach';
+}
+
+export interface BarView {
+  title: string;
+  /** Stato da mostrare accanto al turno. */
+  badge: { label: string; tone: 'green' | 'sky' | 'amber' | 'slate' | 'orange' };
+  /** Pulsante: segnarsi pronti, togliere il Pronto o niente. */
+  action: 'ready' | 'unready' | null;
+  decisions: number;
+}
+
+/** Che cosa mostra la barra del turno. */
+export function barView(s: BarStatus): BarView | null {
+  if (!s.round || !s.myTeamId) return null;
+  const decisions = s.decisions.length;
+  const title = roundTitle(s.round.kind, s.round.number, s.round.stage);
+  if (s.round.state !== 'open')
+    return { title, badge: { label: 'Simulazione…', tone: 'orange' }, action: null, decisions };
+  if (s.draftPending)
+    return { title: 'Draft iniziale', badge: { label: 'In corso', tone: 'slate' }, action: null, decisions };
+  const state = s.myState ?? 'waiting';
+  const badge: BarView['badge'] = {
+    ready: { label: 'Pronto', tone: 'green' as const },
+    coach: { label: 'Allenatore', tone: 'sky' as const },
+    blocked: { label: 'Da decidere', tone: 'amber' as const },
+    waiting: { label: s.paused ? 'Lega in pausa' : 'Non pronto', tone: 'slate' as const },
+    out: { label: 'Non gioca', tone: 'slate' as const },
+  }[state];
+  const action = state === 'out' ? null : state === 'ready' ? 'unready' : 'ready';
+  return { title, badge, action, decisions };
 }

@@ -18,7 +18,7 @@ const FUNCTIONS = readdirSync(DIR, { withFileTypes: true })
 describe('Edge Functions', () => {
   it('sono quelle che il workflow pubblica', () => {
     const workflow = readFileSync(join(ROOT, '.github', 'workflows', 'supabase.yml'), 'utf8');
-    expect(FUNCTIONS).toEqual(['advance-turn', 'create-league', 'draft', 'market']);
+    expect(FUNCTIONS).toEqual(['advance-turn', 'create-league', 'draft', 'market', 'push']);
     for (const name of FUNCTIONS) expect(workflow).toContain(name);
   });
 

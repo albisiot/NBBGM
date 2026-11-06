@@ -234,6 +234,30 @@ export async function deleteLeague(leagueId: string, name: string): Promise<void
   if (error) throw error;
 }
 
+/**
+ * Il commissario cambia scadenza dei turni e ritmo massimo con gli allenatori. Una scadenza nuova riparte da
+ * adesso per il turno aperto (lo fa il database).
+ */
+export async function updateTurnSettings(
+  leagueId: string,
+  settings: { deadline_minutes: number | null; max_pace_seconds: number },
+): Promise<void> {
+  const { data, error } = await supabase.from('leagues').update(settings).eq('id', leagueId).select('id');
+  if (error) throw error;
+  if (!data?.length) throw new Error('Solo il commissario può cambiare le impostazioni della lega');
+}
+
+/** Opzioni di un elenco, con in più il valore attuale se non è tra quelle (per esempio scelto prima). */
+export function withCurrent<T>(
+  options: readonly { label: string; value: T }[],
+  current: T,
+  label: (v: T) => string,
+): { label: string; value: T }[] {
+  return options.some((o) => o.value === current)
+    ? [...options]
+    : [...options, { label: label(current), value: current }];
+}
+
 /** Il nome scritto per confermare l'eliminazione corrisponde a quello della lega (come nel server). */
 export function sameLeagueName(typed: string, name: string): boolean {
   return typed.trim().toLowerCase() === name.trim().toLowerCase();

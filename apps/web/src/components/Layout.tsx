@@ -1,12 +1,18 @@
 // Intestazione con il selettore delle leghe e il profilo, il menu della lega aperta, poi la pagina.
-import { Suspense } from 'react';
+import { Suspense, useEffect } from 'react';
 import { Link, NavLink, Outlet, useMatch, useNavigate } from 'react-router';
 import { useAuth, useUserId } from '../lib/auth.tsx';
+import { refreshAppBadge } from '../lib/appBadge.ts';
 import { myLeagues } from '../lib/leagues.ts';
+import { lazyPart } from '../lib/lazyPage.ts';
+import { onResume } from '../lib/resume.ts';
 import { useAsync } from '../lib/useAsync.ts';
 import { Spinner } from './ui.tsx';
 
 export const LAST_LEAGUE_KEY = 'nbbgm:ultima-lega';
+
+// La barra del turno arriva a pezzi come le pagine: all'avvio (pagina d'accesso, elenco delle leghe) non serve
+const TurnBar = lazyPart(() => import('./TurnBar.tsx'), 'TurnBar');
 
 export function Layout() {
   const userId = useUserId();
@@ -14,8 +20,15 @@ export function Layout() {
   const navigate = useNavigate();
   const match = useMatch('/lega/:id/*');
   const current = match?.params.id ?? '';
+  // Nella pagina della lega c'è la scheda del turno completa: la barra serve sulle altre
+  const leagueHome = useMatch('/lega/:id') !== null;
   // Si rilegge a ogni cambio di lega (per esempio dopo esserne entrati), tenendo l'elenco intanto
   const { data: leagues } = useAsync(() => myLeagues(userId), [userId, current], { keep: true });
+  // Numero delle decisioni aperte sull'icona dell'app: all'avvio e al ritorno in primo piano
+  useEffect(() => {
+    refreshAppBadge();
+    return onResume(refreshAppBadge);
+  }, [userId]);
 
   return (
     <div className="min-h-dvh bg-slate-50 text-slate-900 dark:bg-slate-900 dark:text-slate-100">
@@ -59,6 +72,11 @@ export function Layout() {
       </header>
       <main className="mx-auto max-w-4xl pt-6 pr-[max(1rem,env(safe-area-inset-right))] pb-[max(1.5rem,env(safe-area-inset-bottom))] pl-[max(1rem,env(safe-area-inset-left))]">
         {/* Le pagine arrivano a pezzi (lib/lazyPage.ts): intanto l'intestazione resta e sotto si vede il caricamento */}
+        {current && !leagueHome && (
+          <Suspense fallback={null}>
+            <TurnBar leagueId={current} userId={userId} />
+          </Suspense>
+        )}
         <Suspense fallback={<Spinner />}>
           <Outlet />
         </Suspense>
@@ -75,6 +93,8 @@ const LEAGUE_LINKS: { to: string; label: string }[] = [
   { to: 'classifica', label: 'Classifica' },
   { to: 'playoff', label: 'Playoff' },
   { to: 'statistiche', label: 'Statistiche' },
+  { to: 'cronaca', label: 'Cronaca' },
+  { to: 'storico', label: 'Storico' },
 ];
 
 function LeagueNav({ id }: { id: string }) {

@@ -1,7 +1,8 @@
 # Pubblica l'app su GitHub Pages dopo che i Controlli (ci.yml) sono passati su un push a main (o a mano, da
 # Actions), con lo stesso commit che i Controlli hanno provato. URL e chiave publishable di Supabase sono fatti
 # per stare nel browser: arrivano dalle variabili del repository (Settings > Secrets and variables > Actions >
-# Variables): SUPABASE_URL e SUPABASE_PUBLISHABLE_KEY.
+# Variables): SUPABASE_URL e SUPABASE_PUBLISHABLE_KEY. VAPID_PUBLIC_KEY (facoltativa) è la chiave pubblica delle
+# notifiche push: senza, l'app non le propone.
 name: GitHub Pages
 
 on:
@@ -45,6 +46,7 @@ jobs:
         env:
           VITE_SUPABASE_URL: ${{ vars.SUPABASE_URL }}
           VITE_SUPABASE_PUBLISHABLE_KEY: ${{ vars.SUPABASE_PUBLISHABLE_KEY }}
+          VITE_VAPID_PUBLIC_KEY: ${{ vars.VAPID_PUBLIC_KEY }}
       - uses: actions/configure-pages@v6
       - uses: actions/upload-pages-artifact@v5
         with:

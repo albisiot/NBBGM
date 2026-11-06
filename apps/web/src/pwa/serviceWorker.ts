@@ -4,7 +4,9 @@
 //     punterebbe a file della build precedente, che dopo l'aggiornamento non ci sono più;
 //   - come pagina dell'app (per aprirla senza rete) si salva solo la pagina dell'app vera: risposta 200, non
 //     deviata, HTML con il segno di NBBGM. Non privacy.html, non la pagina di un portale Wi-Fi;
-//   - senza rete: la pagina chiesta se è in cache (privacy.html), altrimenti la pagina dell'app.
+//   - senza rete: la pagina chiesta se è in cache (privacy.html), altrimenti la pagina dell'app;
+//   - notifiche push: testo, pagina e numero sull'icona arrivano dal server (Edge Function push); toccando la
+//     notifica si apre quella pagina, nella finestra dell'app se è già aperta.
 // Supabase e gli altri siti non passano mai dal service worker.
 
 /** Quanto serve di una Response per decidere se è la pagina dell'app. */
@@ -32,6 +34,51 @@ export function looksLikeAppShell(html: string): boolean {
   return /<meta\s+name="application-name"\s+content="NBBGM"/.test(html) && html.includes('id="root"');
 }
 
+/** Notifica da mostrare per un messaggio push (JSON della Edge Function push), con valori di riserva. */
+export function notificationFromPush(
+  data: unknown,
+  scope: string,
+): {
+  title: string;
+  options: {
+    body: string;
+    tag: string;
+    renotify: boolean;
+    icon: string;
+    badge: string;
+    data: { url: string };
+  };
+  badge: number | null;
+} {
+  const d = (data && typeof data === 'object' ? data : {}) as Record<string, unknown>;
+  const text = (v: unknown, fallback: string) => (typeof v === 'string' && v.trim() ? v : fallback);
+  const tag = text(d.tag, 'nbbgm');
+  return {
+    title: text(d.title, 'NBBGM'),
+    options: {
+      body: text(d.body, 'C’è una novità nella tua lega.'),
+      tag,
+      renotify: d.renotify !== false,
+      icon: new URL('icons/icon-192.png', scope).href,
+      badge: new URL('icons/icon-192.png', scope).href,
+      data: { url: notificationTarget(d.url, scope) },
+    },
+    badge: typeof d.badge === 'number' && d.badge >= 0 ? Math.floor(d.badge) : null,
+  };
+}
+
+/** Pagina da aprire toccando la notifica: solo pagine del sito dell'app, altrimenti la home dell'app. */
+export function notificationTarget(url: unknown, scope: string): string {
+  const fallback = new URL('./', scope).href;
+  if (typeof url !== 'string' || !url) return fallback;
+  try {
+    const target = new URL(url, scope);
+    return target.href.startsWith(fallback) ? target.href : fallback;
+  } catch {
+    return fallback;
+  }
+}
+
 /** Testo di sw.js: versione della build (cambia a ogni pubblicazione) e file da tenere in cache. */
 export function serviceWorkerSource(version: string, shell: readonly string[]): string {
   return `// Service worker di NBBGM, generato in build (apps/web/src/pwa/serviceWorker.ts).
@@ -39,6 +86,8 @@ const CACHE = 'nbbgm-${version}';
 const SHELL = ${JSON.stringify(shell)};
 const isAppShellResponse = ${isAppShellResponse.toString()};
 const looksLikeAppShell = ${looksLikeAppShell.toString()};
+const notificationTarget = ${notificationTarget.toString()};
+const notificationFromPush = ${notificationFromPush.toString()};
 
 // I file si scaricano senza la cache HTTP: una pagina vecchia di qualche minuto punterebbe alla build di prima
 self.addEventListener('install', (event) => {
@@ -92,6 +141,35 @@ self.addEventListener('fetch', (event) => {
     return;
   }
   event.respondWith(caches.match(request).then((hit) => hit || fetch(request)));
+});
+
+// Notifica push dal server: si mostra (obbligatorio per le notifiche visibili) e aggiorna il numero sull'icona
+self.addEventListener('push', (event) => {
+  let data = {};
+  try {
+    data = event.data ? event.data.json() : {};
+  } catch {
+    data = {};
+  }
+  const n = notificationFromPush(data, self.registration.scope);
+  const badge =
+    n.badge === null || !self.navigator || !self.navigator.setAppBadge
+      ? Promise.resolve()
+      : (n.badge > 0 ? self.navigator.setAppBadge(n.badge) : self.navigator.clearAppBadge()).catch(() => undefined);
+  event.waitUntil(Promise.all([self.registration.showNotification(n.title, n.options), badge]));
+});
+
+// Tocco sulla notifica: la pagina giusta, nella finestra dell'app se c'è già
+self.addEventListener('notificationclick', (event) => {
+  event.notification.close();
+  const url = notificationTarget(event.notification.data && event.notification.data.url, self.registration.scope);
+  event.waitUntil(
+    self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then((list) => {
+      const open = list.find((c) => c.url.startsWith(self.registration.scope));
+      if (open) return open.focus().then((c) => (c || open).navigate(url)).catch(() => self.clients.openWindow(url));
+      return self.clients.openWindow(url);
+    }),
+  );
 });
 `;
 }
