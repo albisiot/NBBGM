@@ -1,5 +1,7 @@
 // Dopo la Fase 13: i bot non accettano più gli scambi "furbi" (contratti pesanti regalati, swap regalati,
-// scelte protette valutate come libere, infortunati valutati come sani).
+// scelte protette valutate come libere, infortunati valutati come sani). Seconda analisi: un infortunio toglie solo
+// la stagione che il giocatore salta, il valore delle scelte non cambia con un infortunio breve, la tassa conta
+// per la stagione giusta e chi è in corsa non smonta la squadra per risparmiarla.
 import { describe, expect, it } from 'vitest';
 import { ARCHETYPE_PROFILES } from '../src/archetype-profiles.ts';
 import { generateLeague } from '../src/generator.ts';
@@ -7,16 +9,23 @@ import { overall } from '../src/overall.ts';
 import { Rng } from '../src/rng.ts';
 import {
   botAccepts,
+  CONTEND_TAX_SAVING_SHARE,
+  draftRanking,
+  injurySeasons,
   pickValue,
+  playerTalent,
   playerValue,
   strengthRanking,
+  taxSeason,
   tradeBalance,
   tradeGainOk,
 } from '../src/season/bots.ts';
-import { contractOf, standardRoster } from '../src/season/finance.ts';
-import { createLeagueState } from '../src/season/season.ts';
+import { contractOf, payroll, standardRoster } from '../src/season/finance.ts';
+import { createLeagueState, playRegularTurn } from '../src/season/season.ts';
 import type { LeagueState } from '../src/season/state.ts';
 import { validateTrade, type Trade } from '../src/season/trades.ts';
+import { gamesAfterOffseason } from '../src/season/turn.ts';
+import { quickGame } from './helpers.ts';
 
 function league(): LeagueState {
   const data = generateLeague(new Rng('scambi-furbi'), ARCHETYPE_PROFILES);
@@ -161,7 +170,7 @@ describe('valutazione degli scambi dei bot', () => {
     expect(valueWith(1)).toBeGreaterThan(free * 0.5);
   });
 
-  it('un infortunato da 60 partite vale molto meno: chi lo accettava sano ora lo rifiuta', () => {
+  it('un infortunato da 60 partite vale meno: chi lo accettava sano ora lo rifiuta', () => {
     const s = league();
     const star = best(s, 'BOS')[0]!;
     const swapStars = (bot: string): Trade => ({
@@ -176,9 +185,188 @@ describe('valutazione degli scambi dei bot', () => {
     const healthyValue = playerValue(star, contractOf(s, star.id), 'middle', s.config);
     expect(healthy.length).toBeGreaterThan(0);
     star.injury = { bodyPart: 'knees', severity: 'severe', gamesRemaining: 60 };
-    expect(playerValue(star, contractOf(s, star.id), 'middle', s.config)).toBeLessThan(healthyValue * 0.5);
+    // A inizio stagione salta 60 partite su 82: perde quella parte di una stagione, un terzo del talento al più
+    const injuredValue = playerValue(star, contractOf(s, star.id), 'middle', s.config, s);
+    expect(injuredValue).toBeLessThan(healthyValue * 0.85);
+    expect(injuredValue).toBeGreaterThan(healthyValue * 0.6);
     const injured = bots(s).filter((b) => botAccepts(s, swapStars(b), b));
     expect(injured.length).toBeLessThan(healthy.length);
     for (const b of injured) expect(healthy).toContain(b);
+  });
+});
+
+describe('infortunati: si toglie solo la stagione che saltano (seconda analisi)', () => {
+  it('stagioni saltate: le partite che restano, poi la guarigione in offseason', () => {
+    expect(gamesAfterOffseason(30)).toBe(0);
+    expect(gamesAfterOffseason(31)).toBe(11);
+    // A inizio stagione: 60 partite su 82
+    expect(injurySeasons(60, { phase: 'regular', turn: 0 })).toBeCloseTo(60 / 82);
+    // Alla giornata 51 ne restano 32: le salta tutte, le altre 28 le recupera in offseason
+    expect(injurySeasons(60, { phase: 'regular', turn: 50 })).toBeCloseTo(1);
+    // Con 70 ne restano 38 dopo la regular season: in offseason ne recupera 20, ne salta 18 della prossima
+    expect(injurySeasons(70, { phase: 'regular', turn: 50 })).toBeCloseTo(1 + 18 / 82);
+    expect(injurySeasons(3, { phase: 'regular', turn: 50 })).toBeCloseTo(3 / 32);
+    // Dopo la regular season conta solo la prossima, dopo la guarigione; in offseason la guarigione c'è già stata
+    expect(injurySeasons(25, { phase: 'postseason', turn: 82 })).toBe(0);
+    expect(injurySeasons(40, { phase: 'postseason', turn: 82 })).toBeCloseTo(20 / 82);
+    expect(injurySeasons(10, { phase: 'offseason', turn: 82 })).toBeCloseTo(10 / 82);
+    expect(injurySeasons(0, { phase: 'regular', turn: 0 })).toBe(0);
+  });
+
+  it('una stella ferma fino a fine stagione non si cede per un giocatore qualsiasi', () => {
+    const s = league();
+    s.turn = 50;
+    const modest = [...standardRoster(s, 'BOS')]
+      .filter((p) => overall(p) >= 50 && overall(p) <= 67)
+      .sort((a, b) => overall(a) - overall(b))[0]!;
+    const yes: string[] = [];
+    let valid = 0;
+    for (const bot of bots(s)) {
+      const star = best(s, bot)[0]!;
+      const talent = playerTalent(star, 'middle', s);
+      star.injury = { bodyPart: 'knees', severity: 'severe', gamesRemaining: 60 };
+      // Salta le 32 partite che restano, il resto lo recupera in offseason: perde un anno di valore su tre
+      expect(playerTalent(star, 'middle', s)).toBeCloseTo((talent * 2) / 3);
+      const t: Trade = {
+        teamA: 'BOS',
+        teamB: bot,
+        playersA: [modest.id],
+        playersB: [star.id],
+        picksA: [],
+        picksB: [],
+      };
+      if (validateTrade(s, t).length === 0) {
+        valid++;
+        if (botAccepts(s, t, bot)) yes.push(bot);
+      }
+      star.injury = null;
+    }
+    expect(valid).toBeGreaterThan(20);
+    expect(yes).toEqual([]);
+  });
+});
+
+describe('valore delle scelte: classifica attesa (seconda analisi)', () => {
+  function played(turns: number): LeagueState {
+    const s = league();
+    for (let i = 0; i < turns; i++) playRegularTurn(s, quickGame);
+    for (const p of s.players) p.injury = null;
+    return s;
+  }
+  const firstPick = (s: LeagueState, team: string) =>
+    s.picks.find((k) => k.originalTeamId === team && k.round === 1 && k.draftYear === s.config.year + 1)!;
+
+  it('un infortunio breve dei migliori non sposta il valore delle scelte', () => {
+    const s = played(10);
+    for (const team of s.teams) {
+      const pick = firstPick(s, team.id);
+      const before = pickValue(s, pick, 'middle', draftRanking(s));
+      for (const p of best(s, team.id).slice(0, 2))
+        p.injury = { bodyPart: 'ankles', severity: 'light', gamesRemaining: 2 };
+      const after = pickValue(s, pick, 'middle', draftRanking(s));
+      for (const p of best(s, team.id).slice(0, 2)) p.injury = null;
+      expect(Math.abs(after - before)).toBeLessThan(0.5);
+    }
+  });
+
+  it('un infortunio lungo del migliore peggiora la classifica attesa', () => {
+    const s = played(10);
+    const team = draftRanking(s)[5]!;
+    best(s, team)[0]!.injury = { bodyPart: 'knees', severity: 'severe', gamesRemaining: 60 };
+    expect(draftRanking(s).indexOf(team)).toBeGreaterThan(5);
+  });
+
+  it('a fine regular season conta il record', () => {
+    const s = league();
+    while (s.phase === 'regular') playRegularTurn(s, quickGame);
+    const wins = new Map(s.teams.map((t) => [t.id, 0]));
+    for (const g of s.games.filter((x) => x.phase === 'regular')) {
+      const w = g.homeScore > g.awayScore ? g.homeId : g.awayId;
+      wins.set(w, wins.get(w)! + 1);
+    }
+    const order = draftRanking(s).map((id) => wins.get(id)!);
+    for (let i = 1; i < order.length; i++) expect(order[i]!).toBeLessThanOrEqual(order[i - 1]!);
+  });
+});
+
+describe('luxury tax negli scambi dei bot (seconda analisi)', () => {
+  /** Il bot passa la tassa di 25 milioni in questa stagione con un contratto pesante in scadenza. */
+  function overTax(s: LeagueState, team: string): void {
+    const filler = [...standardRoster(s, team)].sort((a, b) => overall(a) - overall(b))[0]!;
+    const c = contractOf(s, filler.id)!;
+    c.salaries = [c.salaries[0]! + s.config.luxuryTax + 25_000_000 - payroll(s, team)];
+    c.options = [null];
+  }
+
+  it('nel turno del draft conta la tassa della stagione che arriva, non quella già pagata', () => {
+    const s = league();
+    const bot = bots(s)[0]!;
+    overTax(s, bot);
+    // Un buon giocatore con un contratto di più anni, regalato a BOS
+    const good = best(s, bot).find((p) => (contractOf(s, p.id)?.salaries.length ?? 0) >= 2)!;
+    const gift: Trade = {
+      teamA: bot,
+      teamB: 'BOS',
+      playersA: [good.id],
+      playersB: [],
+      picksA: [],
+      picksB: [],
+    };
+    // In stagione il risparmio sulla tassa c'è davvero
+    expect(taxSeason(s).season).toBe(0);
+    expect(tradeBalance(s, gift, bot).get).toBeGreaterThan(5);
+    // Turno del draft: contratti non ancora scalati, la tassa di questa stagione è già pagata
+    s.phase = 'offseason';
+    s.offseason = { draftYear: s.config.year + 1, lottery: [], slots: [] };
+    expect(taxSeason(s).season).toBe(1);
+    expect(taxSeason(s).config.year).toBe(s.config.year + 1);
+    expect(payroll(s, bot, 1)).toBeLessThan(taxSeason(s).config.luxuryTax);
+    expect(tradeBalance(s, gift, bot).get).toBe(0);
+    // Dopo che i contratti sono scalati si torna alla stagione corrente
+    s.config = { ...s.config, year: s.config.year + 1 };
+    expect(taxSeason(s).season).toBe(0);
+  });
+
+  it('chi è in corsa non cede un titolare per due ragazzi solo per la tassa', () => {
+    const s = league();
+    const bot = 'PHI';
+    const team = s.teams.find((t) => t.id === bot)!;
+    expect(team.human).toBe(false);
+    team.strategy = 'contend';
+    // Ben oltre la tassa con lo stipendio residuo di un tagliato
+    s.deadMoney.push({
+      teamId: bot,
+      playerName: 'Tagliato',
+      salaries: [s.config.luxuryTax + 30_000_000 - payroll(s, bot)],
+    });
+    // Il titolare con lo stipendio più alto, per due giocatori da 52-62 che costano poco
+    const salary = (id: string) => contractOf(s, id)?.salaries[0] ?? 0;
+    const starter = best(s, bot)
+      .slice(0, 5)
+      .sort((a, b) => salary(b.id) - salary(a.id))[0]!;
+    const kids = [...standardRoster(s, 'BOS')]
+      .filter((p) => overall(p) >= 52 && overall(p) <= 62)
+      .sort((a, b) => salary(a.id) - salary(b.id))
+      .slice(0, 2);
+    expect(kids).toHaveLength(2);
+    const t: Trade = {
+      teamA: bot,
+      teamB: 'BOS',
+      playersA: [starter.id],
+      playersB: kids.map((k) => k.id),
+      picksA: [],
+      picksB: [],
+    };
+    const kidsValue = (strategy: 'contend' | 'middle') =>
+      kids.reduce((a, k) => a + playerValue(k, contractOf(s, k.id), strategy, s.config, s), 0);
+    const talent = playerTalent(starter, 'contend', s);
+    // Il risparmio conta al massimo per un quarto del talento ceduto
+    expect(tradeBalance(s, t, bot).get - kidsValue('contend')).toBeCloseTo(CONTEND_TAX_SAVING_SHARE * talent);
+    expect(botAccepts(s, t, bot)).toBe(false);
+    // A metà strada lo stesso risparmio conta intero
+    team.strategy = 'middle';
+    expect(tradeBalance(s, t, bot).get - kidsValue('middle')).toBeGreaterThan(
+      CONTEND_TAX_SAVING_SHARE * talent,
+    );
   });
 });

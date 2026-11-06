@@ -179,10 +179,10 @@ export function executeTrade(state: LeagueState, t: Trade, turn: number | null):
   });
 }
 
-/** Differenza di monte stipendi per una squadra dopo lo scambio (positivo = spende di più). */
-export function payrollChange(state: LeagueState, t: Trade, team: string): number {
+/** Differenza di monte stipendi per una squadra dopo lo scambio (positivo = spende di più); season come in payroll. */
+export function payrollChange(state: LeagueState, t: Trade, team: string, season = 0): number {
   const salary = (ids: readonly string[]) =>
-    ids.reduce((a, id) => a + (contractOf(state, id)?.salaries[0] ?? 0), 0);
+    ids.reduce((a, id) => a + (contractOf(state, id)?.salaries[season] ?? 0), 0);
   const [out, inn] = team === t.teamA ? [t.playersA, t.playersB] : [t.playersB, t.playersA];
   return salary(inn) - salary(out);
 }

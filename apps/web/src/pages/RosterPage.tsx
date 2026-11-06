@@ -1,6 +1,7 @@
 // Schermata roster: quintetto per slot di ruolo, minuti obiettivo con la somma a 240, tattiche, pulsante Auto e
 // allenatore. Le impostazioni salvate le usa il motore alla prossima partita; se nel frattempo manca qualcuno
-// (ceduto, tagliato, infortunato), il bot corregge solo gli slot mancanti.
+// (ceduto, tagliato, infortunato), il bot corregge solo gli slot mancanti. Con modifiche non salvate, uscire dalla
+// pagina chiede conferma e il Pronto della barra del turno propone di salvarle (lib/unsaved.ts).
 import {
   autoSetup,
   BODY_PART_LABEL,
@@ -10,12 +11,13 @@ import {
   type BodyPart,
   type Tactics,
 } from '@nbbgm/engine';
-import { useEffect, useMemo, useState } from 'react';
-import { Link, useParams } from 'react-router';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Link, useBlocker, useParams } from 'react-router';
 import { Button, Card, ErrorText, PageTitle, Spinner } from '../components/ui.tsx';
 import { useUserId } from '../lib/auth.tsx';
 import { friendlyError } from '../lib/errors.ts';
 import { leagueDetail, statusLabel, type LeagueDetail } from '../lib/leagues.ts';
+import { clearUnsaved, setUnsaved } from '../lib/unsaved.ts';
 import { useRoundChange } from '../lib/useRoundChange.ts';
 import {
   coachDelegation,
@@ -51,8 +53,51 @@ export function RosterPage() {
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
+  // Modifiche fatte dal manager e non ancora salvate (dirty vale anche per le impostazioni mai salvate o
+  // sistemate dal bot, che alla partita il motore rifà uguali: per quelle non si chiede nulla)
+  const [edited, setEdited] = useState(false);
 
   const team = league?.teams.find((t) => t.ownerId === userId) ?? null;
+
+  const save = useCallback(async (): Promise<boolean> => {
+    if (!team || !settings || !league) return false;
+    setBusy(true);
+    setError(null);
+    try {
+      await saveTeamSettings(team.id, league.id, settings);
+      setDirty(false);
+      setEdited(false);
+      setRepaired(false);
+      setSaved(true);
+      return true;
+    } catch (e) {
+      setError(friendlyError(e));
+      return false;
+    } finally {
+      setBusy(false);
+    }
+  }, [team, settings, league]);
+  const saveRef = useRef(save);
+  useEffect(() => {
+    saveRef.current = save;
+  }, [save]);
+
+  // La barra del turno sa delle modifiche (Pronto propone di salvarle); chiudere o ricaricare la pagina chiede
+  // conferma al browser; uscire dalla pagina nell'app la chiede qui sotto (useBlocker)
+  useEffect(() => {
+    if (!edited) return;
+    const entry = { leagueId: id, save: () => saveRef.current() };
+    setUnsaved(entry);
+    const onUnload = (e: BeforeUnloadEvent) => e.preventDefault();
+    window.addEventListener('beforeunload', onUnload);
+    return () => {
+      clearUnsaved(entry);
+      window.removeEventListener('beforeunload', onUnload);
+    };
+  }, [edited, id]);
+  const blocker = useBlocker(
+    ({ currentLocation, nextLocation }) => edited && currentLocation.pathname !== nextLocation.pathname,
+  );
 
   useEffect(() => {
     let alive = true;
@@ -76,6 +121,7 @@ export function RosterPage() {
         setSettings(fixed ?? s ?? fromAuto(mine.code, players, DEFAULT_TACTICS));
         setRepaired(fixed !== null);
         setDirty(s === null || fixed !== null);
+        setEdited(false);
         setSaved(false);
         setStale(false);
       } catch (e) {
@@ -117,6 +163,7 @@ export function RosterPage() {
   const update = (s: SavedTeamSettings) => {
     setSettings(s);
     setDirty(true);
+    setEdited(true);
     setSaved(false);
   };
   const setStarter = (slot: number, playerId: string) => {
@@ -132,21 +179,6 @@ export function RosterPage() {
       ...settings,
       minutes: { ...settings.minutes, [playerId]: Math.max(0, Math.min(48, Math.round(m))) },
     });
-
-  async function save() {
-    if (!team || !settings) return;
-    setBusy(true);
-    setError(null);
-    try {
-      await saveTeamSettings(team.id, league!.id, settings);
-      setDirty(false);
-      setRepaired(false);
-      setSaved(true);
-    } catch (e) {
-      setError(friendlyError(e));
-    }
-    setBusy(false);
-  }
 
   const rotation = [...roster].sort((a, b) => {
     const sa = settings.starters.indexOf(a.id);
@@ -172,6 +204,16 @@ export function RosterPage() {
       >
         {team.fullName}
       </PageTitle>
+
+      {blocker.state === 'blocked' && (
+        <LeaveDialog
+          busy={busy}
+          canSave={problems.length === 0}
+          onStay={() => blocker.reset()}
+          onLeave={() => blocker.proceed()}
+          onSaveAndLeave={() => void save().then((ok) => (ok ? blocker.proceed() : blocker.reset()))}
+        />
+      )}
 
       {league.roundState && league.roundState !== 'open' && (
         <p className="rounded-lg bg-amber-50 px-3 py-2 text-sm text-amber-900 dark:bg-amber-950 dark:text-amber-100">
@@ -361,6 +403,59 @@ export function RosterPage() {
           </div>
           <Button disabled={busy || problems.length > 0 || !dirty} onClick={() => void save()}>
             {busy ? 'Salvo…' : 'Salva'}
+          </Button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/** Uscita dalla pagina con modifiche non salvate: salvarle, lasciarle o restare. */
+function LeaveDialog({
+  busy,
+  canSave,
+  onStay,
+  onLeave,
+  onSaveAndLeave,
+}: {
+  busy: boolean;
+  /** Le impostazioni sono valide (minuti a 240, quintetto completo): si possono salvare. */
+  canSave: boolean;
+  onStay: () => void;
+  onLeave: () => void;
+  onSaveAndLeave: () => void;
+}) {
+  return (
+    <div className="fixed inset-0 z-30 flex items-end justify-center bg-slate-900/40 pr-[env(safe-area-inset-right)] pb-[env(safe-area-inset-bottom)] pl-[env(safe-area-inset-left)] sm:items-center">
+      <div
+        role="alertdialog"
+        aria-modal="true"
+        aria-labelledby="uscita-titolo"
+        className="m-3 w-full max-w-md space-y-3 rounded-xl bg-white p-4 shadow-lg dark:bg-slate-800"
+      >
+        <h2 id="uscita-titolo" className="font-semibold">
+          Modifiche non salvate
+        </h2>
+        <p className="text-sm text-slate-600 dark:text-slate-300">
+          Quintetto, minuti o tattiche sono cambiati ma non li hai salvati: se esci si perdono e alla prossima
+          partita si gioca con le impostazioni di prima.
+        </p>
+        {!canSave && (
+          <p className="text-sm text-slate-600 dark:text-slate-300">
+            Per salvarle servono il quintetto completo e 240 minuti: resta e sistemale.
+          </p>
+        )}
+        <div className="flex flex-wrap gap-2">
+          {canSave && (
+            <Button disabled={busy} onClick={onSaveAndLeave}>
+              Salva ed esci
+            </Button>
+          )}
+          <Button variant="secondary" disabled={busy} onClick={onLeave}>
+            Esci senza salvare
+          </Button>
+          <Button variant="ghost" disabled={busy} onClick={onStay}>
+            Resta
           </Button>
         </div>
       </div>

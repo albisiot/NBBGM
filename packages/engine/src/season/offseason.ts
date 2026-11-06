@@ -45,6 +45,7 @@ import {
 } from './season.ts';
 import { simulateGame } from '../game/simulate.ts';
 import { leagueStandings, records } from './standings.ts';
+import { gamesAfterOffseason } from './turn.ts';
 import { emptyStats, type LeagueState, type PlayerState, type SeasonSummary } from './state.ts';
 
 export const OFFSEASON_STAGES = ['draft', 'renewals', 'fa1', 'fa2', 'fa3', 'fa4', 'preparation'] as const;
@@ -129,9 +130,10 @@ export function startOffseason(
     p.age++;
     if (p.yearsInLeague !== null) p.yearsInLeague++;
     p.scoutedPotential = Math.max(overall(p), Math.min(99, p.scoutedPotential));
-    if (p.injury)
-      p.injury =
-        p.injury.gamesRemaining > 30 ? { ...p.injury, gamesRemaining: p.injury.gamesRemaining - 20 } : null;
+    if (p.injury) {
+      const left = gamesAfterOffseason(p.injury.gamesRemaining);
+      p.injury = left > 0 ? { ...p.injury, gamesRemaining: left } : null;
+    }
   }
   const retired = state.players.filter((p) =>
     rng.chance(retirementChance(p, contractOf(state, p.id) !== undefined)),

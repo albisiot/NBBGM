@@ -1,6 +1,16 @@
-// Rotte dell'app. HashRouter perché GitHub Pages non gestisce le rotte di una single page app.
-import { HashRouter, Navigate, Route, Routes } from 'react-router';
-import { ErrorBoundary } from './components/ErrorBoundary.tsx';
+// Rotte dell'app. Router con l'hash (#/...) perché GitHub Pages non gestisce le rotte di una single page app; è un
+// "data router" (createHashRouter) perché la pagina Squadra possa fermare l'uscita con modifiche non salvate
+// (useBlocker).
+import {
+  createHashRouter,
+  createRoutesFromElements,
+  Navigate,
+  Outlet,
+  Route,
+  RouterProvider,
+  useRouteError,
+} from 'react-router';
+import { ErrorBoundary, ErrorScreen } from './components/ErrorBoundary.tsx';
 import { Layout } from './components/Layout.tsx';
 import { ErrorText, Spinner } from './components/ui.tsx';
 import { UpdateBanner } from './components/UpdateBanner.tsx';
@@ -30,7 +40,7 @@ const StandingsPage = lazyPage(() => import('./pages/StandingsPage.tsx'), 'Stand
 const StatsPage = lazyPage(() => import('./pages/StatsPage.tsx'), 'StatsPage');
 const TeamPage = lazyPage(() => import('./pages/TeamPage.tsx'), 'TeamPage');
 
-function Routed() {
+function AuthGate() {
   const { session, loading } = useAuth();
   if (loading)
     return (
@@ -41,35 +51,49 @@ function Routed() {
   // Senza login si vede solo l'accesso. Un link d'invito resta nell'indirizzo e si apre dopo: con il codice via
   // email la pagina non cambia, con Google si salva prima di andare e si rimette al ritorno (lib/returnTo.ts)
   if (!session) return <LoginPage />;
-  return (
-    <Routes>
-      <Route element={<Layout />}>
-        <Route index element={<LeaguesPage />} />
-        <Route path="crea" element={<CreateLeaguePage />} />
-        <Route path="entra" element={<JoinLeaguePage />} />
-        <Route path="entra/:code" element={<JoinLeaguePage />} />
-        <Route path="lega/:id" element={<LeaguePage />} />
-        <Route path="lega/:id/draft" element={<DraftPage />} />
-        <Route path="lega/:id/squadra" element={<RosterPage />} />
-        <Route path="lega/:id/squadre/:code" element={<TeamPage />} />
-        <Route path="lega/:id/giocatore/:pid" element={<PlayerPage />} />
-        <Route path="lega/:id/risultati" element={<ResultsPage />} />
-        <Route path="lega/:id/risultati/:round" element={<ResultsPage />} />
-        <Route path="lega/:id/partita/:gid" element={<GamePage />} />
-        <Route path="lega/:id/classifica" element={<StandingsPage />} />
-        <Route path="lega/:id/playoff" element={<PlayoffPage />} />
-        <Route path="lega/:id/statistiche" element={<StatsPage />} />
-        <Route path="lega/:id/mercato" element={<MarketPage />} />
-        <Route path="lega/:id/draft-annuale" element={<AnnualDraftPage />} />
-        <Route path="lega/:id/cronaca" element={<ChroniclePage />} />
-        <Route path="lega/:id/storico" element={<HistoryPage />} />
-        <Route path="profilo" element={<ProfilePage />} />
-        <Route path="guida" element={<GuidePage />} />
-        <Route path="*" element={<Navigate to="/" replace />} />
-      </Route>
-    </Routes>
-  );
+  return <Outlet />;
 }
+
+/** Errore durante il disegno di una pagina: lo prende il router, si mostra come quello dell'ErrorBoundary. */
+function RouteError() {
+  const error = useRouteError();
+  console.error(error);
+  return <ErrorScreen error={error instanceof Error ? error : new Error(String(error))} />;
+}
+
+const routes = createRoutesFromElements(
+  <Route element={<AuthGate />} errorElement={<RouteError />}>
+    <Route element={<Layout />}>
+      <Route index element={<LeaguesPage />} />
+      <Route path="crea" element={<CreateLeaguePage />} />
+      <Route path="entra" element={<JoinLeaguePage />} />
+      <Route path="entra/:code" element={<JoinLeaguePage />} />
+      <Route path="lega/:id" element={<LeaguePage />} />
+      <Route path="lega/:id/draft" element={<DraftPage />} />
+      <Route path="lega/:id/squadra" element={<RosterPage />} />
+      <Route path="lega/:id/squadre/:code" element={<TeamPage />} />
+      <Route path="lega/:id/giocatore/:pid" element={<PlayerPage />} />
+      <Route path="lega/:id/risultati" element={<ResultsPage />} />
+      <Route path="lega/:id/risultati/:round" element={<ResultsPage />} />
+      <Route path="lega/:id/partita/:gid" element={<GamePage />} />
+      <Route path="lega/:id/classifica" element={<StandingsPage />} />
+      <Route path="lega/:id/playoff" element={<PlayoffPage />} />
+      <Route path="lega/:id/statistiche" element={<StatsPage />} />
+      <Route path="lega/:id/mercato" element={<MarketPage />} />
+      <Route path="lega/:id/draft-annuale" element={<AnnualDraftPage />} />
+      <Route path="lega/:id/cronaca" element={<ChroniclePage />} />
+      <Route path="lega/:id/storico" element={<HistoryPage />} />
+      <Route path="profilo" element={<ProfilePage />} />
+      <Route path="guida" element={<GuidePage />} />
+      <Route path="*" element={<Navigate to="/" replace />} />
+    </Route>
+  </Route>,
+);
+
+// Il router legge l'indirizzo quando nasce: si crea al primo disegno, dopo che main.tsx ha rimesso la pagina di
+// prima del login con Google (restorePage), e una volta sola anche con lo StrictMode
+let router: ReturnType<typeof createHashRouter> | null = null;
+const appRouter = () => (router ??= createHashRouter(routes));
 
 export function App() {
   if (!configured)
@@ -84,9 +108,7 @@ export function App() {
     <>
       <ErrorBoundary>
         <AuthProvider>
-          <HashRouter>
-            <Routed />
-          </HashRouter>
+          <RouterProvider router={appRouter()} />
         </AuthProvider>
       </ErrorBoundary>
       <UpdateBanner />

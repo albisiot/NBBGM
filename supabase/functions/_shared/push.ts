@@ -148,6 +148,59 @@ export function mergeNotifications(batch: PushBatch): PushMessage[] {
   return out;
 }
 
+/**
+ * Host dei servizi push dei browser (elenco di pushpad/known-push-services, senza gli host di prova di Mozilla): il
+ * server manda le notifiche solo lì. Con il punto davanti vale per i sottodomini. Lo stesso elenco sta nel
+ * database (private.push_endpoint_ok, migrazione 20261106150000_push_hosts.sql): le due liste vanno tenute uguali.
+ */
+export const PUSH_HOSTS = [
+  // Chrome e i browser Chromium (Opera, Brave, Samsung Internet), Android
+  'fcm.googleapis.com',
+  'android.googleapis.com',
+  'jmt17.google.com',
+  // Firefox (updates.push.services.mozilla.com)
+  '.push.services.mozilla.com',
+  // Edge su Windows (WNS)
+  '.notify.windows.com',
+  // Safari su Mac, iPhone e iPad (web.push.apple.com)
+  '.push.apple.com',
+] as const;
+
+/** L'indirizzo di un'iscrizione porta a un servizio push vero? https, nessuna porta né credenziali. */
+export function pushEndpointAllowed(endpoint: string): boolean {
+  if (endpoint.length > 1000) return false;
+  let url: URL;
+  try {
+    url = new URL(endpoint);
+  } catch {
+    return false;
+  }
+  if (url.protocol !== 'https:' || url.port !== '' || url.username !== '' || url.password !== '')
+    return false;
+  // L'hostname di URL è già in minuscolo; con il punto davanti serve almeno un nome prima (web.push.apple.com)
+  const host = url.hostname;
+  return PUSH_HOSTS.some((h) => (h.startsWith('.') ? host.endsWith(h) : host === h));
+}
+
+/** Tempo massimo per una richiesta a un servizio push. */
+export const PUSH_TIMEOUT_MS = 10_000;
+
+/**
+ * Invio con fetch: senza seguire i reindirizzamenti (un servizio push non ne manda: un 3xx conta come errore) e
+ * con un tempo massimo, così un servizio lento non tiene ferma la funzione.
+ */
+export function fetchSend(fetchImpl: typeof fetch = fetch, timeoutMs = PUSH_TIMEOUT_MS): Send {
+  return async (url, init) => {
+    const res = await fetchImpl(url, {
+      ...init,
+      redirect: 'manual',
+      signal: AbortSignal.timeout(timeoutMs),
+    });
+    await res.body?.cancel();
+    return { status: res.status };
+  };
+}
+
 /** Le chiamate al database che servono: supabase-js nella Edge Function, PGlite nei test. */
 export interface PushDb {
   rpc<T>(name: string, args: Record<string, unknown>): Promise<T>;
@@ -189,11 +242,14 @@ export async function deliverPush(
   if (!keys || batch.notifications.length === 0) return report;
   const messages = mergeNotifications(batch);
   report.messages = messages.length;
-  const gone: string[] = [];
+  // Un'iscrizione verso un host che non è un servizio push non si usa e si cancella (il database già le rifiuta)
+  const gone: string[] = batch.subscriptions
+    .filter((s) => !pushEndpointAllowed(s.endpoint))
+    .map((s) => s.endpoint);
   await Promise.all(
     messages.flatMap((m) =>
       batch.subscriptions
-        .filter((s) => s.user_id === m.userId)
+        .filter((s) => s.user_id === m.userId && pushEndpointAllowed(s.endpoint))
         .map(async (s) => {
           try {
             const req = await pushRequest(s, JSON.stringify(m.payload), keys, m.options);

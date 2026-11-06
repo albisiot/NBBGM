@@ -1,12 +1,15 @@
 // Barra del turno in cima a ogni pagina della lega (tranne quella della lega, che ha la scheda del turno
 // completa): turno, stato della propria squadra, pulsante Pronto e decisioni bloccanti aperte, con il link alla
-// pagina della lega dove si leggono gli avvisi. Così non si torna sempre alla pagina della lega.
+// pagina della lega dove si leggono gli avvisi. Così non si torna sempre alla pagina della lega. Prima di segnarsi
+// pronti avvisa di che cosa succede alle decisioni aperte e propone di salvare le modifiche fatte in Squadra.
 import { useCallback, useEffect, useState } from 'react';
 import { Link } from 'react-router';
 import { friendlyError } from '../lib/errors.ts';
-import { barStatus, barView, setReady, subscribeTurn, type BarView } from '../lib/turns.ts';
+import { barStatus, barView, readyWarnings, setReady, subscribeTurn, type BarView } from '../lib/turns.ts';
+import { useUnsaved } from '../lib/unsaved.ts';
 import { useAsync } from '../lib/useAsync.ts';
 import { refreshAppBadge } from '../lib/appBadge.ts';
+import { ReadyConfirm } from './ReadyConfirm.tsx';
 
 const TONE: Record<BarView['badge']['tone'], string> = {
   green: 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-100',
@@ -20,6 +23,8 @@ export function TurnBar({ leagueId, userId }: { leagueId: string; userId: string
   const { data, reload } = useAsync(() => barStatus(leagueId, userId), [leagueId, userId], { keep: true });
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [asking, setAsking] = useState(false);
+  const unsaved = useUnsaved(leagueId);
   // Tempo reale come la scheda del turno: Pronto, allenatori, avvisi e cambio di turno
   useEffect(() => subscribeTurn(leagueId, reload), [leagueId, reload]);
   // Il numero sull'icona segue le decisioni aperte
@@ -45,8 +50,29 @@ export function TurnBar({ leagueId, userId }: { leagueId: string; userId: string
     [data, reload],
   );
 
+  const saveAndReady = useCallback(async () => {
+    if (!unsaved) return;
+    setBusy(true);
+    const ok = await unsaved.save();
+    setBusy(false);
+    if (!ok) {
+      setAsking(false);
+      setError('Salvataggio non riuscito: guarda il messaggio in fondo alla pagina.');
+      return;
+    }
+    setAsking(false);
+    await toggle(true);
+  }, [unsaved, toggle]);
+
   const view = data ? barView(data) : null;
   if (!view) return null;
+  const warnings =
+    view.action === 'ready' && data
+      ? readyWarnings(data.decisions, {
+          unsaved: unsaved !== null,
+          coach: data.myState === 'coach' || data.myState === 'blocked',
+        })
+      : [];
   return (
     <div className="mb-4 rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm shadow-sm dark:border-slate-700 dark:bg-slate-800">
       {/* Su telefono il turno sta su una riga sua (larghezza minima), decisioni e Pronto sotto, a destra */}
@@ -74,7 +100,10 @@ export function TurnBar({ leagueId, userId }: { leagueId: string; userId: string
           <button
             type="button"
             disabled={busy}
-            onClick={() => void toggle(view.action === 'ready')}
+            onClick={() => {
+              if (view.action === 'ready' && warnings.length > 0) setAsking(true);
+              else void toggle(view.action === 'ready');
+            }}
             className={`ml-auto inline-flex min-h-11 items-center rounded-lg px-4 text-sm font-semibold disabled:cursor-not-allowed ${
               view.action === 'ready'
                 ? 'bg-orange-600 text-white hover:bg-orange-700 disabled:bg-orange-300'
@@ -85,6 +114,20 @@ export function TurnBar({ leagueId, userId }: { leagueId: string; userId: string
           </button>
         )}
       </div>
+      {asking && warnings.length > 0 && (
+        <ReadyConfirm
+          warnings={warnings}
+          leagueId={leagueId}
+          unsaved={unsaved !== null}
+          busy={busy}
+          onReady={() => {
+            setAsking(false);
+            void toggle(true);
+          }}
+          onSaveAndReady={() => void saveAndReady()}
+          onCancel={() => setAsking(false)}
+        />
+      )}
       {error && (
         <p role="alert" className="mt-1 text-xs text-red-700 dark:text-red-300">
           {error}

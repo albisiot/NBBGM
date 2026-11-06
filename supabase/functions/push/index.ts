@@ -6,7 +6,7 @@
 //
 // POST  ->  { taken, messages, sent, gone, failed }
 import { createClient } from 'npm:@supabase/supabase-js@2.118.0';
-import { deliverPush, vapidFromEnv, type PushDb } from '../_shared/push.ts';
+import { deliverPush, fetchSend, vapidFromEnv, type PushDb } from '../_shared/push.ts';
 
 function json(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } });
@@ -34,11 +34,8 @@ Deno.serve(async (req) => {
     };
     const keys = vapidFromEnv((name) => Deno.env.get(name));
     if (!keys) console.warn('Mancano le chiavi VAPID: le notifiche in coda si scartano');
-    const report = await deliverPush(db, keys, async (url, init) => {
-      const res = await fetch(url, init);
-      await res.body?.cancel();
-      return { status: res.status };
-    });
+    // Solo verso i servizi push ammessi (PUSH_HOSTS), senza seguire reindirizzamenti e con un tempo massimo
+    const report = await deliverPush(db, keys, fetchSend());
     if (report.taken > 0) console.log(`Notifiche: ${JSON.stringify(report)}`);
     return json(report);
   } catch (e) {

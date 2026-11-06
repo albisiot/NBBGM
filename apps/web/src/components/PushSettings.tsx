@@ -11,6 +11,7 @@ import {
   NOTIFICATION_KINDS,
   pushAvailability,
   saveNotificationSettings,
+  syncPush,
   type NotificationSettings,
 } from '../lib/push.ts';
 import { useAsync } from '../lib/useAsync.ts';
@@ -54,12 +55,24 @@ function PushControls({ userId }: { userId: string }) {
   useEffect(() => {
     if (saved) setSettings(saved);
   }, [saved]);
+  // All'apertura l'iscrizione del dispositivo si salva di nuovo sul server (che può averla persa) e si rifà se le
+  // chiavi sono cambiate; risulta attiva solo se è di questo account
   useEffect(() => {
-    currentSubscription().then(
-      (s) => setSubscribed(s !== null),
-      () => setSubscribed(false),
-    );
-  }, []);
+    let alive = true;
+    syncPush(userId)
+      .then(
+        (r) => r === 'saved' || r === 'renewed',
+        // Senza rete si mostra quello che c'è sul dispositivo
+        () => currentSubscription().then((s) => s !== null),
+      )
+      .then(
+        (on) => alive && setSubscribed(on),
+        () => alive && setSubscribed(false),
+      );
+    return () => {
+      alive = false;
+    };
+  }, [userId]);
 
   async function run(action: () => Promise<void>, after: () => void) {
     setBusy(true);
@@ -87,7 +100,10 @@ function PushControls({ userId }: { userId: string }) {
         onClick={() =>
           void (subscribed
             ? run(disablePush, () => setSubscribed(false))
-            : run(enablePush, () => setSubscribed(true)))
+            : run(
+                () => enablePush(userId),
+                () => setSubscribed(true),
+              ))
         }
       >
         {subscribed ? 'Disattiva su questo dispositivo' : 'Attiva su questo dispositivo'}

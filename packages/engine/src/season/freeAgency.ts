@@ -153,7 +153,7 @@ export function botOffers(state: LeagueState, round: number, rng: Rng, opts: { f
           p,
           ask,
           affordable,
-          value: playerValue(p, undefined, team.strategy, state.config) / (ask / 1e6 + 2),
+          value: playerValue(p, undefined, team.strategy, state.config, state) / (ask / 1e6 + 2),
         };
       })
       .filter((x) => x.affordable)

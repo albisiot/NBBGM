@@ -9,3 +9,16 @@
     @apply bg-slate-50 text-slate-900 antialiased dark:bg-slate-900 dark:text-slate-100;
   }
 }
+
+/*
+ * iPhone: toccando un campo con il testo sotto i 16 px Safari ingrandisce la pagina, che poi resta ingrandita.
+ * Su telefono (sotto sm, 40rem) ogni campo ha il testo a 16 px, qualunque classe abbia (text-sm, text-xs): la
+ * regola sta fuori da @layer, quindi vale sopra le utility di Tailwind. Da sm in su valgono le classi.
+ */
+@media (max-width: 39.99rem) {
+  input:not([type='checkbox'], [type='radio'], [type='range']),
+  select,
+  textarea {
+    font-size: 1rem;
+  }
+}

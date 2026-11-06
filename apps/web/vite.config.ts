@@ -23,22 +23,30 @@ const PUBLIC_FILES = [
  * stanno in src/pwa/serviceWorker.ts.
  */
 function serviceWorker(): Plugin {
+  // Chiave pubblica VAPID (da .env.local o dalla variabile del repository in Pages): serve per rifare
+  // l'iscrizione alle notifiche quando il browser la cambia
+  let vapidKey = '';
   return {
     name: 'nbbgm-service-worker',
     apply: 'build',
+    configResolved(config) {
+      vapidKey = String(config.env.VITE_VAPID_PUBLIC_KEY ?? '').trim();
+    },
     generateBundle(_, bundle) {
       const files = Object.keys(bundle)
         .filter((f) => !f.endsWith('.map'))
         .sort();
       // La versione cambia con i file della build, con quelli di public/ e con le regole del service worker
-      const hash = createHash('sha256').update(files.join('|')).update(serviceWorkerSource('', []));
+      const hash = createHash('sha256')
+        .update(files.join('|'))
+        .update(serviceWorkerSource('', [], vapidKey));
       for (const f of PUBLIC_FILES) hash.update(readFileSync(new URL(`./public/${f}`, import.meta.url)));
       const version = hash.digest('hex').slice(0, 12);
       const shell = ['./', ...[...files, ...PUBLIC_FILES].map((f) => `./${f}`)];
       this.emitFile({
         type: 'asset',
         fileName: 'sw.js',
-        source: serviceWorkerSource(version, shell),
+        source: serviceWorkerSource(version, shell, vapidKey),
       });
     },
   };

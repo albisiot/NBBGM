@@ -6,8 +6,11 @@
 //     deviata, HTML con il segno di NBBGM. Non privacy.html, non la pagina di un portale Wi-Fi;
 //   - senza rete: la pagina chiesta se è in cache (privacy.html), altrimenti la pagina dell'app;
 //   - notifiche push: testo, pagina e numero sull'icona arrivano dal server (Edge Function push); toccando la
-//     notifica si apre quella pagina, nella finestra dell'app se è già aperta.
+//     notifica si apre quella pagina, nella finestra dell'app se è già aperta;
+//   - se il browser cambia l'iscrizione (pushsubscriptionchange) se ne fa una nuova e lo si dice alle finestre
+//     aperte, che la salvano sul server.
 // Supabase e gli altri siti non passano mai dal service worker.
+import { PUSH_CHANGED_MESSAGE } from './messages.ts';
 
 /** Quanto serve di una Response per decidere se è la pagina dell'app. */
 export interface ResponseInfo {
@@ -79,11 +82,24 @@ export function notificationTarget(url: unknown, scope: string): string {
   }
 }
 
-/** Testo di sw.js: versione della build (cambia a ogni pubblicazione) e file da tenere in cache. */
-export function serviceWorkerSource(version: string, shell: readonly string[]): string {
+/** Chiave pubblica VAPID in base64url -> byte (come in lib/push.ts), per scriverla dentro sw.js. */
+export function vapidKeyBytes(key: string): number[] {
+  if (!key) return [];
+  const b64 = key.replace(/-/g, '+').replace(/_/g, '/');
+  const bin = atob(b64.padEnd(Math.ceil(b64.length / 4) * 4, '='));
+  return Array.from(bin, (c) => c.charCodeAt(0));
+}
+
+/**
+ * Testo di sw.js: versione della build (cambia a ogni pubblicazione), file da tenere in cache e chiave pubblica
+ * VAPID (per rifare l'iscrizione quando il browser la cambia; vuota senza notifiche).
+ */
+export function serviceWorkerSource(version: string, shell: readonly string[], vapidKey = ''): string {
   return `// Service worker di NBBGM, generato in build (apps/web/src/pwa/serviceWorker.ts).
 const CACHE = 'nbbgm-${version}';
 const SHELL = ${JSON.stringify(shell)};
+const VAPID_KEY = ${JSON.stringify(vapidKeyBytes(vapidKey))};
+const PUSH_CHANGED = ${JSON.stringify(PUSH_CHANGED_MESSAGE)};
 const isAppShellResponse = ${isAppShellResponse.toString()};
 const looksLikeAppShell = ${looksLikeAppShell.toString()};
 const notificationTarget = ${notificationTarget.toString()};
@@ -169,6 +185,29 @@ self.addEventListener('notificationclick', (event) => {
       if (open) return open.focus().then((c) => (c || open).navigate(url)).catch(() => self.clients.openWindow(url));
       return self.clients.openWindow(url);
     }),
+  );
+});
+
+// Il browser ha cambiato (o tolto) l'iscrizione alle notifiche: se ne fa una nuova con la chiave dell'app e si
+// avvisano le finestre aperte, che la salvano sul server (il service worker non ha il login). Senza finestre aperte
+// la salva l'app al prossimo avvio, quando riallinea l'iscrizione.
+self.addEventListener('pushsubscriptionchange', (event) => {
+  const old = event.oldSubscription;
+  const key = VAPID_KEY.length
+    ? new Uint8Array(VAPID_KEY)
+    : old && old.options && old.options.applicationServerKey;
+  const renew = event.newSubscription
+    ? Promise.resolve(event.newSubscription)
+    : key
+      ? self.registration.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: key })
+      : Promise.resolve(null);
+  event.waitUntil(
+    renew
+      .catch(() => null)
+      .then(() => self.clients.matchAll({ type: 'window', includeUncontrolled: true }))
+      .then((list) => {
+        for (const c of list) c.postMessage({ type: PUSH_CHANGED });
+      }),
   );
 });
 `;

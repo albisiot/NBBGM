@@ -66,31 +66,143 @@ export async function currentSubscription(): Promise<PushSubscription | null> {
   return reg ? reg.pushManager.getSubscription() : null;
 }
 
+/** Quanto serve di un'iscrizione del browser (PushSubscription). */
+export interface SubscriptionLike {
+  endpoint: string;
+  options: { applicationServerKey: ArrayBuffer | null };
+  toJSON(): PushSubscriptionJSON;
+  unsubscribe(): Promise<boolean>;
+}
+
+/** Il gestore delle iscrizioni del dispositivo (pushManager del service worker), con il permesso concesso. */
+export interface PushDevice {
+  permission: NotificationPermission | null;
+  getSubscription(): Promise<SubscriptionLike | null>;
+  subscribe(key: Uint8Array<ArrayBuffer>): Promise<SubscriptionLike>;
+}
+
+/** Le chiamate al server per le iscrizioni. */
+export interface PushServer {
+  save(sub: SubscriptionLike): Promise<void>;
+  remove(endpoint: string): Promise<void>;
+}
+
+/**
+ * Iscrizione con la chiave attuale: quella che c'è, se è stata fatta con questa chiave, altrimenti una nuova (le
+ * chiavi VAPID sono cambiate e la vecchia iscrizione non vale più). replaced è l'indirizzo di quella tolta.
+ */
+export async function subscriptionWithKey(
+  device: PushDevice,
+  key: string,
+): Promise<{ sub: SubscriptionLike; replaced: string | null }> {
+  const wanted = keyBytes(key);
+  const sub = await device.getSubscription();
+  const current = sub?.options.applicationServerKey;
+  if (sub && (!current || sameKey(new Uint8Array(current), wanted))) return { sub, replaced: null };
+  if (sub) await sub.unsubscribe().catch(() => false);
+  return { sub: await device.subscribe(wanted), replaced: sub?.endpoint ?? null };
+}
+
+export type PushSyncResult =
+  /** Niente da fare: chiave mancante, permesso non concesso o nessuna iscrizione su questo dispositivo. */
+  | 'off'
+  /** L'iscrizione l'ha fatta un altro account su questo dispositivo: non la si prende senza un tocco. */
+  | 'other-user'
+  /** Salvata di nuovo sul server, così com'era. */
+  | 'saved'
+  /** Rifatta con la chiave VAPID attuale e salvata; la vecchia tolta dal server. */
+  | 'renewed';
+
+/**
+ * Riallinea l'iscrizione del dispositivo con il server: se il browser ne ha una e il permesso è concesso, la salva
+ * di nuovo (save_push_subscription è idempotente: il server può averla persa, per esempio come scaduta); se è
+ * stata fatta con un'altra chiave la rifà con quella attuale. owner è l'account che ha attivato le notifiche su
+ * questo dispositivo (memoria del browser): se è un altro, non si fa nulla.
+ */
+export async function syncSubscription(
+  device: PushDevice,
+  key: string,
+  server: PushServer,
+  userId: string,
+  owner: string | null,
+): Promise<PushSyncResult> {
+  if (!key || device.permission !== 'granted') return 'off';
+  if (!(await device.getSubscription())) return 'off';
+  if (owner && owner !== userId) return 'other-user';
+  const { sub, replaced } = await subscriptionWithKey(device, key);
+  await server.save(sub);
+  if (replaced && replaced !== sub.endpoint) await server.remove(replaced).catch(() => undefined);
+  return replaced ? 'renewed' : 'saved';
+}
+
+const OWNER_KEY = 'nbbgm:notifiche-utente';
+
+function readOwner(): string | null {
+  try {
+    return localStorage.getItem(OWNER_KEY);
+  } catch {
+    return null;
+  }
+}
+
+function writeOwner(userId: string | null): void {
+  try {
+    if (userId) localStorage.setItem(OWNER_KEY, userId);
+    else localStorage.removeItem(OWNER_KEY);
+  } catch {
+    // Senza memoria del browser si riallinea comunque
+  }
+}
+
+const supabaseServer: PushServer = {
+  async save(sub) {
+    const json = sub.toJSON();
+    const { error } = await supabase.rpc('save_push_subscription', {
+      p_endpoint: sub.endpoint,
+      p_p256dh: json.keys?.p256dh ?? '',
+      p_auth: json.keys?.auth ?? '',
+      p_user_agent: navigator.userAgent,
+    });
+    if (error) throw error;
+  },
+  async remove(endpoint) {
+    const { error } = await supabase.rpc('delete_push_subscription', { p_endpoint: endpoint });
+    if (error) throw error;
+  },
+};
+
+function deviceOf(reg: ServiceWorkerRegistration): PushDevice {
+  return {
+    permission: typeof Notification === 'undefined' ? null : Notification.permission,
+    getSubscription: () => reg.pushManager.getSubscription(),
+    subscribe: (key) => reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: key }),
+  };
+}
+
+/**
+ * Riallinea l'iscrizione di questo dispositivo per l'account collegato (all'avvio, all'apertura del profilo e
+ * quando il service worker avvisa che il browser l'ha cambiata). Non chiede mai il permesso.
+ */
+export async function syncPush(userId: string): Promise<PushSyncResult> {
+  if (pushAvailability(currentPushEnvironment()) !== 'ok') return 'off';
+  const reg = await registration();
+  if (!reg) return 'off';
+  const result = await syncSubscription(deviceOf(reg), VAPID_PUBLIC_KEY, supabaseServer, userId, readOwner());
+  if (result === 'saved' || result === 'renewed') writeOwner(userId);
+  return result;
+}
+
 /** Chiede il permesso (va chiamata da un tocco), iscrive il dispositivo e salva l'iscrizione sul server. */
-export async function enablePush(): Promise<void> {
+export async function enablePush(userId: string): Promise<void> {
   const reg = await registration();
   if (!reg) throw new Error('Le notifiche funzionano con l’app pubblicata, non in questa versione di prova.');
   const permission = await Notification.requestPermission();
   if (permission !== 'granted') throw new Error('Permesso per le notifiche non concesso.');
-  let sub = await reg.pushManager.getSubscription();
-  // Un'iscrizione fatta con un'altra chiave (chiavi cambiate) non vale più
-  const current = sub?.options.applicationServerKey;
-  if (sub && current && !sameKey(new Uint8Array(current), keyBytes(VAPID_PUBLIC_KEY))) {
-    await sub.unsubscribe();
-    sub = null;
-  }
-  sub ??= await reg.pushManager.subscribe({
-    userVisibleOnly: true,
-    applicationServerKey: keyBytes(VAPID_PUBLIC_KEY),
-  });
-  const json = sub.toJSON();
-  const { error } = await supabase.rpc('save_push_subscription', {
-    p_endpoint: sub.endpoint,
-    p_p256dh: json.keys?.p256dh ?? '',
-    p_auth: json.keys?.auth ?? '',
-    p_user_agent: navigator.userAgent,
-  });
-  if (error) throw error;
+  // Un'iscrizione fatta con un'altra chiave (chiavi cambiate) non vale più: se ne fa una nuova
+  const { sub, replaced } = await subscriptionWithKey(deviceOf(reg), VAPID_PUBLIC_KEY);
+  await supabaseServer.save(sub);
+  if (replaced && replaced !== sub.endpoint) await supabaseServer.remove(replaced).catch(() => undefined);
+  writeOwner(userId);
 }
 
 function sameKey(a: Uint8Array, b: Uint8Array): boolean {
@@ -100,6 +212,7 @@ function sameKey(a: Uint8Array, b: Uint8Array): boolean {
 /** Toglie l'iscrizione di questo dispositivo, dal server e dal browser (notifiche spente o uscita). */
 export async function disablePush(): Promise<void> {
   const sub = await currentSubscription();
+  writeOwner(null);
   if (!sub) return;
   const { error } = await supabase.rpc('delete_push_subscription', { p_endpoint: sub.endpoint });
   await sub.unsubscribe().catch(() => false);

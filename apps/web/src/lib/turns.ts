@@ -474,6 +474,46 @@ export function alertText(a: Pick<AlertItem, 'kind' | 'payload'>): {
   }
 }
 
+/**
+ * Che cosa succede, se il turno si chiude adesso, alle decisioni ancora aperte e alle modifiche non salvate: lo si
+ * dice prima di segnarsi pronti. coach: allenatore attivo (decide lui i rinnovi lasciati aperti). Vuoto se non
+ * c'è nulla da dire.
+ */
+export function readyWarnings(
+  decisions: readonly { kind: string }[],
+  opts: { unsaved?: boolean; coach?: boolean } = {},
+): string[] {
+  const out: string[] = [];
+  if (opts.unsaved)
+    out.push('In Squadra hai modifiche non salvate: se non le salvi si gioca con le impostazioni di prima.');
+  const count = (kind: string) => decisions.filter((d) => d.kind === kind).length;
+  const trades = count('trade_offer');
+  if (trades === 1) out.push('La proposta di scambio che hai ricevuto, senza risposta, viene rifiutata.');
+  else if (trades > 1) out.push(`Le ${trades} proposte di scambio senza risposta vengono rifiutate.`);
+  if (count('renewals'))
+    out.push(
+      opts.coach
+        ? 'I rinnovi che non hai fatto li decide l’allenatore, con la logica del bot.'
+        : 'I giocatori in scadenza che non hai rinnovato diventano svincolati: li perdi.',
+    );
+  if (count('roster_minimum'))
+    out.push(
+      'La rosa è sotto il minimo: il server firma al minimo i migliori svincolati dei ruoli scoperti.',
+    );
+  if (count('draft_pick'))
+    out.push(
+      'Al draft sceglie il server: il primo disponibile della tua lista, senza lista il migliore per i ruoli scoperti.',
+    );
+  if (count('free_agency'))
+    out.push('In free agency valgono solo le offerte già fatte: l’allenatore non ne fa.');
+  if (count('preparation'))
+    out.push('Il server taglia gli esuberi con l’overall più basso e firma al minimo chi manca.');
+  const known = ['trade_offer', 'renewals', 'roster_minimum', 'draft_pick', 'free_agency', 'preparation'];
+  if (decisions.some((d) => !known.includes(d.kind)))
+    out.push('Gli altri avvisi senza risposta si chiudono come scaduti.');
+  return out;
+}
+
 /** "tra 12 min", "tra 3 h 20 min", "scaduta" */
 export function timeLeft(deadline: string, now = Date.now()): string {
   const s = Math.floor((Date.parse(deadline) - now) / 1000);

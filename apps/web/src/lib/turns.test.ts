@@ -6,6 +6,7 @@ import {
   countsAsReady,
   readiness,
   readinessNote,
+  readyWarnings,
   roundStuck,
   roundTitle,
   timeLeft,
@@ -237,5 +238,33 @@ describe('barra del turno', () => {
   it('senza turno o senza squadra la barra non c’è', () => {
     expect(barView(bar({ round: null }))).toBeNull();
     expect(barView(bar({ myTeamId: null }))).toBeNull();
+  });
+});
+
+describe('prima di segnarsi pronti (seconda analisi)', () => {
+  it('senza decisioni né modifiche non c’è nulla da dire', () => {
+    expect(readyWarnings([])).toEqual([]);
+  });
+
+  it('dice che cosa succede alle decisioni aperte se il turno si chiude', () => {
+    const one = readyWarnings([{ kind: 'trade_offer' }]);
+    expect(one).toHaveLength(1);
+    expect(one[0]).toMatch(/rifiutata/);
+    expect(readyWarnings([{ kind: 'trade_offer' }, { kind: 'trade_offer' }])[0]).toMatch(/Le 2 proposte/);
+    // Un rinnovo non fatto lascia andare il giocatore; con l'allenatore decide lui
+    expect(readyWarnings([{ kind: 'renewals' }])[0]).toMatch(/svincolati/);
+    expect(readyWarnings([{ kind: 'renewals' }], { coach: true })[0]).toMatch(/allenatore/);
+    expect(readyWarnings([{ kind: 'roster_minimum' }])[0]).toMatch(/firma al minimo/);
+    expect(readyWarnings([{ kind: 'draft_pick' }])[0]).toMatch(/lista/);
+    expect(readyWarnings([{ kind: 'free_agency' }])[0]).toMatch(/offerte già fatte/);
+    expect(readyWarnings([{ kind: 'preparation' }])[0]).toMatch(/esuberi/);
+    expect(readyWarnings([{ kind: 'nuovo' }])[0]).toMatch(/scaduti/);
+  });
+
+  it('le modifiche non salvate in Squadra vengono per prime', () => {
+    const w = readyWarnings([{ kind: 'trade_offer' }], { unsaved: true });
+    expect(w).toHaveLength(2);
+    expect(w[0]).toMatch(/non salvate/);
+    expect(readyWarnings([], { unsaved: true })).toHaveLength(1);
   });
 });

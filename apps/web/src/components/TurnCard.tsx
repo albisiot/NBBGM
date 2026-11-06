@@ -12,6 +12,7 @@ import {
   MAX_ROUND_ATTEMPTS,
   readiness,
   readinessNote,
+  readyWarnings,
   reopenRound,
   roundTitle,
   roundError,
@@ -25,7 +26,9 @@ import {
   type Readiness,
   type RoundTrouble,
 } from '../lib/turns.ts';
+import { useUnsaved } from '../lib/unsaved.ts';
 import { useAsync } from '../lib/useAsync.ts';
+import { ReadyConfirm } from './ReadyConfirm.tsx';
 import { Button, Card, ErrorText } from './ui.tsx';
 
 const BADGE: Record<Readiness, { label: string; className: string }> = {
@@ -85,6 +88,8 @@ export function TurnCard({
   const [busy, setBusy] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
   const [confirmForce, setConfirmForce] = useState(false);
+  const [askReady, setAskReady] = useState(false);
+  const unsaved = useUnsaved(league.id);
   const [now, setNow] = useState(() => Date.now());
 
   // Tempo reale: a ogni Pronto, allenatore, avviso o cambio di turno si rilegge
@@ -123,6 +128,10 @@ export function TurnCard({
   const champion = status.championId ? league.teams.find((t) => t.id === status.championId) : null;
   const code = (id: string) => league.teams.find((t) => t.id === id)?.code ?? '?';
   const stuck = roundStuck(round, status.trouble, now);
+  const warnings = readyWarnings(
+    status.alerts.filter((a) => a.blocking),
+    { unsaved: unsaved !== null, coach: myState === 'coach' || myState === 'blocked' },
+  );
   const failed = stuck && status.trouble?.failedAt != null;
 
   async function run(action: () => Promise<unknown>) {
@@ -291,10 +300,36 @@ export function TurnCard({
               className="w-full sm:w-auto"
               variant={myState === 'ready' ? 'secondary' : 'primary'}
               disabled={busy}
-              onClick={() => void run(() => setReady(mine.id, myState !== 'ready', round.id))}
+              onClick={() => {
+                // Prima di segnarsi pronti: che cosa succede alle decisioni aperte se il turno si chiude
+                if (myState !== 'ready' && warnings.length > 0) setAskReady(true);
+                else void run(() => setReady(mine.id, myState !== 'ready', round.id));
+              }}
             >
               {myState === 'ready' ? 'Non sono più pronto' : 'Sono pronto'}
             </Button>
+            {askReady && myState !== 'ready' && warnings.length > 0 && (
+              <ReadyConfirm
+                warnings={warnings}
+                leagueId={league.id}
+                alertsLink={false}
+                unsaved={unsaved !== null}
+                busy={busy}
+                onReady={() => {
+                  setAskReady(false);
+                  void run(() => setReady(mine.id, true, round.id));
+                }}
+                onSaveAndReady={() => {
+                  setAskReady(false);
+                  void run(async () => {
+                    if (unsaved && !(await unsaved.save()))
+                      throw new Error('Salvataggio della squadra non riuscito.');
+                    await setReady(mine.id, true, round.id);
+                  });
+                }}
+                onCancel={() => setAskReady(false)}
+              />
+            )}
           </div>
         )}
 

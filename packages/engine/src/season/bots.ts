@@ -2,19 +2,26 @@ import { autoSetup } from '../game/setup.ts';
 import { overall } from '../overall.ts';
 import type { Rng } from '../rng.ts';
 import type { Contract, Role } from '../types.ts';
-import { luxuryTax, minimumSalaryFor, type SeasonConfig } from './config.ts';
+import { luxuryTax, minimumSalaryFor, nextConfig, type SeasonConfig } from './config.ts';
 import { contractOf, isRepeater, marketValue, payroll, roster, standardRoster } from './finance.ts';
+import { REGULAR_SEASON_TURNS } from './schedule.ts';
 import type { DraftPick, DraftSwap, LeagueState, PlayerState, Strategy } from './state.ts';
 import { executeTrade, payrollChange, tradeWindowOpen, validateTrade, type Trade } from './trades.ts';
+import { gamesAfterOffseason } from './turn.ts';
 
-/** Forza di una squadra: overall medio della rotazione automatica, pesato sui minuti. */
-export function teamStrength(state: LeagueState, teamId: string): number {
-  const players = roster(state, teamId).filter((p) => p.injury === null);
-  if (players.length < 5) return 40;
-  const setup = autoSetup(teamId, players);
+/** Forza di una rosa: overall medio della rotazione automatica dei sani, pesato sui minuti. */
+function rotationStrength(teamId: string, players: readonly PlayerState[]): number {
+  const healthy = players.filter((p) => p.injury === null);
+  if (healthy.length < 5) return 40;
+  const setup = autoSetup(teamId, healthy);
   let sum = 0;
   for (const p of setup.players) sum += overall(p) * (setup.minutes[p.id] ?? 0);
   return sum / 240;
+}
+
+/** Forza di una squadra: overall medio della rotazione automatica, pesato sui minuti. */
+export function teamStrength(state: LeagueState, teamId: string): number {
+  return rotationStrength(teamId, roster(state, teamId));
 }
 
 /** Classifica per forza, dalla più forte. */
@@ -37,13 +44,34 @@ export function updateStrategies(state: LeagueState): void {
   }
 }
 
-/** Valore di un giocatore per una squadra con una certa strategia (con il potenziale stimato, non quello vero). */
-export function playerValue(
-  p: PlayerState,
-  contract: Contract | undefined,
-  strategy: Strategy,
-  c: SeasonConfig,
-): number {
+/** Momento della stagione (fase e turno della lega): serve a contare le partite che salta un infortunato. */
+export type SeasonMoment = Pick<LeagueState, 'phase' | 'turn'>;
+const SEASON_START: SeasonMoment = { phase: 'regular', turn: 0 };
+
+/** Stagioni che il talento di un giocatore riassume, come il contratto nel valore (al massimo 3 anni). */
+export const VALUE_YEARS = 3;
+
+/**
+ * Stagioni saltate da un infortunato, in frazione: le partite che salta tra quelle che restano di questa regular
+ * season (diviso quelle che restano), più la parte della prossima se lo stop va oltre l'offseason, dove si
+ * guarisce (gamesAfterOffseason). In offseason la guarigione c'è già stata e conta la stagione che arriva. Dopo
+ * la regular season (play-in e playoff) di questa stagione non resta nulla. Va da 0 a 2.
+ */
+export function injurySeasons(gamesRemaining: number, when: SeasonMoment): number {
+  if (gamesRemaining <= 0) return 0;
+  if (when.phase === 'offseason') return Math.min(1, gamesRemaining / REGULAR_SEASON_TURNS);
+  const left = when.phase === 'regular' ? Math.max(0, REGULAR_SEASON_TURNS - when.turn) : 0;
+  const now = Math.min(gamesRemaining, left);
+  const next = Math.min(REGULAR_SEASON_TURNS, gamesAfterOffseason(gamesRemaining - now));
+  return (left > 0 ? now / left : 0) + next / REGULAR_SEASON_TURNS;
+}
+
+/**
+ * Parte del valore di un giocatore che viene dal suo livello, senza il contratto (con il potenziale stimato, non
+ * quello vero). Un infortunio toglie solo le stagioni che salta, ognuna per un anno di valore (1/VALUE_YEARS):
+ * una stella ferma per il resto della stagione perde un terzo del suo valore, non quasi tutto.
+ */
+export function playerTalent(p: PlayerState, strategy: Strategy, when: SeasonMoment = SEASON_START): number {
   const ovr = overall(p);
   const room = Math.max(0, p.scoutedPotential - ovr);
   const young = p.age <= 25;
@@ -52,9 +80,22 @@ export function playerValue(
   if (strategy === 'contend') level = ovr + (young ? room * 0.15 : 0) - Math.max(0, p.age - 32) * 1.5;
   else if (strategy === 'rebuild') level = ovr + (young ? room * 0.7 : 0) - Math.max(0, p.age - 27) * 1.5;
   else level = ovr + (young ? room * 0.4 : 0) - Math.max(0, p.age - 30);
-  // Un infortunato salta una parte della stagione: con 60 partite da saltare vale circa un terzo
-  const injured = p.injury ? Math.min(0.7, p.injury.gamesRemaining / 82) : 0;
-  const talent = (Math.max(0, level - 50) ** 2 / 10) * (1 - injured);
+  const missed = p.injury ? injurySeasons(p.injury.gamesRemaining, when) : 0;
+  return (Math.max(0, level - 50) ** 2 / 10) * (1 - missed / VALUE_YEARS);
+}
+
+/**
+ * Valore di un giocatore per una squadra con una certa strategia: talento (playerTalent) più quanto il contratto
+ * costa meno (o più) del suo valore di mercato. when è il momento della stagione, per gli infortunati.
+ */
+export function playerValue(
+  p: PlayerState,
+  contract: Contract | undefined,
+  strategy: Strategy,
+  c: SeasonConfig,
+  when: SeasonMoment = SEASON_START,
+): number {
+  const talent = playerTalent(p, strategy, when);
   const salary = contract?.salaries[0] ?? 0;
   const years = contract?.salaries.length ?? 0;
   // Un contratto sopra il valore del giocatore pesa: il valore può scendere sotto zero
@@ -65,7 +106,61 @@ export function playerValue(
   return talent + surplus;
 }
 
-/** Posizione attesa della scelta di una squadra, dalla sua forza attuale (la più debole sceglie per prima). */
+/** Scarto di forza (overall di squadra) che vale circa due vittorie su tre: +5 vince il 67% (calibrazione). */
+const WIN_SCALE = 6.8;
+
+/**
+ * Classifica attesa a fine regular season, dalla migliore: serve al valore delle scelte al draft. Vittorie già
+ * fatte più quelle attese nelle partite che restano, dalla forza della squadra rispetto alla media. Nella forza
+ * contano anche gli infortunati che saltano meno di metà delle partite che restano: un infortunio breve dei
+ * migliori non sposta il valore delle scelte, uno lungo sì. In offseason conta solo la forza (la stagione che
+ * arriva); dopo la regular season solo le vittorie (a parità, la forza).
+ */
+export function draftRanking(state: LeagueState): string[] {
+  const offseason = state.phase === 'offseason';
+  const left =
+    state.phase === 'regular'
+      ? Math.max(0, REGULAR_SEASON_TURNS - state.turn)
+      : offseason
+        ? REGULAR_SEASON_TURNS
+        : 0;
+  const strength = new Map(
+    state.teams.map((t) => [
+      t.id,
+      rotationStrength(
+        t.id,
+        roster(state, t.id).map((p) =>
+          p.injury && p.injury.gamesRemaining * 2 < Math.max(1, left) ? { ...p, injury: null } : p,
+        ),
+      ),
+    ]),
+  );
+  const average = [...strength.values()].reduce((a, b) => a + b, 0) / Math.max(1, strength.size);
+  const wins = new Map(state.teams.map((t) => [t.id, 0]));
+  if (!offseason)
+    for (const g of state.games) {
+      if (g.phase !== 'regular') continue;
+      const winner = g.homeScore > g.awayScore ? g.homeId : g.awayId;
+      wins.set(winner, (wins.get(winner) ?? 0) + 1);
+    }
+  const projected = new Map(
+    state.teams.map((t) => {
+      const s = strength.get(t.id) as number;
+      const p = 1 / (1 + Math.exp(-(s - average) / WIN_SCALE));
+      return [t.id, (wins.get(t.id) as number) + left * p];
+    }),
+  );
+  return state.teams
+    .map((t) => t.id)
+    .sort(
+      (a, b) =>
+        (projected.get(b) as number) - (projected.get(a) as number) ||
+        (strength.get(b) as number) - (strength.get(a) as number) ||
+        (a < b ? -1 : a > b ? 1 : 0),
+    );
+}
+
+/** Posizione attesa della scelta di una squadra, dalla classifica attesa (la più debole sceglie per prima). */
 export function expectedPickPosition(ranking: readonly string[], teamId: string): number {
   const i = ranking.indexOf(teamId);
   return i < 0 ? 15 : ranking.length - i;
@@ -122,19 +217,38 @@ export function swapValue(
 }
 
 /**
+ * Stagione su cui conta la tassa di uno scambio. Nel turno del draft dell'offseason i contratti non sono ancora
+ * scalati: la tassa della stagione finita è già pagata e conta quella che arriva, con i suoi stipendi (il secondo
+ * anno dei contratti) e le sue soglie. Altrimenti la stagione corrente.
+ */
+export function taxSeason(state: LeagueState): { config: SeasonConfig; season: 0 | 1 } {
+  const o = state.offseason;
+  if (state.phase === 'offseason' && o && state.config.year < o.draftYear)
+    return { config: nextConfig(state.config), season: 1 };
+  return { config: state.config, season: 0 };
+}
+
+/**
  * Costo della luxury tax in più (o risparmio, se negativo) per la squadra se lo scambio si fa, nella stessa
  * scala dei valori: come per i contratti, mezzo punto per milione.
  */
 function taxCost(state: LeagueState, t: Trade, teamId: string): number {
   const team = state.teams.find((x) => x.id === teamId);
   if (!team) return 0;
-  const before = payroll(state, teamId);
+  const { config, season } = taxSeason(state);
+  const before = payroll(state, teamId, season);
   const repeater = isRepeater(team.taxHistory);
   const extra =
-    luxuryTax(state.config, before + payrollChange(state, t, teamId), repeater) -
-    luxuryTax(state.config, before, repeater);
+    luxuryTax(config, before + payrollChange(state, t, teamId, season), repeater) -
+    luxuryTax(config, before, repeater);
   return (extra / 1e6) * 0.5;
 }
+
+/**
+ * Per chi è in corsa il risparmio sulla tassa conta al massimo per questa quota del talento che cede: una squadra
+ * che punta al titolo non regala un titolare per risparmiare (il costo della tassa in più, invece, conta intero).
+ */
+export const CONTEND_TAX_SAVING_SHARE = 0.25;
 
 /**
  * Valore di uno scambio per una squadra: ciò che riceve (giocatori, scelte con le protezioni messe nello scambio,
@@ -144,14 +258,14 @@ export function tradeBalance(
   state: LeagueState,
   t: Trade,
   teamId: string,
-  ranking: readonly string[] = strengthRanking(state),
+  ranking: readonly string[] = draftRanking(state),
 ): { get: number; give: number } {
   const team = state.teams.find((x) => x.id === teamId);
   const strategy = team?.strategy ?? 'middle';
   const val = (players: string[], picks: string[]) =>
     players.reduce((a, id) => {
       const p = state.players.find((x) => x.id === id) as PlayerState;
-      return a + playerValue(p, contractOf(state, id), strategy, state.config);
+      return a + playerValue(p, contractOf(state, id), strategy, state.config, state);
     }, 0) +
     picks.reduce((a, id) => {
       const pick = state.picks.find((x) => x.id === id) as DraftPick;
@@ -163,8 +277,16 @@ export function tradeBalance(
       .reduce((a, s) => a + swapValue(state, s, strategy, ranking), 0);
   const mine = teamId === t.teamA;
   const tax = taxCost(state, t, teamId);
+  let saving = Math.max(0, -tax);
+  if (strategy === 'contend') {
+    const talentOut = (mine ? t.playersA : t.playersB).reduce((a, id) => {
+      const p = state.players.find((x) => x.id === id) as PlayerState;
+      return a + playerTalent(p, strategy, state);
+    }, 0);
+    saving = Math.min(saving, CONTEND_TAX_SAVING_SHARE * talentOut);
+  }
   return {
-    get: (mine ? val(t.playersB, t.picksB) : val(t.playersA, t.picksA)) + swaps(true) + Math.max(0, -tax),
+    get: (mine ? val(t.playersB, t.picksB) : val(t.playersA, t.picksA)) + swaps(true) + saving,
     give: (mine ? val(t.playersA, t.picksA) : val(t.playersB, t.picksB)) + swaps(false) + Math.max(0, tax),
   };
 }
@@ -220,8 +342,8 @@ function buildVeteranTrade(
   if (!vets.length) return null;
   const target = rng.pick(vets.slice(0, 3));
   const targetC = contractOf(state, target.id);
-  const vSeller = playerValue(target, targetC, sS, state.config);
-  const vBuyer = playerValue(target, targetC, sB, state.config);
+  const vSeller = playerValue(target, targetC, sS, state.config, state);
+  const vBuyer = playerValue(target, targetC, sB, state.config, state);
   const keep = new Set(
     [...roster(state, buyerId)]
       .sort((a, b) => overall(b) - overall(a))
@@ -235,8 +357,8 @@ function buildVeteranTrade(
       .map((p) => ({
         kind: 'player' as const,
         id: p.id,
-        forSeller: playerValue(p, contractOf(state, p.id), sS, state.config),
-        forBuyer: playerValue(p, contractOf(state, p.id), sB, state.config),
+        forSeller: playerValue(p, contractOf(state, p.id), sS, state.config, state),
+        forBuyer: playerValue(p, contractOf(state, p.id), sB, state.config, state),
       })),
     ...state.picks
       .filter((p) => p.ownerId === buyerId)
@@ -285,9 +407,10 @@ function buildVeteranTrade(
 export function botBotTrade(state: LeagueState, rng: Rng, turn: number | null): Trade | null {
   if (!tradeWindowOpen(state)) return null;
   const bots = state.teams.filter((t) => !t.human);
-  const ranking = strengthRanking(state);
+  // Classifica attesa per il valore delle scelte; per le due squadre più forti conta la forza di adesso
+  const ranking = draftRanking(state);
   // Le due squadre più forti non comprano: così i bot non costruiscono dinastie a forza di scambi
-  const top = new Set(ranking.slice(0, 2));
+  const top = new Set(strengthRanking(state).slice(0, 2));
   const sellers = bots.filter((t) => t.strategy === 'rebuild');
   const buyers = bots.filter((t) => t.strategy === 'contend' && !top.has(t.id));
   if (!sellers.length || !buyers.length) return null;
@@ -312,7 +435,7 @@ export function botProposeTrade(state: LeagueState, botId: string, humanId: stri
   if (!tradeWindowOpen(state)) return null;
   const bot = state.teams.find((t) => t.id === botId);
   if (!bot || bot.human || bot.strategy === 'middle') return null;
-  const ranking = strengthRanking(state);
+  const ranking = draftRanking(state);
   if (bot.strategy === 'contend')
     return buildVeteranTrade(state, rng, ranking, humanId, botId, { seller: 0.95, buyer: BOT_TRADE_MARGIN });
   return buildVeteranTrade(state, rng, ranking, botId, humanId, { seller: BOT_TRADE_MARGIN, buyer: 0.9 });
@@ -332,7 +455,7 @@ export function botSalaryDump(state: LeagueState, rng: Rng, turn: number | null)
   const sellers = state.teams.filter((t) => !t.human && t.balance < 0 && pay(t.id) > c.luxuryTax);
   if (!sellers.length) return null;
   const seller = rng.pick(sellers);
-  const ranking = strengthRanking(state);
+  const ranking = draftRanking(state);
   const keep = new Set(
     [...roster(state, seller.id)]
       .sort((a, b) => overall(b) - overall(a))
@@ -350,7 +473,7 @@ export function botSalaryDump(state: LeagueState, rng: Rng, turn: number | null)
       (t) => !t.human && t.id !== seller.id && t.balance >= 0 && pay(t.id) + salary <= c.salaryCap,
     );
     for (const buyer of rng.shuffle(buyers).slice(0, 4)) {
-      const value = playerValue(target, contract, buyer.strategy, c);
+      const value = playerValue(target, contract, buyer.strategy, c, state);
       // Incentivo: le seconde scelte, poi le prime più lontane del venditore
       const sweeteners = state.picks
         .filter((p) => p.ownerId === seller.id)

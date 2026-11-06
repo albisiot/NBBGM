@@ -25,12 +25,15 @@ export function twoWayRoster(state: LeagueState, teamId: string): PlayerState[] 
   return roster(state, teamId).filter((p) => contractOf(state, p.id)?.type === 'two-way');
 }
 
-/** Monte stipendi della stagione corrente: contratti standard più residui dei tagliati. I two-way sono fuori. */
-export function payroll(state: LeagueState, teamId: string): number {
+/**
+ * Monte stipendi della stagione corrente: contratti standard più residui dei tagliati. I two-way sono fuori. Con
+ * season 1, quello della stagione dopo (il secondo anno dei contratti).
+ */
+export function payroll(state: LeagueState, teamId: string, season = 0): number {
   let total = 0;
   for (const c of state.contracts)
-    if (c.teamId === teamId && c.type !== 'two-way') total += c.salaries[0] ?? 0;
-  for (const d of state.deadMoney) if (d.teamId === teamId) total += d.salaries[0] ?? 0;
+    if (c.teamId === teamId && c.type !== 'two-way') total += c.salaries[season] ?? 0;
+  for (const d of state.deadMoney) if (d.teamId === teamId) total += d.salaries[season] ?? 0;
   return total;
 }
 

@@ -4,6 +4,14 @@ import type { LeagueState, PlayerState } from './state.ts';
 /** Energia recuperata tra un turno e l'altro (a Resistenza 50), da calibrare con pnpm sim:seasons. */
 export const ENERGY_RECOVERY = 12;
 
+/**
+ * Guarigione durante l'offseason: chi deve stare fuori fino a 30 partite guarisce del tutto, chi ne ha di più
+ * ne sconta 20. Restituisce le partite che salterà nella stagione che arriva.
+ */
+export function gamesAfterOffseason(gamesRemaining: number): number {
+  return gamesRemaining > 30 ? gamesRemaining - 20 : 0;
+}
+
 /** Applica a giocatori e statistiche il risultato di una partita. */
 export function applyGameToPlayers(state: LeagueState, result: GameResult, regular: boolean): void {
   const byId = new Map(state.players.map((p) => [p.id, p]));

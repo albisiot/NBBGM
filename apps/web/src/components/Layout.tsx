@@ -5,6 +5,7 @@ import { useAuth, useUserId } from '../lib/auth.tsx';
 import { refreshAppBadge } from '../lib/appBadge.ts';
 import { myLeagues } from '../lib/leagues.ts';
 import { lazyPart } from '../lib/lazyPage.ts';
+import { watchPushSubscription } from '../lib/pushWatch.ts';
 import { onResume } from '../lib/resume.ts';
 import { useAsync } from '../lib/useAsync.ts';
 import { Spinner } from './ui.tsx';
@@ -29,6 +30,8 @@ export function Layout() {
     refreshAppBadge();
     return onResume(refreshAppBadge);
   }, [userId]);
+  // Notifiche: l'iscrizione del dispositivo si riallinea con il server all'avvio e quando il browser la cambia
+  useEffect(() => watchPushSubscription(userId), [userId]);
 
   return (
     <div className="min-h-dvh bg-slate-50 text-slate-900 dark:bg-slate-900 dark:text-slate-100">

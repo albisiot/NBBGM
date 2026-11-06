@@ -220,8 +220,8 @@ describe('notifiche sul database', () => {
   }, 120_000);
 
   it('ognuno salva e vede solo le sue iscrizioni; senza login niente', async () => {
-    await subscribe(ANNA, 'https://push.example.test/anna-telefono', annaPhone);
-    await subscribe(ANNA, 'https://push.example.test/anna-computer', await browser());
+    await subscribe(ANNA, 'https://web.push.apple.com/anna-telefono', annaPhone);
+    await subscribe(ANNA, 'https://fcm.googleapis.com/fcm/send/anna-computer', await browser());
     const mine = (user: string) =>
       asUser(
         db,
@@ -251,17 +251,19 @@ describe('notifiche sul database', () => {
       ),
     ).rejects.toThrow(/non valida/);
     // Lo stesso telefono, usato poi da Bruno, passa a lui
-    await subscribe(BRUNO, 'https://push.example.test/anna-computer', await browser());
+    await subscribe(BRUNO, 'https://fcm.googleapis.com/fcm/send/anna-computer', await browser());
     expect(await mine(ANNA)).toBe(1);
     expect(await mine(BRUNO)).toBe(1);
     await asUser(db, BRUNO, (tx) =>
-      tx.query('select public.delete_push_subscription($1)', ['https://push.example.test/anna-computer']),
+      tx.query('select public.delete_push_subscription($1)', [
+        'https://fcm.googleapis.com/fcm/send/anna-computer',
+      ]),
     );
     expect(await mine(BRUNO)).toBe(0);
   });
 
   it('turno nuovo: solo a chi è iscritto e non ha l’allenatore; poi la coda si svuota', async () => {
-    await subscribe(CARLA, 'https://push.example.test/carla', await browser());
+    await subscribe(CARLA, 'https://updates.push.services.mozilla.com/wpush/v2/carla', await browser());
     await asUser(db, CARLA, (tx) =>
       tx.query(`insert into public.coach_delegations (team_id, league_id, active) values ($1, $2, true)`, [
         NYK,
@@ -359,7 +361,7 @@ describe('notifiche sul database', () => {
   });
 
   it('la Edge Function manda, unisce e cancella le iscrizioni scadute', async () => {
-    await subscribe(ANNA, 'https://push.example.test/anna-vecchio', await browser());
+    await subscribe(ANNA, 'https://wns2-par02p.notify.windows.com/w/anna-vecchio', await browser());
     await asService(db, (tx) =>
       tx.query(
         `insert into public.alerts (league_id, team_id, kind, blocking) values ($1, $2, 'renewals', true)`,
@@ -392,7 +394,7 @@ describe('notifiche sul database', () => {
           ANNA,
         ])
       ).map((s) => s.endpoint),
-    ).toEqual(['https://push.example.test/anna-telefono']);
+    ).toEqual(['https://web.push.apple.com/anna-telefono']);
   });
 
   it('senza chiavi VAPID la coda si svuota senza mandare nulla', async () => {

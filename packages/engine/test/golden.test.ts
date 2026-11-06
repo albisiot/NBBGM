@@ -136,7 +136,7 @@ const EXPECTED = {
   setups: '1017a8c97b0b23ef',
   bots: 'ab419486cefd7b04',
   turns: 'fbffb2916d0918c7',
-  season: 'c5f7de0d864a1126',
+  season: '2fc6d165cd35bc6f',
 };
 
 describe('golden: il motore gioca sempre le stesse partite', () => {

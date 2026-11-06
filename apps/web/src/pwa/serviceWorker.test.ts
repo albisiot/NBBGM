@@ -7,8 +7,10 @@ import {
   notificationFromPush,
   notificationTarget,
   serviceWorkerSource,
+  vapidKeyBytes,
   type ResponseInfo,
 } from './serviceWorker.ts';
+import { PUSH_CHANGED_MESSAGE } from './messages.ts';
 
 const SCOPE = 'https://albisiot.github.io/NBBGM/';
 const INDEX = readFileSync(new URL('../../index.html', import.meta.url), 'utf8');
@@ -250,5 +252,68 @@ describe('notifiche push nel service worker', () => {
     const closed = pushWorker([]);
     await closed.fire('notificationclick', { notification: { close, data: { url: `${SCOPE}#/lega/L` } } });
     expect(closed.opened).toEqual([`${SCOPE}#/lega/L`]);
+  });
+});
+
+describe('iscrizione cambiata dal browser (seconda analisi)', () => {
+  const KEY = 'BA2a17odZj0g1meTbtftLsThN6pO9gj6i-U5M_ymKKFjjf9BO51FKHKofGKLng8goUEVr2q31hWk0T7CrK8jDgk';
+
+  /** sw.js con un pushManager finto e finestre aperte che ricevono messaggi. */
+  function changeWorker(vapidKey: string) {
+    const handlers: Record<string, (event: unknown) => void> = {};
+    const subscribed: { userVisibleOnly: boolean; applicationServerKey: Uint8Array }[] = [];
+    const messages: unknown[] = [];
+    runInNewContext(serviceWorkerSource('prova', ['./'], vapidKey), {
+      self: {
+        addEventListener: (type: string, h: (event: unknown) => void) => (handlers[type] = h),
+        location: new URL(SCOPE),
+        registration: {
+          scope: SCOPE,
+          pushManager: {
+            subscribe: async (o: { userVisibleOnly: boolean; applicationServerKey: Uint8Array }) => {
+              subscribed.push(o);
+              return { endpoint: 'https://web.push.apple.com/nuova' };
+            },
+          },
+        },
+        clients: { matchAll: async () => [{ postMessage: (m: unknown) => void messages.push(m) }] },
+      },
+      URL,
+      Uint8Array,
+    });
+    const fire = async (event: Record<string, unknown>) => {
+      const waits: Promise<unknown>[] = [];
+      handlers.pushsubscriptionchange!({ ...event, waitUntil: (p: Promise<unknown>) => waits.push(p) });
+      await Promise.all(waits);
+    };
+    return { fire, subscribed, messages };
+  }
+
+  it('la chiave VAPID della build entra in sw.js', () => {
+    const bytes = vapidKeyBytes(KEY);
+    expect(bytes).toHaveLength(65);
+    expect(bytes[0]).toBe(4);
+    expect(vapidKeyBytes('')).toEqual([]);
+    expect(serviceWorkerSource('v', [], KEY)).toContain(JSON.stringify(bytes));
+  });
+
+  it('rifà l’iscrizione con la chiave dell’app e avvisa le finestre aperte', async () => {
+    const w = changeWorker(KEY);
+    await w.fire({ oldSubscription: { options: { applicationServerKey: new Uint8Array([9]).buffer } } });
+    expect(w.subscribed).toHaveLength(1);
+    expect(w.subscribed[0]!.userVisibleOnly).toBe(true);
+    expect([...w.subscribed[0]!.applicationServerKey]).toEqual(vapidKeyBytes(KEY));
+    expect(w.messages).toEqual([{ type: PUSH_CHANGED_MESSAGE }]);
+  });
+
+  it('se il browser ha già l’iscrizione nuova non ne fa un’altra; senza chiave usa quella vecchia', async () => {
+    const given = changeWorker(KEY);
+    await given.fire({ newSubscription: { endpoint: 'https://web.push.apple.com/data' } });
+    expect(given.subscribed).toEqual([]);
+    expect(given.messages).toHaveLength(1);
+    const old = new Uint8Array([4, 1, 2]);
+    const keyless = changeWorker('');
+    await keyless.fire({ oldSubscription: { options: { applicationServerKey: old } } });
+    expect(keyless.subscribed[0]!.applicationServerKey).toBe(old);
   });
 });
