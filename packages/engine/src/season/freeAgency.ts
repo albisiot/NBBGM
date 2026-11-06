@@ -1,6 +1,6 @@
 import { overall } from '../overall.ts';
 import type { Rng } from '../rng.ts';
-import { minimumSalaryFor, type SeasonConfig } from './config.ts';
+import { maxSalaryFor, minimumSalaryFor, type SeasonConfig } from './config.ts';
 import { teamStrength, playerValue } from './bots.ts';
 import { autoDraftPick } from './initialDraft.ts';
 import {
@@ -27,7 +27,7 @@ export const FREE_AGENCY_ROUNDS = 4;
 
 /**
  * Richiesta minima di uno svincolato: il suo valore di mercato, un po' più alta con il morale basso,
- * che scende di turno in turno senza andare sotto il minimo.
+ * che scende di turno in turno senza andare sotto il minimo né sopra il massimo per la sua anzianità.
  */
 export function askingSalary(state: LeagueState, p: PlayerState, round: number): number {
   return askingSalaryFor(state.config, p, round);
@@ -41,7 +41,7 @@ export function askingSalaryFor(
 ): number {
   const minimum = minimumSalaryFor(c, p.yearsInLeague);
   const ask = marketValue(c, p) * (1 + (50 - p.morale) / 400) * (1 - 0.12 * round);
-  return Math.max(minimum, Math.round(ask / 10_000) * 10_000);
+  return Math.min(maxSalaryFor(c, p.yearsInLeague), Math.max(minimum, Math.round(ask / 10_000) * 10_000));
 }
 
 /** Scarto massimo tra un'offerta e la richiesta perché valga come la richiesta esatta. */

@@ -103,6 +103,24 @@ describe('simulateGame', () => {
     expect(checked).toBeGreaterThan(20);
   });
 
+  it('dopo un rimbalzo offensivo di squadra non c’è tap-in: si rimette in gioco', () => {
+    // Il tap-in arriva entro 1-2 secondi dal rimbalzo; una rimessa porta via almeno 2 secondi
+    let checked = 0;
+    for (const g of games) {
+      const ev = g.playByPlay;
+      ev.forEach((reb, i) => {
+        if (reb.text !== 'Rimbalzo offensivo di squadra') return;
+        const shot = ev
+          .slice(i + 1)
+          .find((e) => e.team === reb.team && /segna|sbaglia|ai liberi|Palla persa/.test(e.text));
+        if (!shot || shot.period !== reb.period) return;
+        expect(shot.elapsed - reb.elapsed, shot.text).toBeGreaterThanOrEqual(2);
+        checked++;
+      });
+    }
+    expect(checked).toBeGreaterThan(30);
+  });
+
   it('un infortunato non è mai in campo', () => {
     // Prima della partita: chi è infortunato non gioca
     const players = roster('BOS');

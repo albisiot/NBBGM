@@ -61,6 +61,11 @@ const TARGETS: Target[] = [
   { label: 'Vittorie in casa', value: (s) => s.homeWin!, lo: 0.55, hi: 0.58, fmt: pct },
   { label: 'Vittorie con overall +5 (campo neutro)', value: (s) => s.plus5!, lo: 0.65, hi: 0.7, fmt: pct },
   { label: 'Infortuni medi o gravi per squadra a stagione', value: (s) => s.injSerious!, lo: 2, hi: 4 },
+  // Finali: nella NBA circa il 6% delle partite va ai supplementari e circa una su sei si decide di 3 punti o meno.
+  // Su molte partite il motore sta intorno al 4,5-5% di supplementari: spingere di più le rimonte renderebbe troppo
+  // fragili i vantaggi nel finale (chi è avanti di 5 a 5 minuti dalla fine vince circa tre volte su quattro)
+  { label: 'Partite ai supplementari', value: (s) => s.otShare!, lo: 0.04, hi: 0.07, fmt: pct },
+  { label: 'Partite decise di 3 punti o meno', value: (s) => s.close3!, lo: 0.14, hi: 0.2, fmt: pct },
 ];
 
 /**
@@ -106,9 +111,11 @@ export function summarize(games: { result: GameResult; ratings: [number, number]
   let injuriesSerious = 0;
   let injuriesAll = 0;
   let ot = 0;
+  let close3 = 0;
   for (const { result, ratings } of games) {
     if (result.home.score > result.away.score) homeWins++;
     if (result.overtimes) ot++;
+    if (Math.abs(result.home.score - result.away.score) <= 3) close3++;
     const diff = ratings[0] - ratings[1];
     if (Math.abs(diff) >= 4 && Math.abs(diff) <= 6) {
       close++;
@@ -172,6 +179,7 @@ export function summarize(games: { result: GameResult; ratings: [number, number]
     injSerious: (injuriesSerious / teamGames) * 82,
     injAll: (injuriesAll / teamGames) * 82,
     otShare: ot / games.length,
+    close3: close3 / games.length,
     ...Object.fromEntries(Object.entries(s).filter(([k]) => k.startsWith('share_') || k.startsWith('pct_'))),
   };
 }
@@ -259,7 +267,7 @@ function main() {
     `\nPartite con differenza di overall tra 4 e 6: ${s.plus5Games}, vinte dalla più forte: ${pct(s.plus5Raw!)}`,
   );
   console.log(
-    `Infortuni (tutti) per squadra a stagione: ${num(s.injAll!)}; falli per squadra: ${num(s.pf!)}; supplementari: ${pct(s.otShare!)}`,
+    `Infortuni (tutti) per squadra a stagione: ${num(s.injAll!)}; falli per squadra: ${num(s.pf!)}`,
   );
   console.log(`Overall di squadra: da ${num(Math.min(...ratings))} a ${num(Math.max(...ratings))}`);
   const zl = { rim: 'al ferro', short: 'da vicino', mid: 'dalla media', three: 'da tre' } as const;

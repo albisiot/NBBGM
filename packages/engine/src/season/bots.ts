@@ -396,9 +396,16 @@ export function botDraftChoice(
 ): PlayerState {
   const roles = new Map<Role, number>();
   for (const p of roster(state, teamId)) roles.set(p.role, (roles.get(p.role) ?? 0) + 1);
-  const score = (p: PlayerState) =>
-    0.6 * p.scoutedPotential + 0.4 * overall(p) + ((roles.get(p.role) ?? 0) < 2 ? 2 : 0) + rng.normal(0, 1.5);
-  return prospects.reduce((best, p) => (score(p) > score(best) ? p : best));
+  // Un punteggio per prospetto, con la sua parte casuale estratta una volta sola
+  const scored = prospects.map((p) => ({
+    p,
+    score:
+      0.6 * p.scoutedPotential +
+      0.4 * overall(p) +
+      ((roles.get(p.role) ?? 0) < 2 ? 2 : 0) +
+      rng.normal(0, 1.5),
+  }));
+  return scored.reduce((best, x) => (x.score > best.score ? x : best)).p;
 }
 
 /** Il bot rinnova un suo giocatore in scadenza se gli serve e il prezzo è giusto. */

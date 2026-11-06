@@ -4,13 +4,14 @@ import { ARCHETYPE_PROFILES } from '../src/archetype-profiles.ts';
 import { generateLeague } from '../src/generator.ts';
 import { overall } from '../src/overall.ts';
 import { Rng } from '../src/rng.ts';
-import { CONFIG_2026_27, nextConfig } from '../src/season/config.ts';
+import { CONFIG_2026_27, maxSalaryFor, nextConfig } from '../src/season/config.ts';
 import { contractOf, payroll, standardRoster } from '../src/season/finance.ts';
-import { snapToAsk } from '../src/season/freeAgency.ts';
+import { askingSalaryFor, snapToAsk } from '../src/season/freeAgency.ts';
 import {
   botProposals,
   inSeasonAsk,
   MIN_RENEWAL_MORALE,
+  renewalMax,
   renewalOffer,
   runMarket,
   type MarketRequests,
@@ -157,6 +158,88 @@ describe('scambi', () => {
     s.turn = TRADE_DEADLINE_TURN + 1;
     expect(validateTrade(s, pickTrade([firsts[2]!.id])).join(' ')).toMatch(/deadline/);
   });
+
+  it('regola Stepien: chi è già in difetto senza colpa può scambiare se non peggiora', () => {
+    const s = league();
+    const firsts = s.picks
+      .filter((k) => k.originalTeamId === 'BOS' && k.round === 1)
+      .sort((a, b) => a.draftYear - b.draftYear);
+    // Come dopo il rinvio di una scelta protetta: le prime due prime scelte di BOS sono di LAL
+    for (const k of firsts.slice(0, 2)) k.ownerId = 'LAL';
+    const p = worst(s, 'BOS')[0]!;
+    const q = worst(s, 'LAL')[0]!;
+    const players: Trade = {
+      teamA: 'BOS',
+      teamB: 'LAL',
+      playersA: [p.id],
+      playersB: [q.id],
+      picksA: [],
+      picksB: [],
+    };
+    expect(validateTrade(s, players)).toEqual([]);
+    // Cedere un'altra prima scelta che apre un buco nuovo resta vietato
+    const more: Trade = { ...players, playersA: [], playersB: [], picksA: [firsts[3]!.id, firsts[4]!.id] };
+    expect(validateTrade(s, more).join(' ')).toMatch(/Stepien/);
+  });
+
+  it('regola Stepien: la propria scelta protetta tornata a casa è di nuovo libera', () => {
+    const s = league();
+    const firsts = s.picks
+      .filter((k) => k.originalTeamId === 'BOS' && k.round === 1)
+      .sort((a, b) => a.draftYear - b.draftYear);
+    const [k0, k1] = firsts as [(typeof firsts)[0], (typeof firsts)[0]];
+    const give = (ids: string[], protections?: Record<string, number>): Trade => ({
+      teamA: 'BOS',
+      teamB: 'LAL',
+      playersA: [],
+      playersB: [],
+      picksA: ids,
+      picksB: [],
+      protections,
+    });
+    // BOS cede la prima scelta protetta top 10, poi la riprende indietro
+    runMarket(
+      s,
+      {
+        ...empty(),
+        trades: [
+          {
+            id: 'a',
+            trade: give([k0.id], { [k0.id]: 10 }),
+            fromId: 'BOS',
+            status: 'accepted',
+            toBot: false,
+            order: 1,
+          },
+        ],
+      },
+      5,
+    );
+    const back: Trade = {
+      teamA: 'LAL',
+      teamB: 'BOS',
+      playersA: [],
+      playersB: [],
+      picksA: [k0.id],
+      picksB: [],
+    };
+    expect(validateTrade(s, back)).toEqual([]);
+    runMarket(
+      s,
+      {
+        ...empty(),
+        trades: [{ id: 'b', trade: back, fromId: 'LAL', status: 'accepted', toBot: false, order: 1 }],
+      },
+      6,
+    );
+    expect(s.picks.find((k) => k.id === k0.id)).toMatchObject({
+      ownerId: 'BOS',
+      protection: null,
+      deferrals: 0,
+    });
+    // Con la sua scelta di nuovo libera BOS può cedere quella dell'anno dopo
+    expect(validateTrade(s, give([k1.id]))).toEqual([]);
+  });
 });
 
 describe('tagli, rinnovi e svincolati', () => {
@@ -239,6 +322,42 @@ describe('tagli, rinnovi e svincolati', () => {
     expect(snapToAsk(1_450_000, 1_452_806)).toBe(1_452_806);
     expect(snapToAsk(1_460_000, 1_452_806)).toBe(1_460_000);
     expect(snapToAsk(1_440_000, 1_452_806)).toBe(1_440_000);
+  });
+});
+
+describe('stipendio massimo', () => {
+  it('richieste e rinnovi non superano il massimo per anzianità, nemmeno con il morale basso', () => {
+    const s = league();
+    const star = standardRoster(s, 'LAL').find((p) => contractOf(s, p.id)?.salaries.length === 1)!;
+    // Un fuoriclasse: valore di mercato al massimo, che con il morale basso chiederebbe di più
+    for (const k of Object.keys(star.ratings)) (star.ratings as Record<string, number>)[k] = 97;
+    star.yearsInLeague = 4;
+    star.morale = 0;
+    const max = maxSalaryFor(s.config, star.yearsInLeague);
+    expect(askingSalaryFor(s.config, star, 0)).toBe(max);
+    expect(inSeasonAsk(s, star)).toBeLessThanOrEqual(max);
+
+    star.morale = MIN_RENEWAL_MORALE;
+    const offer = renewalOffer(s, star)!;
+    expect(offer.salaries[0]).toBe(renewalMax(s.config, star));
+    // Un rinnovo chiesto sopra il massimo (per esempio salvato prima della correzione) alla chiusura non vale
+    const out = runMarket(
+      s,
+      {
+        ...empty(),
+        renewals: [
+          {
+            id: 'troppo',
+            teamId: 'LAL',
+            playerId: star.id,
+            salaries: [renewalMax(s.config, star) + 1_000_000],
+          },
+        ],
+      },
+      5,
+    );
+    expect(out.requests).toEqual([{ id: 'troppo', status: 'invalid' }]);
+    expect(contractOf(s, star.id)?.salaries).toHaveLength(1);
   });
 });
 

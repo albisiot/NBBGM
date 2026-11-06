@@ -27,16 +27,23 @@ export const DEFAULT_PARAMS = {
     dunk: 0.86,
     layup: 0.585,
     close: 0.575,
-    floater: 0.46,
-    hook: 0.5,
-    fade: 0.46,
+    floater: 0.48,
+    hook: 0.52,
+    fade: 0.48,
     midCatch: 0.4,
     midPull: 0.375,
     threeCatch: 0.337,
     threePull: 0.305,
   },
   skillK: 0.24,
-  homeAdvantage: 0.015,
+  homeAdvantage: 0.021,
+  // Rimonta: chi è avanti si rilassa un po' e chi è sotto spinge. Per ogni punto di vantaggio (fino al tetto)
+  // la probabilità di canestro di chi è avanti scende di tanto, e quella di chi è sotto sale di tanto
+  comebackPerPoint: 0.0022,
+  comebackCap: 20,
+  // Negli ultimi 5 minuti di una partita aperta (scarto da 1 a 8) chi è sotto spinge e chi è avanti si protegge:
+  // la probabilità di canestro si sposta di tanto, in più
+  comebackClose: 0.025,
   clutchMax: 0.03,
   // Forma del giorno: dispersione base più una parte che cresce con la scarsa costanza
   formBase: 0.028,
@@ -65,8 +72,10 @@ export const DEFAULT_PARAMS = {
   // Quota di rimbalzi non assegnati a un giocatore (palla fuori, rimbalzi di squadra)
   teamReboundShare: 0.1,
   // Peso del tiro dalla media e quota di floater sulle penetrazioni
-  midWeight: 0.65,
-  floaterShare: 0.4,
+  midWeight: 0.45,
+  floaterShare: 0.7,
+  // Peso del gioco in post nella scelta della giocata
+  postWeight: 1.5,
 
   // Assist per tipo di giocata
   assist: {
@@ -99,6 +108,23 @@ export const DEFAULT_PARAMS = {
   // Falli personali: limite e soglie per sedersi in panchina per periodo (1-4, supplementari)
   foulOut: 6,
   foulTrouble: [2, 3, 4, 5, 6],
+
+  // Finale di partita (quarto periodo e supplementari)
+  endgame: {
+    // Da quanti secondi alla fine valgono le scelte del finale
+    lateSeconds: 120,
+    // Falli sistematici di chi è sotto e non ha la palla: fino a 9 punti, quando restano meno di questi
+    // secondi per ogni possesso che serve per recuperare (1-3 punti: 24 secondi, 4-6: 48, 7-9: 72)
+    foulMaxLead: 9,
+    foulSecondsPerPossession: 24,
+    // In parità o sotto di un possesso, con meno di questi secondi si gioca per l'ultimo tiro
+    lastShotSeconds: 24,
+    // Probabilità di canestro persa: possesso che parte con 3-5 secondi alla fine del periodo, con 1-2 secondi
+    // (quasi una preghiera), ultimo tiro preparato con la difesa che lo aspetta
+    hurryPenalty: 0.08,
+    heavePenalty: 0.25,
+    lastShotPenalty: 0.03,
+  },
 };
 
 export type EngineParams = typeof DEFAULT_PARAMS;

@@ -11,6 +11,7 @@ import {
   inSeasonAsk,
   maxSalaryFor,
   minimumSalaryFor,
+  renewalMax,
   renewalOffer,
   salaryRun,
   snapToAsk,
@@ -170,12 +171,16 @@ export function checkMarketAction(
         if (!isExpiring(state, p.id)) throw new MarketError('Il giocatore non è in scadenza');
         const ask = expiringAsk(state, p);
         if (!ask) throw new MarketError('Non vuole rinnovare: il morale è troppo basso');
+        if ((ask[0] ?? 0) > maxSalaryFor(state.config, p.yearsInLeague))
+          throw new MarketError('La richiesta supera lo stipendio massimo');
         return write({ kind: 'renew', player_id: p.id, salaries: ask });
       }
       if (!marketOpen) throw new MarketError('Si rinnova in regular season o nel turno dei rinnovi');
       if (c.salaries.length !== 1) throw new MarketError('Si rinnova solo all’ultimo anno di contratto');
       const offer = renewalOffer(state, p);
       if (!offer) throw new MarketError('Non vuole rinnovare: il morale è troppo basso');
+      if ((offer.salaries[0] ?? 0) > renewalMax(state.config, p))
+        throw new MarketError('La richiesta supera lo stipendio massimo');
       return write({ kind: 'renew', player_id: p.id, salaries: offer.salaries });
     }
 

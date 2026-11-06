@@ -141,11 +141,26 @@ function eligible(state: LeagueState, teamId: string, regular: boolean): PlayerS
   });
 }
 
+/** Giocatori minimi per giocare una partita. */
+export const MIN_PLAYERS = 5;
+
+/**
+ * Chi va a referto: chi può giocare (sani, i two-way solo in regular season fino a 50 partite). Se sono meno di 5,
+ * si arriva a 5 con chi è fuori solo per le regole dei two-way, poi con gli infortunati che rientrano prima
+ * (giocano da sani): una partita non si gioca in meno di 5, ma con 5, 6 o 7 sani sì, anche se si stancano.
+ */
+export function gamePlayers(state: LeagueState, teamId: string, regular: boolean): Player[] {
+  const players: Player[] = eligible(state, teamId, regular);
+  if (players.length >= MIN_PLAYERS) return players;
+  const extra = roster(state, teamId)
+    .filter((p) => !players.includes(p))
+    .sort((a, b) => (a.injury?.gamesRemaining ?? 0) - (b.injury?.gamesRemaining ?? 0));
+  return [...players, ...extra.slice(0, MIN_PLAYERS - players.length).map((p) => ({ ...p, injury: null }))];
+}
+
 function setupFor(state: LeagueState, teamId: string, regular: boolean): TeamSetup {
   const team = state.teams.find((t) => t.id === teamId);
-  let players: Player[] = eligible(state, teamId, regular);
-  // Con troppi infortunati gioca anche chi non è al meglio
-  if (players.length < 8) players = roster(state, teamId).map((p) => ({ ...p, injury: null }));
+  const players = gamePlayers(state, teamId, regular);
   // L'allenatore delegato fa quintetto e minuti come il pulsante Auto, con le tattiche scelte dal manager
   if (team?.human && team.coach) return autoSetup(teamId, players, team.tactics);
   // Le squadre umane giocano con le impostazioni salvate; il bot corregge solo gli slot che non valgono più

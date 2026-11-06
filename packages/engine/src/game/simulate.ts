@@ -9,6 +9,8 @@ type SideKey = 'home' | 'away';
 type Zone = 'rim' | 'short' | 'mid' | 'three';
 type ShotKind = keyof EngineParams['base'];
 type Play = 'three' | 'mid' | 'drive' | 'post' | 'iso' | 'pnr' | 'cut';
+/** Tiro cercato nel finale: la tripla per recuperare (tie3: per pareggiare sull'ultimo tiro), il 2 per pareggiare. */
+type ShotGoal = 'tie3' | 'three' | 'two' | null;
 
 interface SimPlayer {
   p: Player;
@@ -112,6 +114,18 @@ function emptyLine(p: Player, starter: boolean): PlayerLine {
 }
 
 /**
+ * Momento da cui far ripartire una partita (per i test dei finali): periodo, secondi alla fine del periodo,
+ * punteggio e chi ha la palla. Il risultato conta solo quello che succede da lì in poi.
+ */
+export interface GameSituation {
+  period: number;
+  clock: number;
+  home: number;
+  away: number;
+  ball: SideKey;
+}
+
+/**
  * Simula una partita possesso per possesso. Funzione pura: stesso input e stesso seed danno la stessa partita.
  * Non modifica i giocatori: l'energia finale e gli infortuni sono nel risultato.
  */
@@ -120,8 +134,9 @@ export function simulateGame(
   away: TeamSetup,
   seed: string,
   params: EngineParams = DEFAULT_PARAMS,
+  from?: GameSituation,
 ): GameResult {
-  return new GameSim(home, away, seed, params).run();
+  return new GameSim(home, away, seed, params).run(from);
 }
 
 class GameSim {
@@ -187,17 +202,26 @@ class GameSim {
   }
 
   // ------------------------------------------------------------ partita
-  run(): GameResult {
-    const tipHome = this.jumpBall();
-    let first = tipHome ? this.home : this.away;
-    for (this.period = 1; ; this.period++) {
-      const length = this.period <= 4 ? 720 : 300;
-      this.clock = length;
+  run(from?: GameSituation): GameResult {
+    const periodLength = (period: number) => (period <= 4 ? 720 : 300);
+    let first: Side;
+    if (from) {
+      first = from.ball === 'home' ? this.home : this.away;
+      this.home.score = from.home;
+      this.away.score = from.away;
+      for (let k = 1; k < from.period; k++) this.elapsed += periodLength(k);
+      this.elapsed += periodLength(from.period) - from.clock;
+    } else first = this.jumpBall() ? this.home : this.away;
+    for (this.period = from?.period ?? 1; ; this.period++) {
+      const resume = from !== undefined && this.period === from.period;
+      const length = periodLength(this.period);
+      this.clock = resume ? from.clock : length;
       this.home.teamFouls = this.away.teamFouls = 0;
       this.home.foulsLast2 = this.away.foulsLast2 = 0;
       const startScore = [this.home.score, this.away.score];
-      if (this.period >= 5) first = this.jumpBall() ? this.home : this.away;
-      let off = this.period === 1 || this.period === 4 || this.period >= 5 ? first : this.other(first);
+      if (this.period >= 5 && !resume) first = this.jumpBall() ? this.home : this.away;
+      let off =
+        resume || this.period === 1 || this.period === 4 || this.period >= 5 ? first : this.other(first);
       this.event(
         null,
         [],
@@ -400,13 +424,23 @@ class GameSim {
   private possession(off: Side, def: Side, transition: boolean): { side: Side; transition: boolean } {
     const P = this.P;
     off.possessions++;
-    const late = this.period >= 4 && this.clock <= 120;
+    const E = P.endgame;
+    // Ultimi 2 minuti del quarto periodo e dei supplementari
+    const late = this.period >= 4 && this.clock <= E.lateSeconds;
+    // Vantaggio di chi attacca (negativo se è sotto)
+    const lead = off.score - def.score;
 
-    // Falli sistematici di chi è sotto nel finale
-    const deficit = off.score - def.score;
-    if (this.period >= 4 && this.clock <= 50 && deficit >= 3 && deficit <= 9) {
+    // Falli sistematici: chi è sotto e non ha la palla fa fallo quando chi è avanti potrebbe far scorrere il
+    // tempo, cioè quando restano meno di 24 secondi per ogni possesso che gli serve per recuperare
+    if (
+      this.period >= 4 &&
+      lead >= 1 &&
+      lead <= E.foulMaxLead &&
+      this.clock <= E.foulSecondsPerPossession * Math.ceil(lead / 3)
+    ) {
       while (this.clock > 0) {
-        this.advance(this.rng.int(2, 4));
+        // Qualche secondo per arrivare al fallo, lasciandone almeno uno sul cronometro
+        this.advance(Math.min(this.rng.int(2, 4), Math.max(0, this.clock - 1)));
         const target = off.court[
           this.rng.weightedIndex(off.court.map((sp) => (100 - this.r(sp, 'freeThrow')) ** 2))
         ] as SimPlayer;
@@ -425,17 +459,38 @@ class GameSim {
     let shotClock = 24;
     for (let attempt = 0; ; attempt++) {
       // Durata del possesso
+      const startClock = this.clock;
       let dur: number;
+      let lastShot = false;
       if (transition) dur = Math.round(clamp(this.rng.normal(P.transitionSeconds, 2), 2, 10));
       else if (attempt > 0) dur = Math.round(clamp(this.rng.normal(P.offensiveReboundSeconds, 3), 2, 14));
-      else if (late && deficit > 0) dur = Math.round(clamp(this.rng.normal(21, 2), 12, 24));
-      else if (late && deficit < 0) dur = Math.round(clamp(this.rng.normal(8, 3), 3, 16));
+      // Chi è avanti gestisce il cronometro
+      else if (late && lead > 0) dur = Math.round(clamp(this.rng.normal(21, 2), 12, 24));
+      // Ultimo tiro: in parità si tira allo scadere, sotto di un possesso si lascia qualche secondo per il
+      // rimbalzo o per un fallo
+      else if (late && lead <= 0 && lead >= -3 && this.clock <= E.lastShotSeconds) {
+        dur = Math.max(1, this.clock - (lead === 0 ? this.rng.int(1, 3) : this.rng.int(2, 5)));
+        lastShot = true;
+      }
+      // In parità si gioca con calma, per non lasciare troppo tempo agli avversari
+      else if (late && lead === 0) dur = Math.round(clamp(this.rng.normal(19, 3), 10, shotClock));
+      // Chi è sotto accelera
+      else if (late && lead < 0) dur = Math.round(clamp(this.rng.normal(8, 3), 3, 16));
       else {
         const pace = (t: Side) => P.possessionSeconds[t.setup.tactics.pace];
         const mean = 0.65 * pace(off) + 0.35 * pace(def);
         dur = Math.round(clamp(this.rng.normal(mean, P.possessionSd), 4, shotClock));
       }
-      const rushed = this.clock <= dur && this.clock <= 4;
+      // Poco tempo: un possesso che parte con pochi secondi alla fine del periodo finisce con un tiro affrettato,
+      // con 1-2 secondi è quasi una preghiera; l'ultimo tiro preparato trova la difesa pronta
+      const hurry =
+        startClock <= 2
+          ? E.heavePenalty
+          : startClock <= 5
+            ? E.hurryPenalty
+            : lastShot
+              ? E.lastShotPenalty
+              : 0;
       this.advance(Math.max(1, dur));
       shotClock = 14;
 
@@ -481,13 +536,18 @@ class GameSim {
       }
 
       // Tiro
-      const plan = this.planShot(
-        off,
-        def,
-        transition,
-        late && deficit < 0 && deficit <= -3 && this.clock <= 40,
-      );
-      const outcome = this.shoot(off, def, plan, transition, rushed);
+      // Nel finale chi è sotto di 3 o più cerca la tripla, e sotto di 3 sull'ultimo tiro quasi solo quella; sotto
+      // di 2 sull'ultimo tiro si va per il pareggio da 2
+      const goal: ShotGoal =
+        late && lead === -3 && startClock <= E.lastShotSeconds
+          ? 'tie3'
+          : late && lead <= -3 && startClock <= 40
+            ? 'three'
+            : late && lead === -2 && startClock <= E.lastShotSeconds
+              ? 'two'
+              : null;
+      const plan = this.planShot(off, def, transition, goal);
+      const outcome = this.shoot(off, def, plan, transition, hurry);
       // Fallo sul tiro con rimbalzo offensivo sull'ultimo libero: stesso possesso, con 14 secondi
       if (outcome === 'kept') {
         transition = false;
@@ -504,6 +564,8 @@ class GameSim {
         };
       if (this.clock <= 0) return { side: def, transition: false };
       transition = false;
+      // Rimbalzo di squadra (palla fuori): si rimette in gioco, niente tap-in
+      if (offensive === 'team') continue;
       // Tap-in immediato del rimbalzista
       const rebounder = offensive;
       if (
@@ -522,7 +584,7 @@ class GameSim {
           open: false,
           helper: null,
         };
-        const res = this.shoot(off, def, put, false, false);
+        const res = this.shoot(off, def, put, false, 0);
         if (res === 'kept') continue;
         if (res !== 'miss') return { side: def, transition: false };
         const again = this.rebound(off, def, 1);
@@ -563,7 +625,7 @@ class GameSim {
   }
 
   // ------------------------------------------------------------ scelta del tiro
-  private planShot(off: Side, def: Side, transition: boolean, needThree: boolean): ShotPlan {
+  private planShot(off: Side, def: Side, transition: boolean, goal: ShotGoal): ShotPlan {
     const shooter = off.court[this.rng.weightedIndex(off.court.map((sp) => this.usage(sp)))] as SimPlayer;
     if (transition) {
       const three = this.rng.chance(0.27 * (0.5 + shooter.p.tendencies.three / 100));
@@ -598,14 +660,18 @@ class GameSim {
         this.P.threeWeight *
         (focus === 'perimeter' ? 1.3 : focus === 'inside' ? 0.75 : 1) *
         (zone ? 1.2 : 1) *
-        (needThree ? 2.5 : 1),
+        (goal === 'tie3' ? 12 : goal === 'three' ? 2.5 : goal === 'two' ? 0.3 : 1),
       mid:
         t.midRange *
         this.P.midWeight *
         (focus === 'perimeter' ? 1.05 : focus === 'inside' ? 0.9 : 1) *
         (zone ? 1.1 : 1),
       drive: t.drive * (focus === 'perimeter' ? 0.9 : focus === 'inside' ? 1.15 : 1) * (zone ? 0.85 : 1),
-      post: t.post * 0.8 * (focus === 'perimeter' ? 0.65 : focus === 'inside' ? 1.45 : 1) * (zone ? 0.85 : 1),
+      post:
+        t.post *
+        this.P.postWeight *
+        (focus === 'perimeter' ? 0.65 : focus === 'inside' ? 1.45 : 1) *
+        (zone ? 0.85 : 1),
       iso: t.isolation * 0.5,
       pnr: t.pickAndRoll * 0.6,
       cut: t.cut * 0.5 * (focus === 'inside' ? 1.15 : focus === 'perimeter' ? 0.9 : 1) * (zone ? 0.9 : 1),
@@ -844,7 +910,8 @@ class GameSim {
     def: Side,
     plan: ShotPlan,
     transition: boolean,
-    rushed: boolean,
+    /** Quanto si perde sulla probabilità di canestro per il poco tempo. */
+    hurry: number,
   ): 'made' | 'miss' | 'fouled' | 'kept' {
     const P = this.P;
     const { shooter, kind, zone } = plan;
@@ -861,8 +928,12 @@ class GameSim {
     const A = this.shotSkill(shooter, kind, putback);
     let p = P.base[kind] + (P.skillK * (A - D)) / 100 + this.clutch(shooter, off);
     if (off === this.home) p += P.homeAdvantage;
+    const margin = this.margin(off);
+    p -= P.comebackPerPoint * clamp(margin, -P.comebackCap, P.comebackCap);
+    if (this.period >= 4 && this.clock <= 300 && margin !== 0 && Math.abs(margin) <= 8)
+      p -= P.comebackClose * Math.sign(margin);
     if (transition) p += P.transitionBonus;
-    if (rushed) p -= 0.08;
+    p -= hurry;
     p = clamp(p, 0.05, 0.95);
     const three = zone === 'three';
     const points = three ? 3 : 2;
@@ -1005,7 +1076,8 @@ class GameSim {
     return { side: def, transition: false };
   }
 
-  private rebound(off: Side, def: Side, factor: number): SimPlayer | null {
+  /** Chi prende il rimbalzo offensivo ('team' se è di squadra, palla fuori), o null se è della difesa. */
+  private rebound(off: Side, def: Side, factor: number): SimPlayer | 'team' | null {
     const P = this.P;
     // Valori rapportati alla media della lega: i rimbalzi offensivi hanno valori più bassi di quelli difensivi
     const norm = (key: RatingKey) =>
@@ -1020,7 +1092,7 @@ class GameSim {
     if (this.rng.chance(pOrb)) {
       if (teamRebound) {
         this.event(off, [], 'Rimbalzo offensivo di squadra');
-        return off.court[0] as SimPlayer;
+        return 'team';
       }
       const sp = off.court[
         this.rng.weightedIndex(off.court.map((c) => strength(c, 'offensiveRebound') ** P.reboundPickExponent))

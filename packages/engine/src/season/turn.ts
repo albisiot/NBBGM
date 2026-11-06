@@ -51,6 +51,11 @@ export function endTurn(state: LeagueState, played: Map<string, { won: boolean; 
     const rate = ENERGY_RECOVERY * (0.7 + (0.6 * p.ratings.stamina) / 100);
     const game = p.teamId ? played.get(p.teamId) : undefined;
     p.energy = Math.min(100, p.energy + rate * (game ? 1 : 1.5));
+    // Gli svincolati non giocano, ma guariscono un turno alla volta come gli altri
+    if (p.teamId === null && p.injury && played.size > 0) {
+      p.injury.gamesRemaining--;
+      if (p.injury.gamesRemaining <= 0) p.injury = null;
+    }
     if (!game) continue;
     if (p.injury && !justInjured.has(p.id)) {
       p.injury.gamesRemaining--;

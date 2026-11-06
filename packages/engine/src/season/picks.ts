@@ -31,22 +31,35 @@ export function newPick(draftYear: number, round: 1 | 2, teamId: string): DraftP
   };
 }
 
-/** Vero se la squadra possiede almeno una prima scelta libera (non protetta) di quel draft. */
+/**
+ * Vero se la squadra possiede almeno una prima scelta libera di quel draft: non protetta, oppure la propria tornata
+ * a casa (una protezione vale solo finché la scelta è di un'altra squadra).
+ */
 export function ownsFreeFirst(picks: readonly DraftPick[], teamId: string, draftYear: number): boolean {
   return picks.some(
-    (p) => p.draftYear === draftYear && p.round === 1 && p.ownerId === teamId && p.protection === null,
+    (p) =>
+      p.draftYear === draftYear &&
+      p.round === 1 &&
+      p.ownerId === teamId &&
+      (p.protection === null || p.originalTeamId === teamId),
   );
 }
 
 /**
- * Regola Stepien: una squadra non può restare senza prima scelta in due draft futuri consecutivi.
- * Una scelta propria ceduta con protezione conta come ceduta.
+ * Regola Stepien: i draft futuri (y) dopo i quali una squadra resta senza prima scelta anche in quello successivo
+ * (y + 1). Una scelta propria ceduta con protezione conta come ceduta.
  */
-export function violatesStepien(picks: readonly DraftPick[], teamId: string, nextDraftYear: number): boolean {
+export function stepienGaps(picks: readonly DraftPick[], teamId: string, nextDraftYear: number): number[] {
+  const gaps: number[] = [];
   for (let y = nextDraftYear; y < nextDraftYear + PICK_YEARS - 1; y++) {
-    if (!ownsFreeFirst(picks, teamId, y) && !ownsFreeFirst(picks, teamId, y + 1)) return true;
+    if (!ownsFreeFirst(picks, teamId, y) && !ownsFreeFirst(picks, teamId, y + 1)) gaps.push(y);
   }
-  return false;
+  return gaps;
+}
+
+/** Regola Stepien: una squadra non può restare senza prima scelta in due draft futuri consecutivi. */
+export function violatesStepien(picks: readonly DraftPick[], teamId: string, nextDraftYear: number): boolean {
+  return stepienGaps(picks, teamId, nextDraftYear).length > 0;
 }
 
 export interface DraftSlot {

@@ -1,12 +1,14 @@
 import {
   MAX_STANDARD,
+  MAX_TWO_WAY,
   MIN_STANDARD,
   OFFSEASON_MAX_ROSTER,
   contractOf,
   roster,
   standardRoster,
+  twoWayRoster,
 } from './finance.ts';
-import { violatesStepien } from './picks.ts';
+import { stepienGaps } from './picks.ts';
 import type { DraftPick, DraftSwap, LeagueState } from './state.ts';
 
 /** Trade deadline: dopo questo turno (circa 2/3 di regular season) gli scambi sono bloccati fino alla fine dei playoff. */
@@ -102,6 +104,9 @@ export function validateTrade(state: LeagueState, t: Trade): string[] {
       out.filter((id) => !isTwoWay(id)).length +
       inn.filter((id) => !isTwoWay(id)).length;
     const total = roster(state, team).length - out.length + inn.length;
+    const twoWays =
+      twoWayRoster(state, team).length - out.filter(isTwoWay).length + inn.filter(isTwoWay).length;
+    if (twoWays > MAX_TWO_WAY) problems.push(`${team}: oltre ${MAX_TWO_WAY} two-way`);
     if (state.phase === 'offseason') {
       if (total > OFFSEASON_MAX_ROSTER)
         problems.push(`${team}: rosa oltre ${OFFSEASON_MAX_ROSTER} giocatori`);
@@ -116,14 +121,16 @@ export function validateTrade(state: LeagueState, t: Trade): string[] {
       problems.push(`${team}: con saldo negativo non può aumentare il monte stipendi`);
     }
   }
-  // Regola Stepien dopo lo scambio
+  // Regola Stepien: lo scambio non deve creare un buco nuovo. Una squadra che è già senza prima scelta in due draft
+  // consecutivi (per esempio dopo il rinvio di una scelta protetta) può scambiare, se non peggiora la situazione
   const after = state.picks.map((p) => {
-    if (t.picksA.includes(p.id)) return { ...p, ownerId: t.teamB };
-    if (t.picksB.includes(p.id)) return { ...p, ownerId: t.teamA };
-    return p;
+    const owner = t.picksA.includes(p.id) ? t.teamB : t.picksB.includes(p.id) ? t.teamA : p.ownerId;
+    const protection = t.protections?.[p.id] ?? p.protection;
+    return owner === p.ownerId && protection === p.protection ? p : { ...p, ownerId: owner, protection };
   });
   for (const team of [t.teamA, t.teamB]) {
-    if (violatesStepien(after, team, nextDraft))
+    const before = new Set(stepienGaps(state.picks, team, nextDraft));
+    if (stepienGaps(after, team, nextDraft).some((y) => !before.has(y)))
       problems.push(`${team}: resterebbe senza prima scelta in due draft consecutivi (regola Stepien)`);
   }
   return problems;
@@ -146,6 +153,11 @@ export function executeTrade(state: LeagueState, t: Trade, turn: number | null):
     else if (t.picksB.includes(p.id)) p.ownerId = t.teamA;
     const protection = t.protections?.[p.id];
     if (protection) p.protection = protection;
+    // Una scelta protetta che torna alla squadra d'origine è di nuovo libera
+    if (p.ownerId === p.originalTeamId && p.protection !== null) {
+      p.protection = null;
+      p.deferrals = 0;
+    }
   }
   for (const s of t.swaps ?? [])
     state.swaps.push({ ...s, id: `${s.draftYear}-${s.round}-${s.holderId}-${s.otherId}` });

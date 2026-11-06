@@ -13,7 +13,7 @@ Riassunto del documento di design (versione 2.4, 4 novembre 2026). È la fonte d
 
 ## Stato del lavoro
 
-- Fasi 1-13 completate: l'app è pubblicata e installata dal telefono, e in produzione una lega ha giocato i suoi turni (con il Pronto e con l'allenatore). Dopo la Fase 13 sono stati corretti sette bug trovati analizzando l'app e rinforzati server e app: turni bloccati, spazio del database, strumenti del commissario, service worker, pubblicazione dopo i controlli (vedi "Scelte prese dopo la Fase 13"). Si lavora su `main`; `fasi-1-3` è il ramo storico delle fasi. La logica di stagione sta in `packages/engine/src/season/`; database e sicurezza in `supabase/migrations/` (vedi `supabase/README.md`).
+- Fasi 1-13 completate: l'app è pubblicata e installata dal telefono, e in produzione una lega ha giocato i suoi turni (con il Pronto e con l'allenatore). Dopo la Fase 13 sono stati corretti sette bug trovati analizzando l'app e rinforzati server e app: turni bloccati, spazio del database, strumenti del commissario, service worker, pubblicazione dopo i controlli; poi sistemati motore e regole di gioco: finali, rimonte, tiri da vicino, regola Stepien, stipendi massimi, rose corte (vedi "Scelte prese dopo la Fase 13"). Si lavora su `main`; `fasi-1-3` è il ramo storico delle fasi. La logica di stagione sta in `packages/engine/src/season/`; database e sicurezza in `supabase/migrations/` (vedi `supabase/README.md`).
 - App: `pnpm dev` (o `pnpm dev:lan` per provarla dal telefono sulla stessa Wi-Fi). Legge URL e chiave publishable da `apps/web/.env.local` (modello in `.env.example`).
 - Pubblicata su **GitHub Pages**: `https://albisiot.github.io/NBBGM/` (repository pubblico `albisiot/NBBGM`, ramo `main`). Workflow in `.github/workflows/`: `ci.yml` (controlli), e dopo i controlli riusciti su `main` `pages.yml` (app, con le variabili `SUPABASE_URL` e `SUPABASE_PUBLISHABLE_KEY`) e `supabase.yml` (migrazioni e funzioni, con il segreto `SUPABASE_ACCESS_TOKEN`). Icone della PWA con `pnpm icons`.
 - Edge Functions `create-league`, `draft`, `advance-turn` e `market` in `supabase/functions/`; il codice comune a Edge Function e script sta in `supabase/functions/_shared/`: `league.ts` (dati di partenza <-> motore, righe per `insert_league`), `draft.ts` (draft iniziale), `state.ts` (stato della lega dal database al motore, con `league_state`) `turn.ts` (un turno: dal motore alle sezioni di `apply_turn`) e `market.ts` (controllo delle azioni di mercato). Si pubblicano con `npx.cmd --yes supabase@3.0.0 functions deploy create-league draft advance-turn market --use-api`.
@@ -186,6 +186,29 @@ Robustezza e piano Free di Supabase.
 - **Aggiornamenti e errori nell'app:** l'app cerca aggiornamenti al ritorno in primo piano e ogni ora, e mostra "Nuova versione" con Ricarica. Un errore nel disegno di una pagina mostra un messaggio con Ricarica (`ErrorBoundary`), non più lo schermo bianco.
 - **Pubblicazione dopo i controlli:** `pages.yml` e `supabase.yml` partono con `workflow_run` solo dopo i Controlli riusciti su un push a `main`, sullo stesso commit. Supabase pubblica a ogni push: migrazioni già applicate e funzioni uguali non cambiano nulla.
 - **create-league:** dalla Fase 7 aveva una variabile dichiarata due volte, che impedisce alla funzione di partire. Ora un test controlla che ogni Edge Function, tolti i tipi, sia JavaScript valido (`scripts/test/functions.test.ts`).
+
+Motore e regole di gioco.
+
+- **Finale di partita** (`endgame` in `params.ts`; ultimi 2 minuti del quarto periodo e dei supplementari):
+  - chi è sotto e non ha la palla fa fallo quando restano meno di 24 secondi per ogni possesso che gli serve: sotto di 1-3 punti a 24 secondi, di 4-6 a 48, di 7-9 a 72;
+  - chi è avanti fa scorrere il cronometro;
+  - in parità, o sotto di un possesso, sotto i 24 secondi si gioca per l'ultimo tiro; in parità prima si gioca con calma;
+  - sotto di 3 sull'ultimo tiro si cerca quasi sempre la tripla, sotto di 2 il canestro del pareggio;
+  - un possesso che parte con 3-5 secondi alla fine di un periodo perde 8 punti di percentuale, con 1-2 secondi 25 (quasi una preghiera); l'ultimo tiro preparato ne perde 3.
+- **Rimonte:** chi è avanti si rilassa un po' e chi è sotto spinge.
+  - La probabilità di canestro si sposta di 0,22 punti percentuali per ogni punto di scarto, fino a 20 punti (`comebackPerPoint`).
+  - Negli ultimi 5 minuti, con scarto da 1 a 8, si sposta di altri 2,5 punti (`comebackClose`).
+  - Senza, lo scarto finale aveva una deviazione standard di quasi 20 punti (nella NBA circa 14-15), il 2% di partite ai supplementari e il 12% decise di 3 punti o meno. Ora: circa 14,5 punti, 4,5-5% e 16,5%.
+  - Chi è avanti di 5 a 5 minuti dalla fine vince circa tre volte su quattro. Spingere di più per arrivare al 6% di supplementari della NBA renderebbe troppo fragili i vantaggi.
+- **Calibrazione:** `pnpm sim:calibrate` controlla anche le partite ai supplementari (4-7%) e quelle decise di 3 punti o meno (14-20%). Il fattore campo sale a 2,1 punti percentuali (era 1,5), perché le vittorie in casa restino tra il 55 e il 58%.
+- **Tiri da vicino:** dal 10 al 17% dei tiri (NBA circa 18%), con più floater sulle penetrazioni (`floaterShare` 0,7), più gioco in post (`postWeight` 1,5) e meno tiri dalla media (`midWeight` 0,45); floater, gancio e fadeaway sono un po' più precisi. Zone: al ferro 31% dei tiri con il 66%, da vicino 17% con il 44%, dalla media 10% con il 41%, da tre 43% con il 37%.
+- **Rimbalzo offensivo di squadra** (palla fuori): si rimette in gioco, senza il tap-in di un giocatore preso a caso.
+- **Regola Stepien:** uno scambio è vietato solo se apre un buco nuovo (due draft consecutivi senza prima scelta). Chi è già in difetto senza colpa, per esempio dopo il rinvio di una scelta protetta, può fare scambi che non peggiorano. Una scelta protetta che torna alla squadra d'origine perde protezione e rinvii.
+- **Stipendio massimo:** le richieste degli svincolati e dei rinnovi non superano il massimo per anzianità. Un rinnovo sopra il massimo lo rifiutano la funzione `market` e la chiusura del turno (`renewalMax`).
+- **Rose cortissime** (`gamePlayers`): va a referto solo chi può giocare, anche se sono 5, 6 o 7 (prima, sotto 8, giocavano tutti, infortunati compresi). Solo sotto 5 si completa con chi è fuori per le regole dei two-way, poi con chi ha l'infortunio più breve.
+- **Two-way:** uno scambio non porta una squadra oltre 3 two-way; in offseason un two-way non si firma con la rosa già a 21.
+- **Svincolati infortunati:** guariscono un turno alla volta anche senza squadra.
+- **Draft dei bot:** il rumore nella valutazione di un prospetto si estrae una volta sola (prima si riestraeva a ogni confronto).
 
 ## Visione
 

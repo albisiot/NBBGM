@@ -4,7 +4,7 @@
 import { overall } from '../overall.ts';
 import type { Rng } from '../rng.ts';
 import { botAccepts, botProposeTrade } from './bots.ts';
-import { nextConfig, type SeasonConfig } from './config.ts';
+import { maxSalaryFor, nextConfig, type SeasonConfig } from './config.ts';
 import { canSign, contractOf, releasePlayer, salaryRun, typicalYears } from './finance.ts';
 import { askingSalaryFor, FREE_AGENCY_ROUNDS, resolveOffers, type Offer } from './freeAgency.ts';
 import { standingsSeed } from './season.ts';
@@ -59,6 +59,14 @@ export function renewalSalaries(
   return salaryRun(askingSalaryFor(nextConfig(c), older, 0), typicalYears(older.age));
 }
 
+/**
+ * Stipendio massimo del primo anno di un rinnovo in stagione: quello della stagione successiva, con un anno di
+ * anzianità in più. La richiesta (renewalSalaries) non lo supera mai; si ricontrolla alla chiusura del turno.
+ */
+export function renewalMax(c: SeasonConfig, p: Pick<PlayerState, 'yearsInLeague'>): number {
+  return maxSalaryFor(nextConfig(c), p.yearsInLeague === null ? null : p.yearsInLeague + 1);
+}
+
 /** Rinnovo: il contratto si allunga con gli stipendi concordati, dalla stagione successiva. */
 export function applyRenewal(
   state: LeagueState,
@@ -69,6 +77,7 @@ export function applyRenewal(
   const p = state.players.find((x) => x.id === playerId);
   const c = contractOf(state, playerId);
   if (!p || !c || c.type === 'two-way' || c.salaries.length !== 1 || p.teamId !== c.teamId) return false;
+  if (!salaries.length || (salaries[0] as number) > renewalMax(state.config, p)) return false;
   c.salaries = [c.salaries[0] as number, ...salaries];
   c.options = [c.options[0] ?? null, ...salaries.map(() => null)];
   if (c.type !== 'standard') c.type = 'standard';

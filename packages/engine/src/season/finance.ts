@@ -56,9 +56,11 @@ export function canSign(
 ): SignCheck {
   const c = state.config;
   if (type === 'two-way') {
-    return twoWayRoster(state, teamId).length < MAX_TWO_WAY
-      ? { ok: true }
-      : { ok: false, reason: 'già 3 two-way' };
+    if (twoWayRoster(state, teamId).length >= MAX_TWO_WAY) return { ok: false, reason: 'già 3 two-way' };
+    // In offseason la rosa arriva a 21 giocatori in tutto, two-way compresi
+    if (state.phase === 'offseason' && roster(state, teamId).length >= OFFSEASON_MAX_ROSTER)
+      return { ok: false, reason: 'rosa piena' };
+    return { ok: true };
   }
   const offseason = state.phase === 'offseason';
   const count = standardRoster(state, teamId).length;
