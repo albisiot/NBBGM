@@ -46,18 +46,27 @@ export interface SignCheck {
   reason?: string;
 }
 
+/** La squadra ha tagliato il giocatore in questa stagione (state.releases)? */
+export function releasedBy(state: LeagueState, teamId: string, playerId: string): boolean {
+  return state.releases?.some((r) => r.teamId === teamId && r.playerId === playerId) ?? false;
+}
+
 /**
  * Regole NBA semplificate per firmare uno svincolato: sotto il cap fino a esaurire lo spazio, sopra il cap
- * solo al minimo; con saldo negativo solo al minimo e solo per restare a 13.
+ * solo al minimo. Con saldo negativo si firma solo fino al monte stipendi minimo (la differenza si pagherebbe
+ * comunque a fine regular season), oltre solo al minimo e solo per restare a 13. Chi la squadra ha tagliato in
+ * questa stagione non si rifirma fino alla prossima.
  */
 export function canSign(
   state: LeagueState,
   teamId: string,
-  player: Pick<Player, 'yearsInLeague'>,
+  player: Pick<Player, 'id' | 'yearsInLeague'>,
   salary: number,
   type: Contract['type'] = 'standard',
 ): SignCheck {
   const c = state.config;
+  if (releasedBy(state, teamId, player.id))
+    return { ok: false, reason: 'lo hai tagliato in questa stagione: potrai rifirmarlo dalla prossima' };
   if (type === 'two-way') {
     if (twoWayRoster(state, teamId).length >= MAX_TWO_WAY) return { ok: false, reason: 'già 3 two-way' };
     // In offseason la rosa arriva a 21 giocatori in tutto, two-way compresi
@@ -74,8 +83,16 @@ export function canSign(
   const isMinimum = salary <= minimum;
   if (salary > maxSalaryFor(c, player.yearsInLeague)) return { ok: false, reason: 'sopra il massimo' };
   const team = state.teams.find((t) => t.id === teamId);
-  if (team && team.balance < 0 && !(isMinimum && count < MIN_STANDARD)) {
-    return { ok: false, reason: 'saldo negativo: solo minimi per restare a 13' };
+  if (
+    team &&
+    team.balance < 0 &&
+    !(isMinimum && count < MIN_STANDARD) &&
+    payroll(state, teamId) + salary > c.minimumTeamSalary
+  ) {
+    return {
+      ok: false,
+      reason: 'saldo negativo: solo fino al monte stipendi minimo, oltre solo minimi per restare a 13',
+    };
   }
   if (isMinimum) return { ok: true };
   if (payroll(state, teamId) + salary > c.salaryCap)
@@ -112,20 +129,25 @@ export function settleSeason(state: LeagueState): SeasonSettlement[] {
   });
 }
 
+/** Livello (overall meno un punto per anno oltre i 31) da cui si guadagna più del minimo, e quello del massimo. */
+export const MARKET_FLOOR_LEVEL = 55.5;
+export const MARKET_MAX_LEVEL = 85;
+
 /**
- * Valore di mercato di un giocatore per una stagione: dal minimo per anzianità al massimo, in base a overall,
- * età e potenziale stimato.
+ * Valore di mercato di un giocatore per una stagione: dal minimo al massimo per anzianità, in linea retta tra
+ * livello 55,5 e 85 (overall meno un punto per anno oltre i 31). Curva ricavata dai 316 contratti reali 2026-27
+ * non da rookie: per fascia di overall il valore medio è vicino allo stipendio medio vero (60-64: 11,7 milioni contro
+ * 11,1; 70-74: 28,1 contro 29,4; 80-84: 41,5 contro 38,8) e una rosa vale circa quanto costa davvero (207 milioni
+ * contro 195). Il potenziale non entra: i giovani fuori dal contratto da rookie guadagnano meno, non di più.
  */
 export function marketValue(
   c: SeasonConfig,
-  p: Pick<PlayerState, 'ratings' | 'role' | 'age' | 'yearsInLeague' | 'scoutedPotential'>,
+  p: Pick<PlayerState, 'ratings' | 'role' | 'age' | 'yearsInLeague'>,
 ): number {
-  const ovr = overall(p);
   const minimum = minimumSalaryFor(c, p.yearsInLeague);
   const max = maxSalaryFor(c, p.yearsInLeague);
-  const youth = p.age <= 24 ? Math.max(0, p.scoutedPotential - ovr) * 0.35 : 0;
-  const level = ovr + youth - (p.age >= 31 ? (p.age - 30) * 1.5 : 0);
-  const t = Math.max(0, Math.min(1, (level - 58) / 30)) ** 2.1;
+  const level = overall(p) - Math.max(0, p.age - 31);
+  const t = Math.max(0, Math.min(1, (level - MARKET_FLOOR_LEVEL) / (MARKET_MAX_LEVEL - MARKET_FLOOR_LEVEL)));
   return Math.round((minimum + (max - minimum) * t) / 10_000) * 10_000;
 }
 
@@ -161,6 +183,8 @@ export function releasePlayer(state: LeagueState, playerId: string, turn: number
     type: 'release',
     text: `${c.teamId} taglia ${p.firstName} ${p.lastName}`,
   });
+  // Fino alla fine della stagione la squadra non lo rifirma
+  (state.releases ??= []).push({ playerId, teamId: c.teamId });
   p.teamId = null;
 }
 

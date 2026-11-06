@@ -4,9 +4,9 @@ import { ARCHETYPE_PROFILES } from '../src/archetype-profiles.ts';
 import { generateLeague } from '../src/generator.ts';
 import { overall } from '../src/overall.ts';
 import { Rng } from '../src/rng.ts';
-import { CONFIG_2026_27, maxSalaryFor, nextConfig } from '../src/season/config.ts';
-import { contractOf, payroll, standardRoster } from '../src/season/finance.ts';
-import { askingSalaryFor, snapToAsk } from '../src/season/freeAgency.ts';
+import { CONFIG_2026_27, maxSalaryFor, minimumSalaryFor, nextConfig } from '../src/season/config.ts';
+import { canSign, contractOf, payroll, standardRoster } from '../src/season/finance.ts';
+import { askingSalaryFor, minimumSigningPool, snapToAsk } from '../src/season/freeAgency.ts';
 import {
   botProposals,
   inSeasonAsk,
@@ -16,6 +16,7 @@ import {
   runMarket,
   type MarketRequests,
 } from '../src/season/market.ts';
+import { startNewSeason } from '../src/season/offseason.ts';
 import { createLeagueState } from '../src/season/season.ts';
 import type { LeagueState } from '../src/season/state.ts';
 import { TRADE_DEADLINE_TURN, validateTrade, type Trade } from '../src/season/trades.ts';
@@ -311,6 +312,44 @@ describe('tagli, rinnovi e svincolati', () => {
     expect(target.teamId).toBe('LAL');
     expect(other.teamId).toBeNull();
     expect(out.notes.find((n) => n.teamId === 'BOS' && n.text.includes('chiede almeno'))).toBeDefined();
+  });
+
+  it('chi taglia un giocatore non lo rifirma fino alla stagione dopo; le altre squadre sì', () => {
+    const s = league();
+    // Un posto libero per LAL, e il peggiore di BOS (chiede il minimo) da tagliare
+    const spare = worst(s, 'LAL')[0]!;
+    s.contracts = s.contracts.filter((c) => c.playerId !== spare.id);
+    spare.teamId = null;
+    const cut = worst(s, 'BOS')[0]!;
+    // Taglio e nuova offerta nello stesso turno: l'offerta non vale
+    const out = runMarket(
+      s,
+      {
+        ...empty(),
+        releases: [{ id: 'taglio', teamId: 'BOS', playerId: cut.id }],
+        bids: [{ id: 'subito', teamId: 'BOS', playerId: cut.id, salaries: [inSeasonAsk(s, cut)] }],
+      },
+      5,
+    );
+    expect(out.bids).toEqual([{ id: 'subito', status: 'invalid' }]);
+    expect(out.notes.some((n) => n.teamId === 'BOS' && /tagliato/.test(n.text))).toBe(true);
+    expect(s.releases).toEqual([{ playerId: cut.id, teamId: 'BOS' }]);
+    // Nei turni dopo nemmeno, e il server non lo riprende per riempire la rosa; LAL invece può
+    expect(canSign(s, 'BOS', cut, inSeasonAsk(s, cut)).reason).toMatch(/tagliato/);
+    expect(minimumSigningPool(s, 'BOS').map((p) => p.id)).not.toContain(cut.id);
+    const bid = (id: string, teamId: string, salary: number) =>
+      runMarket(s, { ...empty(), bids: [{ id, teamId, playerId: cut.id, salaries: [salary] }] }, 6).bids;
+    expect(bid('bos', 'BOS', inSeasonAsk(s, cut) * 2)).toEqual([{ id: 'bos', status: 'invalid' }]);
+    expect(bid('lal', 'LAL', inSeasonAsk(s, cut))).toEqual([{ id: 'lal', status: 'won' }]);
+    // Dalla stagione nuova si può di nuovo
+    cut.teamId = null;
+    s.contracts = s.contracts.filter((c) => c.playerId !== cut.id);
+    s.phase = 'offseason';
+    startNewSeason(s);
+    expect(s.releases).toEqual([]);
+    expect(canSign(s, 'BOS', cut, minimumSalaryFor(s.config, cut.yearsInLeague)).reason ?? '').not.toMatch(
+      /tagliato/,
+    );
   });
 
   it('la cifra mostrata (arrotondata ai 10.000 $) vale come la richiesta esatta, anche per i minimi', () => {

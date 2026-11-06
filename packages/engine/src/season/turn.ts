@@ -1,8 +1,25 @@
 import type { GameResult } from '../game/types.ts';
 import type { LeagueState, PlayerState } from './state.ts';
 
-/** Energia recuperata tra un turno e l'altro (a Resistenza 50), da calibrare con pnpm sim:seasons. */
+/** Energia recuperata almeno tra un turno e l'altro (a Resistenza 50), da calibrare con pnpm sim:seasons. */
 export const ENERGY_RECOVERY = 12;
+
+/**
+ * Quota dell'energia che manca recuperata tra un turno e l'altro (a Resistenza 50), quando è più di
+ * ENERGY_RECOVERY: chi è molto stanco recupera di più. Con i soli 12 punti chi giocava sempre 42 minuti crollava
+ * partita dopo partita; così si stabilizza (sotto 75 a inizio gara), e un titolare da 35 minuti resta sopra 85.
+ */
+export const ENERGY_RECOVERY_SHARE = 0.4;
+
+/**
+ * Energia dopo il recupero tra due turni: il più alto tra ENERGY_RECOVERY punti e ENERGY_RECOVERY_SHARE di quella
+ * che manca, entrambi da 0,7 a 1,3 volte con la Resistenza; chi non ha giocato si riposa una volta e mezza tanto.
+ */
+export function recoverEnergy(energy: number, stamina: number, played: boolean): number {
+  const k = (0.7 + (0.6 * stamina) / 100) * (played ? 1 : 1.5);
+  const gain = Math.max(ENERGY_RECOVERY * k, (100 - energy) * Math.min(1, ENERGY_RECOVERY_SHARE * k));
+  return Math.min(100, energy + gain);
+}
 
 /**
  * Guarigione durante l'offseason: chi deve stare fuori fino a 30 partite guarisce del tutto, chi ne ha di più
@@ -56,9 +73,8 @@ export function endTurn(state: LeagueState, played: Map<string, { won: boolean; 
   const justInjured = new Set([...played.values()].flatMap((x) => x.result.injuries.map((i) => i.playerId)));
   for (const p of state.players) {
     // Recupero: chi ha giocato riparte dall'energia di fine partita, chi non ha giocato si riposa di più
-    const rate = ENERGY_RECOVERY * (0.7 + (0.6 * p.ratings.stamina) / 100);
     const game = p.teamId ? played.get(p.teamId) : undefined;
-    p.energy = Math.min(100, p.energy + rate * (game ? 1 : 1.5));
+    p.energy = recoverEnergy(p.energy, p.ratings.stamina, game !== undefined);
     // Gli svincolati non giocano, ma guariscono un turno alla volta come gli altri
     if (p.teamId === null && p.injury && played.size > 0) {
       p.injury.gamesRemaining--;

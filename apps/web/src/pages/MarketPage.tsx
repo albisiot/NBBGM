@@ -262,8 +262,8 @@ function FinanceSummary({ data }: { data: MarketData }) {
       </dl>
       {finance.balance < 0 && (
         <p className="mt-2 text-xs text-red-600 dark:text-red-400">
-          Con il saldo negativo si firmano solo svincolati al minimo per restare a 13 e non si fanno scambi
-          che aumentano il monte stipendi.
+          Con il saldo negativo si firmano svincolati solo fino al monte stipendi minimo (oltre, solo al
+          minimo per restare a 13) e non si fanno scambi che aumentano il monte stipendi.
         </p>
       )}
     </Card>

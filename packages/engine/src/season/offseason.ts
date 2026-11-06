@@ -18,6 +18,7 @@ import {
   contractOf,
   marketValue,
   MAX_STANDARD,
+  releasedBy,
   salaryRun,
   signContract,
   twoWayRoster,
@@ -291,8 +292,8 @@ export function scaleContracts(state: LeagueState): void {
 /**
  * 5. Rinnovi: per ogni giocatore in scadenza decide la sua squadra. decision: 'renew' (il manager ha accettato la
  * richiesta), 'release' (lo lascia andare) o 'bot' (decide la logica del bot: squadre dei bot e allenatori
- * delegati). Chi non rinnova diventa svincolato, senza stipendi residui. Poi chi è in rosso prova a liberarsi di
- * contratti pesanti.
+ * delegati). Chi non rinnova diventa svincolato, senza stipendi residui. Poi un bot in rosso prova a liberarsi di
+ * un contratto pesante (al massimo uno scambio tra bot per turno).
  */
 export function closeRenewals(
   state: LeagueState,
@@ -330,7 +331,8 @@ export function closeRenewals(
       out.released.push(p.id);
     }
   }
-  for (let i = 0; i < 6; i++) botSalaryDump(state, rng, null);
+  // Fino a 6 tentativi, ma al massimo uno scambio tra bot per turno
+  for (let i = 0; i < 6; i++) if (botSalaryDump(state, rng, null)) break;
   return out;
 }
 
@@ -355,7 +357,7 @@ export function startNewSeason(state: LeagueState): void {
   enforceRosterLimits(state, { includeHumans: true });
   for (const team of state.teams.filter((t) => !t.human)) {
     const freeYoung = state.players
-      .filter((p) => p.teamId === null && p.age <= 24)
+      .filter((p) => p.teamId === null && p.age <= 24 && !releasedBy(state, team.id, p.id))
       .sort((a, b) => b.scoutedPotential - a.scoutedPotential);
     while (twoWayRoster(state, team.id).length < 2 && freeYoung.length) {
       const p = freeYoung.shift() as PlayerState;
@@ -381,6 +383,8 @@ export function startNewSeason(state: LeagueState): void {
   state.offseason = null;
   state.turn = 0;
   state.phase = 'regular';
+  // Stagione nuova: chi è stato tagliato si può rifirmare
+  state.releases = [];
   updateStrategies(state);
 }
 

@@ -185,4 +185,24 @@ describe('simulateGame', () => {
       );
     expect(poss(fast)).toBeGreaterThan(poss(slow) * 1.05);
   });
+
+  it('chi chiede 42 minuti li gioca (salvo falli e infortuni), anche partendo un po’ stanco', () => {
+    const star = BOS.starters[0]!;
+    const others = BOS.players.filter((p) => p.id !== star);
+    const rest = others.reduce((a, p) => a + (BOS.minutes[p.id] ?? 0), 0);
+    const minutes: Record<string, number> = { [star]: 42 };
+    for (const p of others) minutes[p.id] = ((BOS.minutes[p.id] ?? 0) * 198) / rest;
+    const tired: TeamSetup = {
+      ...BOS,
+      players: BOS.players.map((p) => (p.id === star ? { ...p, energy: 75 } : p)),
+      minutes,
+    };
+    const played = Array.from({ length: 40 }, (_, i) => {
+      const r = simulateGame(tired, LAL, `quarantadue-${i}`);
+      return (r.home.box.find((l) => l.playerId === star)?.seconds ?? 0) / 60;
+    });
+    const fine = played.filter((m) => m > 30);
+    expect(fine.reduce((a, b) => a + b, 0) / fine.length).toBeGreaterThan(39.5);
+    // Chi ha 36 minuti o meno (tutti i bot) gioca come prima: lo dice il test golden
+  });
 });

@@ -19,6 +19,9 @@ interface SimPlayer {
   fouls: number;
   /** Minuti obiettivo in secondi. */
   target: number;
+  /** Energia sotto cui esce per stanchezza e sopra cui può rientrare dalla panchina (dai minuti obiettivo). */
+  subOut: number;
+  subIn: number;
   injured: boolean;
   formOff: number;
   formDef: number;
@@ -191,6 +194,10 @@ class GameSim {
     const scale = totalMinutes > 0 ? 240 / totalMinutes : 1;
     const players = available.map((p): SimPlayer => {
       const slot = setup.starters.indexOf(p.id);
+      const target = (setup.minutes[p.id] ?? 0) * scale * 60;
+      // Chi deve giocare più di longMinutes resta in campo anche stanco e rientra prima: chi chiede 42 minuti li
+      // gioca, salvo falli e stanchezza estrema
+      const extra = Math.max(0, target / 60 - this.P.longMinutes);
       const spread = (c: number) => this.P.formBase + (this.P.formRange * (100 - c)) / 100;
       const formOff = this.rng.normal(0, spread(p.hidden.offensiveConsistency));
       const formDef = this.rng.normal(0, spread(p.hidden.defensiveConsistency));
@@ -200,7 +207,9 @@ class GameSim {
         line: emptyLine(p, slot >= 0),
         energy: p.energy,
         fouls: 0,
-        target: (setup.minutes[p.id] ?? 0) * scale * 60,
+        target,
+        subOut: Math.max(this.P.subEnergyFloor, this.P.subEnergy - this.P.longSubOutStep * extra),
+        subIn: Math.max(this.P.returnEnergyFloor, this.P.returnEnergy - this.P.longSubInStep * extra),
         injured: false,
         formOff,
         formDef,
@@ -422,6 +431,19 @@ class GameSim {
     return sp.fouls >= limit;
   }
 
+  /**
+   * Quanto conviene avere un giocatore in campo in uno slot: minuti che gli mancano rispetto all'obiettivo, energia,
+   * adattamento al ruolo, e nel finale chi chiude la partita.
+   */
+  private subValue(side: Side, c: SimPlayer, slot: number, late: boolean): number {
+    return (
+      (this.expected(c) - c.line.seconds) / 60 +
+      (c.energy - 75) / 8 +
+      25 * ((c.fits[slot] as number) - 1) +
+      (late && side.closers.has(c) ? 20 : 0)
+    );
+  }
+
   private checkSubs(side: Side, force = false): void {
     const P = this.P;
     if (!force && this.elapsed - side.lastSubCheck < P.subCheckSeconds) return;
@@ -430,33 +452,60 @@ class GameSim {
     for (let slot = 0; slot < 5; slot++) {
       const cur = side.court[slot] as SimPlayer;
       const forced = cur.injured || cur.fouls >= P.foulOut;
-      const value = (c: SimPlayer) =>
-        (this.expected(c) - c.line.seconds) / 60 +
-        (c.energy - 75) / 8 +
-        25 * ((c.fits[slot] as number) - 1) +
-        (late && side.closers.has(c) ? 20 : 0);
+      const value = (c: SimPlayer) => this.subValue(side, c, slot, late);
       // Chi deve uscire per forza (infortunio, sesto fallo) può essere sostituito anche da chi ha falli
       const bench = side.players.filter(
         (c) => c.slot < 0 && !c.injured && (forced ? c.fouls < P.foulOut : !this.foulTrouble(c)),
       );
       const eligible = bench.filter(
-        (c) => forced || c.energy >= 72 || (late && side.closers.has(c) && c.energy >= 55),
+        (c) => forced || c.energy >= c.subIn || (late && side.closers.has(c) && c.energy >= 55),
       );
       if (eligible.length === 0) continue;
       const wantOut =
         forced ||
         this.foulTrouble(cur) ||
-        cur.energy < P.subEnergy ||
+        cur.energy < cur.subOut ||
         (cur.line.seconds - this.expected(cur) > P.subMinutesSlack && !(late && side.closers.has(cur))) ||
         (late && !side.closers.has(cur) && eligible.some((c) => side.closers.has(c)));
       if (!wantOut) continue;
       const best = eligible.reduce((a, b) => (value(b) > value(a) ? b : a));
-      if (!forced && !this.foulTrouble(cur) && cur.energy >= P.subEnergy && value(best) <= value(cur) + 0.5)
+      if (!forced && !this.foulTrouble(cur) && cur.energy >= cur.subOut && value(best) <= value(cur) + 0.5)
         continue;
       best.slot = slot;
       cur.slot = -1;
       side.court[slot] = best;
       this.event(side, [best.p.id, cur.p.id], `Entra ${best.p.lastName}, esce ${cur.p.lastName}`);
+    }
+    this.pullLongMinutes(side, late);
+  }
+
+  /**
+   * Chi ha più di longMinutes minuti obiettivo ed è indietro di più di subMinutesSlack non aspetta che qualcuno
+   * voglia uscire: rientra nello slot dove sostituirlo conviene di più (con lo stesso valore dei cambi). Senza,
+   * un giocatore da 42 minuti restava in panchina anche dieci minuti e ne giocava circa 35.
+   */
+  private pullLongMinutes(side: Side, late: boolean): void {
+    const P = this.P;
+    for (const c of side.players) {
+      if (c.slot >= 0 || c.injured || c.target <= P.longMinutes * 60 || this.foulTrouble(c)) continue;
+      if (c.energy < c.subIn || this.expected(c) - c.line.seconds <= P.subMinutesSlack) continue;
+      let bestSlot = -1;
+      let gain = 0.5;
+      for (let slot = 0; slot < 5; slot++) {
+        const cur = side.court[slot] as SimPlayer;
+        if (late && side.closers.has(cur) && !side.closers.has(c)) continue;
+        const g = this.subValue(side, c, slot, late) - this.subValue(side, cur, slot, late);
+        if (g > gain) {
+          gain = g;
+          bestSlot = slot;
+        }
+      }
+      if (bestSlot < 0) continue;
+      const cur = side.court[bestSlot] as SimPlayer;
+      c.slot = bestSlot;
+      cur.slot = -1;
+      side.court[bestSlot] = c;
+      this.event(side, [c.p.id, cur.p.id], `Entra ${c.p.lastName}, esce ${cur.p.lastName}`);
     }
   }
 

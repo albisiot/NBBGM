@@ -134,9 +134,11 @@ const EXPECTED = {
     'ac190ce0916f473b',
   ],
   setups: '1017a8c97b0b23ef',
-  bots: 'ab419486cefd7b04',
-  turns: 'fbffb2916d0918c7',
-  season: '2fc6d165cd35bc6f',
+  // Seconda analisi, sezione 2 (economia): stipendi come quelli veri, scelte protette, recupero dell'energia tra i
+  // turni, strategie e offerte dei bot. Partite e impostazioni automatiche restano identiche
+  bots: 'd1c171628477964e',
+  turns: '5dcfd5be48cd469b',
+  season: 'de219f6745266491',
 };
 
 describe('golden: il motore gioca sempre le stesse partite', () => {

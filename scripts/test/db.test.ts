@@ -1,7 +1,14 @@
 // Fase 5: le migrazioni Supabase su PGlite. Un utente non modifica la squadra di un altro né legge i valori
 // nascosti; il turno si chiude una volta sola e apply_turn scrive tutto o niente.
 import type { PGlite, Transaction } from '@electric-sql/pglite';
-import { playRegularTurn, simulateGame, type GameResult, type LeagueState } from '@nbbgm/engine';
+import {
+  CONFIG_2026_27,
+  playRegularTurn,
+  simulateGame,
+  STARTING_BALANCE_SHARE,
+  type GameResult,
+  type LeagueState,
+} from '@nbbgm/engine';
 import { beforeAll, describe, expect, it } from 'vitest';
 import { buildSeedSql, seedIds, seedLeagueState, stableUuid } from '../src/db/seed.ts';
 import { asAnon, asService, asUser, createTestDb } from '../src/db/testdb.ts';
@@ -690,12 +697,14 @@ describe('apply_turn', () => {
          having sum(s.pts) <> g.home_score + g.away_score`,
       ),
     ).toBe(0);
-    // Saldo = somma dei movimenti di bilancio
+    // Saldo = saldo di partenza (lo stesso per tutte, STARTING_BALANCE_SHARE dei ricavi) + somma dei movimenti
+    const start = Math.round(CONFIG_2026_27.revenue * STARTING_BALANCE_SHARE);
     expect(
       await count(
         db,
         `select t.id from public.teams t left join public.ledger l on l.team_id = t.id
-         group by t.id, t.balance having t.balance <> coalesce(sum(l.amount), 0)`,
+         group by t.id, t.balance having t.balance <> $1 + coalesce(sum(l.amount), 0)`,
+        [start],
       ),
     ).toBe(0);
     // Il manager vede i risultati e il proprio bilancio, non quello degli altri

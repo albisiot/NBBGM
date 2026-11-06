@@ -41,9 +41,9 @@ const SECTIONS: { title: string; text: string[] }[] = [
   {
     title: 'Il mercato',
     text: [
-      'Agli svincolati si fanno offerte a busta chiusa: alla chiusura del turno ognuno sceglie l’offerta migliore sopra la sua richiesta. Sopra il salary cap si firma solo al minimo.',
+      'Agli svincolati si fanno offerte a busta chiusa: alla chiusura del turno ognuno sceglie l’offerta migliore sopra la sua richiesta. Sopra il salary cap si firma solo al minimo. Chi tagli non lo puoi rifirmare fino alla stagione dopo.',
       'Gli scambi (giocatori e scelte al draft, anche protette o come swap) si propongono a una squadra: i bot decidono alla chiusura del turno, i manager rispondono entro il turno. Dopo la giornata 56 gli scambi si fermano fino all’offseason.',
-      'Il bilancio conta: ricavi uguali per tutti, stipendi e luxury tax si pagano. Con il saldo negativo si firmano solo minimi.',
+      'Il bilancio conta: ricavi uguali per tutti, a metà tra il cap e la soglia della luxury tax; stipendi e tassa si pagano. Con il saldo negativo si firma solo fino al monte stipendi minimo, oltre solo minimi per restare a 13.',
     ],
   },
   {

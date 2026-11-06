@@ -4,6 +4,7 @@ import type { Rng } from '../rng.ts';
 import type { Contract, Role } from '../types.ts';
 import { luxuryTax, minimumSalaryFor, nextConfig, type SeasonConfig } from './config.ts';
 import { contractOf, isRepeater, marketValue, payroll, roster, standardRoster } from './finance.ts';
+import { lotteryPositionOdds, MAX_DEFERRALS } from './picks.ts';
 import { REGULAR_SEASON_TURNS } from './schedule.ts';
 import type { DraftPick, DraftSwap, LeagueState, PlayerState, Strategy } from './state.ts';
 import { executeTrade, payrollChange, tradeWindowOpen, validateTrade, type Trade } from './trades.ts';
@@ -31,16 +32,25 @@ export function strengthRanking(state: LeagueState): string[] {
 }
 
 /**
- * Strategia dei bot: in corsa le prime 10 per forza, in ricostruzione le ultime 10 o chi ha una rotazione
- * vecchia e debole, le altre a metà strada.
+ * Strategia dei bot, dalla classifica attesa (vittorie fatte più quelle attese dalla forza nelle partite che
+ * restano: draftRanking; in offseason la forza per la stagione che arriva), dall'età della rotazione e dal monte
+ * stipendi. In corsa le prime 10, in ricostruzione le ultime 10 o chi ha una rotazione vecchia fuori dalle prime 15,
+ * le altre a metà strada. Chi è sopra la tassa con il saldo in rosso deve liberarsi di stipendi: è in corsa solo tra
+ * le prime 6, e fuori dalle prime 12 è in ricostruzione.
  */
 export function updateStrategies(state: LeagueState): void {
-  const ranking = strengthRanking(state);
+  const ranking = draftRanking(state);
   for (const team of state.teams) {
     const rank = ranking.indexOf(team.id);
     const top8 = [...roster(state, team.id)].sort((a, b) => overall(b) - overall(a)).slice(0, 8);
     const age = top8.reduce((a, p) => a + p.age, 0) / Math.max(1, top8.length);
-    team.strategy = rank < 10 ? 'contend' : rank >= 20 || (age >= 30 && rank >= 15) ? 'rebuild' : 'middle';
+    const squeezed = team.balance < 0 && payroll(state, team.id) > state.config.luxuryTax;
+    team.strategy =
+      rank < (squeezed ? 6 : 10)
+        ? 'contend'
+        : rank >= 20 || (age >= 30 && rank >= 15) || (squeezed && rank >= 12)
+          ? 'rebuild'
+          : 'middle';
   }
 }
 
@@ -167,20 +177,39 @@ export function expectedPickPosition(ranking: readonly string[], teamId: string)
 }
 
 /**
- * Quota del valore che resta a una prima scelta protetta "top N": se cade nella fascia protetta resta a chi la
- * cede e l'obbligo passa al draft dopo (alla fine, dopo tre rinvii, diventa una seconda scelta), quindi in quel
- * caso vale circa il 30%. La probabilità di cadere nella fascia dipende da N e dalla posizione attesa, più
- * incerta per i draft lontani.
+ * Probabilità che una prima scelta protetta "top N" cada nella fascia protetta. Il posto in classifica (dalla
+ * peggiore) si sparge intorno a quello atteso, di più per i draft lontani; per le 14 fuori dai playoff conta poi la
+ * lottery: la peggiore ha la prima scelta solo nel 14% dei casi, e una protezione top 1 su di lei vale poco.
  */
-export function protectedShare(expected: number, protection: number, yearsAway: number): number {
-  const inRange = 1 / (1 + Math.exp(-(protection + 0.5 - expected) / (3 + 2 * yearsAway)));
-  return 1 - 0.7 * inRange;
+export function protectionChance(expected: number, protection: number, yearsAway: number): number {
+  const scale = 3 + 2 * yearsAway;
+  const below = (x: number) => 1 / (1 + Math.exp(-(x - expected) / scale));
+  const lottery = lotteryPositionOdds();
+  let inRange = 0;
+  let total = 0;
+  for (let s = 1; s <= 30; s++) {
+    const pS = below(s + 0.5) - below(s - 0.5);
+    total += pS;
+    const row = lottery[s - 1];
+    if (!row) inRange += s <= protection ? pS : 0;
+    else for (let x = 0; x < Math.min(protection, row.length); x++) inRange += pS * (row[x] as number);
+  }
+  return inRange / total;
 }
 
-/** Valore di una scelta; protection è la protezione da considerare (di default quella della scelta). */
+/** Valore di una seconda scelta (prima dello sconto per gli anni e della strategia). */
+export const SECOND_ROUND_VALUE = 1.5;
+
+/**
+ * Valore di una scelta; protection è la protezione da considerare (di default quella della scelta). Una prima
+ * scelta protetta vale quella libera se esce dalla fascia, e se ci cade quello che diventa alla fine: l'obbligo
+ * passa ai draft dopo e, finiti i rinvii che restano (tre in tutto), diventa una seconda scelta. Con la protezione
+ * quasi certa vale quindi come quella seconda scelta, più lontana nel tempo.
+ */
 export function pickValue(
   state: LeagueState,
-  pick: Pick<DraftPick, 'draftYear' | 'round' | 'originalTeamId' | 'protection'>,
+  pick: Pick<DraftPick, 'draftYear' | 'round' | 'originalTeamId' | 'protection'> &
+    Partial<Pick<DraftPick, 'deferrals'>>,
   strategy: Strategy,
   ranking: readonly string[],
   protection: number | null = pick.protection,
@@ -188,10 +217,14 @@ export function pickValue(
   const yearsAway = Math.max(0, pick.draftYear - (state.config.year + 1));
   // Più lontana la scelta, più la posizione attesa tende alla media
   const expected = 15 + (expectedPickPosition(ranking, pick.originalTeamId) - 15) * 0.6 ** yearsAway;
-  const base = pick.round === 1 ? 45 * Math.exp(-(expected - 1) / 7) + 4 : 1.5;
-  const share = protection && pick.round === 1 ? protectedShare(expected, protection, yearsAway) : 1;
   const strategyF = strategy === 'rebuild' ? 1.4 : strategy === 'contend' ? 0.6 : 1;
-  return base * 0.9 ** yearsAway * share * strategyF;
+  if (pick.round === 2) return SECOND_ROUND_VALUE * 0.9 ** yearsAway * strategyF;
+  const free = (45 * Math.exp(-(expected - 1) / 7) + 4) * 0.9 ** yearsAway;
+  if (!protection) return free * strategyF;
+  const p = protectionChance(expected, protection, yearsAway);
+  const deferrals = Math.max(0, MAX_DEFERRALS - (pick.deferrals ?? 0));
+  const becomesSecond = SECOND_ROUND_VALUE * 0.9 ** (yearsAway + deferrals);
+  return ((1 - p) * free + p * becomesSecond) * strategyF;
 }
 
 /**
@@ -502,6 +535,11 @@ export function botSalaryDump(state: LeagueState, rng: Rng, turn: number | null)
         if (!cheap) continue;
         trade.playersB.push(cheap.id);
       }
+      // Anche chi cede deve guadagnarci, risparmio sulla tassa compreso: un contratto in perdita sì, un giovane che
+      // vale più di quanto costa no (Philadelphia regalava Malik Ashford, 21 anni e 78 di overall, per una seconda
+      // scelta, e Dallas ci costruiva una dinastia)
+      const { get, give } = tradeBalance(state, trade, seller.id, ranking);
+      if (!tradeGainOk(get, give)) continue;
       if (validateTrade(state, trade).length) continue;
       executeTrade(state, trade, turn);
       return trade;
@@ -541,7 +579,13 @@ export function botWantsRenewal(state: LeagueState, teamId: string, p: PlayerSta
   const rank = ranked.indexOf(p);
   const fair = marketValue(state.config, p);
   if (ask > fair * 1.15) return false;
-  if (team.balance < 0 && ask > minimumSalaryFor(state.config, p.yearsInLeague) * 1.5 && rank > 3)
+  // In rosso rinnova caro solo i migliori 4, o se resta comunque sotto il monte stipendi minimo
+  if (
+    team.balance < 0 &&
+    ask > minimumSalaryFor(state.config, p.yearsInLeague) * 1.5 &&
+    rank > 3 &&
+    payroll(state, teamId) + ask > state.config.minimumTeamSalary
+  )
     return false;
   if (team.strategy === 'rebuild' && p.age >= 30 && rank > 2) return false;
   return rank < 10 && p.age <= 34;

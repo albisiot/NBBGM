@@ -8,15 +8,23 @@
 //   - nel turno del draft la tassa della stagione finita, già pagata, non fa regalare giocatori (prima 14 bot su 14
 //     sopra la tassa regalavano qualcuno: Embiid, Adebayo, Towns, Wagner, Gobert);
 //   - in stagione Philadelphia, in corsa, non cede Jaylen Brown per due ventenni da 58 solo per la tassa.
+// Sezione 2 (economia):
+//   - il valore di mercato somiglia agli stipendi veri (prima una rosa valeva circa 111 milioni contro 196);
+//   - tagliare Herro e rifirmarlo in stagione costava meno che rinnovarlo (18,6 milioni contro 31,1): ora chi
+//     taglia non rifirma fino alla stagione dopo.
 import {
   botAccepts,
   contractOf,
   createLeagueState,
   draftRanking,
+  inSeasonAsk,
+  marketValue,
   overall,
   payroll,
   pickValue,
   playerValue,
+  renewalOffer,
+  runMarket,
   standardRoster,
   tradeBalance,
   validateTrade,
@@ -94,10 +102,54 @@ describe.skipIf(!real)('casi della seconda analisi con i giocatori reali', () =>
         const t: Trade = { teamA: bot, teamB: 'BOS', playersA: [p.id], playersB: [], picksA: [], picksB: [] };
         if (validateTrade(s, t).length || !botAccepts(s, t, bot)) continue;
         // Restano solo i contratti che per il bot non valgono quasi nulla (stipendio vicino o sopra il valore di
-        // mercato): per quelli conta il risparmio vero, sulla tassa della stagione che arriva (Watson a Cleveland)
-        if (tradeBalance(s, t, bot).give >= 2) gifts.push(`${bot} ${p.lastName}`);
+        // mercato): per quelli conta il risparmio vero, sulla tassa della stagione che arriva. Con gli stipendi
+        // come quelli veri (seconda analisi, economia) sono contratti sopra il valore (Quickley, Holiday, Beal) e
+        // Merrill (58 di overall, 9,2 milioni, vale 2,1 per Cleveland, che così risparmia circa 14,5 milioni di tassa)
+        if (tradeBalance(s, t, bot).give >= 3) gifts.push(`${bot} ${p.lastName}`);
       }
     expect(gifts).toEqual([]);
+  });
+
+  it('il valore di mercato somiglia agli stipendi veri, fascia per fascia e per una rosa intera', () => {
+    const s = fresh(0);
+    const veterans = s.contracts.filter((c) => c.type !== 'rookie' && c.type !== 'two-way' && c.salaries[0]);
+    for (const lo of [60, 65, 70, 75, 80]) {
+      const band = veterans.filter((c) => {
+        const o = overall(player(s, c.playerId));
+        return o >= lo && o < lo + 5;
+      });
+      const real = band.reduce((a, c) => a + (c.salaries[0] ?? 0), 0) / band.length;
+      const value = band.reduce((a, c) => a + marketValue(s.config, player(s, c.playerId)), 0) / band.length;
+      expect(value / real, `fascia ${lo}-${lo + 4}`).toBeGreaterThan(0.75);
+      expect(value / real, `fascia ${lo}-${lo + 4}`).toBeLessThan(1.25);
+    }
+    const rosters = s.teams
+      .map((t) => standardRoster(s, t.id).reduce((a, p) => a + marketValue(s.config, p), 0))
+      .sort((a, b) => a - b);
+    const median = (rosters[14]! + rosters[15]!) / 2;
+    expect(median).toBeGreaterThan(s.config.salaryCap);
+    expect(median).toBeLessThan(s.config.luxuryTax * 1.1);
+  });
+
+  it('Milwaukee non taglia Herro per rifirmarlo a meno del rinnovo', () => {
+    const s = createLeagueState(real as LeagueData, 'prova-analisi', { humanTeams: ['MIL'] });
+    s.turn = 20;
+    const herro = player(s, 'tyler-herro');
+    herro.morale = 60;
+    const renewal = renewalOffer(s, herro)!.salaries[0]!;
+    const ask = inSeasonAsk(s, herro);
+    // Il guadagno c'era: in stagione uno svincolato chiede quanto a fine free agency, meno del rinnovo
+    expect(ask).toBeLessThan(renewal * 0.8);
+    const empty = { trades: [], releases: [], renewals: [], bids: [] };
+    runMarket(s, { ...empty, releases: [{ id: 'taglio', teamId: 'MIL', playerId: herro.id }] }, 20);
+    expect(herro.teamId).toBeNull();
+    const out = runMarket(
+      s,
+      { ...empty, bids: [{ id: 'offerta', teamId: 'MIL', playerId: herro.id, salaries: [ask, ask] }] },
+      21,
+    );
+    expect(out.bids).toEqual([{ id: 'offerta', status: 'invalid' }]);
+    expect(out.notes.some((n) => n.teamId === 'MIL' && /tagliato/.test(n.text))).toBe(true);
   });
 
   it('Philadelphia, in corsa, non cede Jaylen Brown per due ventenni da 58', () => {

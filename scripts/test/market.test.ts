@@ -271,6 +271,12 @@ describe('tagli, rinnovi e svincolati', () => {
       cut.id,
     ]);
     expect(p[0]!.team_id).toBeNull();
+    // Chi l'ha tagliato non lo rifirma per il resto della stagione, nemmeno offrendo di più
+    const rows = await rpc().rpc<LeagueStateRows>('league_state', { p_league: LEAGUE });
+    expect(rows.releases).toEqual([{ player_id: cut.id, team_id: BOS }]);
+    await expect(
+      act(ANNA, { kind: 'bid', player_id: cut.id, salary: Number(cut.salaries[0]) * 2, years: 2 }),
+    ).rejects.toThrow(/tagliato/);
     const dead = await q<{ salaries: string[] }>(
       'select salaries from public.dead_money where team_id = $1',
       [BOS],

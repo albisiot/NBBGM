@@ -180,3 +180,39 @@ export function drawLottery(worstFirst: readonly string[], seed: string): string
   }
   return [...drawn, ...pool.map((p) => p.id)];
 }
+
+let lotteryTable: number[][] | null = null;
+
+/**
+ * Probabilità esatte della lottery: riga i (i-esima peggiore delle 14, da 0), colonna j = probabilità di avere la
+ * scelta j + 1. Si contano tutte le estrazioni delle prime 4 (24.024 sequenze), una volta sola.
+ */
+export function lotteryPositionOdds(): number[][] {
+  if (lotteryTable) return lotteryTable;
+  const n = LOTTERY_ODDS.length;
+  const table = Array.from({ length: n }, () => new Array<number>(n).fill(0));
+  const add = (team: number, pick: number, prob: number) => {
+    const row = table[team] as number[];
+    row[pick] = (row[pick] as number) + prob;
+  };
+  const drawn: number[] = [];
+  const draw = (prob: number) => {
+    if (drawn.length === 4) {
+      // Dopo le 4 estratte, le altre in ordine di classifica
+      let next = 4;
+      for (let i = 0; i < n; i++) if (!drawn.includes(i)) add(i, next++, prob);
+      drawn.forEach((i, k) => add(i, k, prob));
+      return;
+    }
+    const left = LOTTERY_ODDS.reduce((a, w, i) => (drawn.includes(i) ? a : a + w), 0);
+    for (let i = 0; i < n; i++) {
+      if (drawn.includes(i)) continue;
+      drawn.push(i);
+      draw((prob * (LOTTERY_ODDS[i] as number)) / left);
+      drawn.pop();
+    }
+  };
+  draw(1);
+  lotteryTable = table;
+  return table;
+}

@@ -1,12 +1,11 @@
-// pnpm sim:seasons [stagioni] [--veloce] [--tetto=0.7] [--ricavi=180]
+// pnpm sim:seasons [stagioni] [--veloce] [--tetto=0.7] [--ricavi=180] [--seme=stagioni]
 // --veloce usa la partita finta dei test (per provare crescita ed economia in pochi secondi: energia e
 // infortuni non sono significativi); --tetto prova un altro valore di POTENTIAL_SHRINK; --ricavi prova altri ricavi
-// stagionali 2026-27 in milioni.
+// stagionali 2026-27 in milioni; --seme gioca con un altro seed (per vedere quanto le metriche dipendono dal caso).
 // Gioca N stagioni complete (calendario, playoff, offseason, bot) partendo dalla lega importata e controlla
 // le metriche di lungo periodo del documento: overall stabili, nessuna dinastia, bilanci, energia, infortuni.
 import {
   CONFIG_2026_27,
-  ENERGY_RECOVERY,
   MAX_STANDARD,
   MIN_STANDARD,
   autoSetup,
@@ -14,6 +13,7 @@ import {
   overall,
   playPostseasonTurn,
   playRegularTurn,
+  recoverEnergy,
   runOffseason,
   simulateGame,
   standardRoster,
@@ -33,7 +33,10 @@ const SEASONS = Number(args.find((a) => !a.startsWith('--')) ?? 10);
 const FAST = args.includes('--veloce');
 const SHRINK = args.find((a) => a.startsWith('--tetto='))?.split('=')[1];
 const REVENUE = args.find((a) => a.startsWith('--ricavi='))?.split('=')[1];
+const SEED = args.find((a) => a.startsWith('--seme='))?.split('=')[1] ?? 'stagioni';
 const pct = (x: number) => `${(x * 100).toFixed(0)}%`;
+/** Il monte stipendi mediano può stare fino al 2% sotto il cap. */
+const PAYROLL_CAP_TOLERANCE = 0.98;
 const num = (x: number, d = 1) => x.toFixed(d);
 const mln = (x: number) => `${(x / 1e6).toFixed(0)} mln`;
 
@@ -49,6 +52,11 @@ interface SeasonMetrics {
   energy3436: number;
   negativeBalance: number;
   overTax: number;
+  /** Monte stipendi mediano a fine regular season, rispetto al cap e alla soglia della tassa. */
+  payrollMedian: number;
+  cap: number;
+  taxLine: number;
+  underMinimum: number;
   trades: number;
   signings: number;
   retirements: number;
@@ -98,13 +106,20 @@ function checkState(state: LeagueState): string[] {
 }
 
 /** Energia a inizio partita di un giocatore che gioca sempre gli stessi minuti, dopo 20 partite di fila. */
-function energyExperiment(state: LeagueState, minutes: number): number {
-  // Media su otto squadre, con la stella sempre alla Resistenza mediana della lega
-  const runs = [0, 4, 8, 12, 16, 20, 24, 28].map((i) => energyRun(state, minutes, i));
-  return runs.reduce((a, b) => a + b, 0) / runs.length;
+function energyExperiment(state: LeagueState, minutes: number): { energy: number; minutes: number } {
+  // Media su tutte le squadre, con la stella sempre alla Resistenza mediana della lega
+  const runs = state.teams.map((_, i) => energyRun(state, minutes, i));
+  return {
+    energy: runs.reduce((a, r) => a + r.energy, 0) / runs.length,
+    minutes: runs.reduce((a, r) => a + r.minutes, 0) / runs.length,
+  };
 }
 
-function energyRun(state: LeagueState, minutes: number, teamIndex: number): number {
+function energyRun(
+  state: LeagueState,
+  minutes: number,
+  teamIndex: number,
+): { energy: number; minutes: number } {
   const team = state.teams[teamIndex]!;
   const oppTeam = state.teams[(teamIndex + 1) % state.teams.length]!;
   const players = state.players
@@ -120,6 +135,7 @@ function energyRun(state: LeagueState, minutes: number, teamIndex: number): numb
   for (const p of others) mins[p.id] = ((base.minutes[p.id] ?? 0) * rest) / otherTotal;
   let energy = 100;
   const starts: number[] = [];
+  const played: number[] = [];
   // Resistenza mediana della lega: il risultato non dipende da chi è la stella di quella squadra
   const staminas = state.players.map((x) => x.ratings.stamina).sort((x, y) => x - y);
   const stamina = staminas[Math.floor(staminas.length / 2)]!;
@@ -133,19 +149,20 @@ function energyRun(state: LeagueState, minutes: number, teamIndex: number): numb
       minutes: mins,
     };
     const r = simulateGame(setup, autoSetup(oppTeam.id, opp), `energia-${minutes}-${teamIndex}-${g}`);
-    energy = Math.min(
-      100,
-      (r.home.box.find((l) => l.playerId === star) ? r.finalEnergy[star]! : energy) +
-        ENERGY_RECOVERY * (0.7 + (0.6 * p.ratings.stamina) / 100),
-    );
+    const line = r.home.box.find((l) => l.playerId === star);
+    // I minuti contano nelle partite senza infortunio e senza problemi di falli (al massimo 3) e nei tempi
+    // regolamentari: "salvo falli", come dice l'obiettivo
+    if (line && line.pf <= 3 && r.overtimes === 0 && !r.injuries.some((i) => i.playerId === star))
+      played.push(line.seconds / 60);
+    energy = recoverEnergy(line ? r.finalEnergy[star]! : energy, p.ratings.stamina, true);
   }
-  const tail = starts.slice(10);
-  return tail.reduce((a, b) => a + b, 0) / tail.length;
+  const tail = (x: number[]) => x.slice(-10).reduce((a, b) => a + b, 0) / Math.max(1, Math.min(10, x.length));
+  return { energy: tail(starts), minutes: tail(played) };
 }
 
 function main() {
   const { league, source } = loadLeague();
-  const state = createLeagueState(league, 'stagioni', {
+  const state = createLeagueState(league, SEED, {
     potentialOnOverallScale: source !== 'giocatori reali',
     ...(SHRINK ? { potentialShrink: Number(SHRINK) } : {}),
     ...(REVENUE ? { config: { ...CONFIG_2026_27, revenue: Number(REVENUE) * 1e6 } } : {}),
@@ -185,6 +202,11 @@ function main() {
     while (state.phase === 'regular') playRegularTurn(state, play);
     const negativeBalance = state.teams.filter((t) => t.balance < 0).length;
     const overTax = state.teams.filter((t) => t.taxHistory.at(-1)).length;
+    const settlement = state.lastSettlement ?? [];
+    const payrolls = settlement.map((x) => x.payroll).sort((a, b) => a - b);
+    const payrollMedian = (payrolls[14]! + payrolls[15]!) / 2;
+    const underMinimum = settlement.filter((x) => x.shortfall > 0).length;
+    const { salaryCap: cap, luxuryTax: taxLine } = state.config;
     while (state.phase === 'postseason') playPostseasonTurn(state, play);
     const summary = runOffseason(state);
     const snap = leagueSnapshot(state);
@@ -203,6 +225,10 @@ function main() {
       energy3436: starters.reduce((a, x) => a + x.e / x.g, 0) / Math.max(1, starters.length),
       negativeBalance,
       overTax,
+      payrollMedian,
+      cap,
+      taxLine,
+      underMinimum,
       trades: summary.trades,
       signings: summary.signings,
       retirements: summary.retirements,
@@ -212,7 +238,8 @@ function main() {
     const m = metrics.at(-1)!;
     console.log(
       `${year}-${(year + 1) % 100}: campione ${m.champion}, miglior record ${m.best}; primi 150 ${num(m.top150)}, 80+ ${m.stars80}; ` +
-        `infortuni medi/gravi ${num(m.injuriesSerious)}; energia titolari ${num(m.energy3436)}; in rosso ${m.negativeBalance}, sopra la tassa ${m.overTax}; ` +
+        `infortuni medi/gravi ${num(m.injuriesSerious)}; energia titolari ${num(m.energy3436)}; in rosso ${m.negativeBalance}, sopra la tassa ${m.overTax}, ` +
+        `sotto il minimo ${m.underMinimum}, monte mediano ${mln(m.payrollMedian)} (cap ${mln(m.cap)}, tassa ${mln(m.taxLine)}); ` +
         `scambi ${m.trades}, firme ${m.signings}, ritiri ${m.retirements}; problemi ${m.problems.length} (${num(m.seconds, 0)} s)`,
     );
     for (const p of m.problems.slice(0, 5)) console.log(`   - ${p}`);
@@ -229,6 +256,17 @@ function main() {
   // Il bilancio deve contare: il saldo tipico non può crescere (o calare) di più di una stagione di ricavi
   const balances = state.teams.map((t) => t.balance).sort((a, b) => a - b);
   const medianBalance = (balances[14]! + balances[15]!) / 2;
+  // Bilanci dei bot alla fine: non tutti in rosso né tutti ricchi (più di una stagione di ricavi da parte)
+  const bots = state.teams.filter((t) => !t.human);
+  const botsRed = bots.filter((t) => t.balance < 0).length;
+  const botsRich = bots.filter((t) => t.balance > state.config.revenue).length;
+  // Dalla seconda stagione (la prima sono i contratti veri, con la mediana proprio alla soglia della tassa). Senza
+  // eccezioni (mid-level) chi ha spazio si ferma al cap: in qualche stagione la mediana sta proprio lì
+  const later = metrics.slice(1);
+  const payrollOk = later.filter(
+    (m) => m.payrollMedian >= m.cap * PAYROLL_CAP_TOLERANCE && m.payrollMedian <= m.taxLine,
+  ).length;
+  const payrollAvg = later.reduce((a, m) => a + m.payrollMedian / m.cap, 0) / Math.max(1, later.length);
   const checks: [string, string, boolean][] = [
     [
       'Overall dei primi 150 (scarto dall’inizio)',
@@ -256,12 +294,38 @@ function main() {
       Math.abs(medianBalance) <= state.config.revenue,
     ],
     [
+      'Bot in rosso / ricchi a fine simulazione',
+      `${botsRed} / ${botsRich} su ${bots.length}`,
+      botsRed >= 2 && botsRed <= bots.length * 0.6 && botsRich <= bots.length * 0.3,
+    ],
+    [
+      'Monte stipendi mediano tra cap (-2%) e tassa (dalla 2ª stagione)',
+      `${payrollOk} su ${later.length}, in media ${num(payrollAvg, 2)} cap`,
+      payrollOk === later.length && payrollAvg >= 1,
+    ],
+    [
+      'Squadre sotto il monte stipendi minimo (media)',
+      num(avg((m) => m.underMinimum)),
+      avg((m) => m.underMinimum) <= 3,
+    ],
+    [
+      'Squadre sopra la tassa (minimo e media per stagione)',
+      `${Math.min(...metrics.map((m) => m.overTax))} e ${num(avg((m) => m.overTax))}`,
+      metrics.every((m) => m.overTax >= 1) && avg((m) => m.overTax) <= 12,
+    ],
+    [
       'Infortuni medi o gravi per squadra a stagione',
       num(avg((m) => m.injuriesSerious)),
       avg((m) => m.injuriesSerious) >= 2 && avg((m) => m.injuriesSerious) <= 4,
     ],
-    ['Energia a inizio gara, titolare a 35 minuti', num(energy35), energy35 > 85],
-    ['Energia a inizio gara, giocatore a 42 minuti', num(energy42), energy42 < 75],
+    ['Energia a inizio gara, titolare a 35 minuti', num(energy35.energy), energy35.energy > 85],
+    ['Energia a inizio gara, giocatore a 42 minuti', num(energy42.energy), energy42.energy < 75],
+    // Chi chiede 42 minuti li gioca, salvo falli e stanchezza estrema (partite con al massimo 3 falli)
+    [
+      'Minuti giocati con 42 minuti obiettivo (senza problemi di falli)',
+      num(energy42.minutes),
+      energy42.minutes >= 40,
+    ],
     [
       'Problemi di validità (rose, contratti, calendario)',
       String(metrics.reduce((a, m) => a + m.problems.length, 0)),

@@ -11,6 +11,7 @@ import {
   inSeasonAsk,
   maxSalaryFor,
   minimumSalaryFor,
+  releasedBy,
   renewalMax,
   renewalOffer,
   salaryRun,
@@ -77,6 +78,8 @@ export function checkMarketAction(
         throw new MarketError('Svincolati: si firma in regular season e nei turni di free agency');
       const p = state.players.find((x) => x.id === action.player_id);
       if (!p || p.teamId !== null || p.prospect) throw new MarketError('Il giocatore non è svincolato');
+      if (releasedBy(state, me, p.id))
+        throw new MarketError('Lo hai tagliato in questa stagione: potrai rifirmarlo dalla prossima');
       const years = Number(action.years);
       const ask = faRound === null ? inSeasonAsk(state, p) : askingSalary(state, p, faRound);
       // La cifra mostrata dall'app (arrotondata ai 10.000 $) vale come la richiesta esatta

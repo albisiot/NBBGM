@@ -113,7 +113,7 @@ describe('two-way', () => {
     }
     // Nessun two-way: il limite dei 3 non c'entra, conta la rosa piena
     for (const p of twoWayRoster(s, 'BOS')) contractOf(s, p.id)!.type = 'standard';
-    expect(canSign(s, 'BOS', { yearsInLeague: 0 }, 0, 'two-way')).toEqual({
+    expect(canSign(s, 'BOS', { id: 'nuovo', yearsInLeague: 0 }, 0, 'two-way')).toEqual({
       ok: false,
       reason: 'rosa piena',
     });

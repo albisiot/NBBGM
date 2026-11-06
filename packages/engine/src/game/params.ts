@@ -98,6 +98,15 @@ export const DEFAULT_PARAMS = {
   fatigueThreshold: 70,
   fatigueMaxPenalty: 0.15,
   subEnergy: 50,
+  // Rientro dalla panchina: da 72 di energia (non vale per chi chiude la partita negli ultimi 5 minuti)
+  returnEnergy: 72,
+  // Oltre 36 minuti obiettivo la soglia per uscire scende di longSubOutStep per minuto (fino a subEnergyFloor,
+  // stanchezza estrema) e quella per rientrare di longSubInStep (fino a returnEnergyFloor)
+  longMinutes: 36,
+  longSubOutStep: 3.5,
+  subEnergyFloor: 30,
+  longSubInStep: 3,
+  returnEnergyFloor: 54,
   subMinutesSlack: 150,
   subCheckSeconds: 40,
 

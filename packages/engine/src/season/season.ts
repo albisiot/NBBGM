@@ -34,9 +34,12 @@ import { applyGameToPlayers, endTurn } from './turn.ts';
 
 export type PlayGame = (home: TeamSetup, away: TeamSetup, seed: string) => GameResult;
 
-/** Probabilità che i bot tentino uno scambio tra loro in un turno prima della deadline (al massimo uno). */
+/** Probabilità che i bot tentino uno scambio tra loro in un turno prima della deadline. */
 export const BOT_TRADE_CHANCE = 0.3;
-/** Probabilità per turno che un bot in rosso provi a cedere un contratto pesante. */
+/**
+ * Probabilità per turno che un bot in rosso provi a cedere un contratto pesante, se nello stesso turno non c'è già
+ * stato uno scambio tra bot: al massimo uno scambio tra bot per turno.
+ */
 export const SALARY_DUMP_CHANCE = 0.25;
 
 function scout(seed: string, p: Player): number {
@@ -87,7 +90,7 @@ export function createLeagueState(
       human: opts.humanTeams?.includes(t.id) ?? false,
       strategy: 'middle',
       tactics: { ...DEFAULT_TACTICS },
-      balance: 0,
+      balance: Math.round(config.revenue * STARTING_BALANCE_SHARE),
       taxHistory: [],
     })),
     players: players.map((p) => toPlayerState(seed, p)),
@@ -111,10 +114,20 @@ export function createLeagueState(
     enforceRosterLimits(state);
     fillMinimumRosters(state, null);
   }
+  // I tagli contano dalla prima giornata (sul server quelli della creazione non sono salvati)
+  state.releases = [];
   state.talentReference = talentLevel(state.players);
   updateStrategies(state);
   return state;
 }
+
+/**
+ * Saldo di partenza di ogni squadra, in quota dei ricavi della prima stagione. I monti stipendi veri del 2026-27
+ * (mediana circa 200 milioni) superano i ricavi: da saldo zero quasi tutte le squadre finivano in rosso già al primo
+ * anno, e in rosso si firma solo fino al monte stipendi minimo. Con un quinto dei ricavi da parte chi spende come
+ * la mediana regge i primi anni, mentre chi paga la tassa va in rosso lo stesso.
+ */
+export const STARTING_BALANCE_SHARE = 0.2;
 
 /** Quota del margine tra overall e potenziale del file che resta come tetto di crescita (calibrata con pnpm sim:seasons). */
 export const POTENTIAL_SHRINK = 1;
@@ -218,8 +231,9 @@ export function playRegularTurn(state: LeagueState, playGame: PlayGame = simulat
   endTurn(state, played);
   chargeTurn(state);
   const rng = new Rng(`${state.seed}:${state.config.year}:mercato:${turn}`);
-  if (rng.chance(BOT_TRADE_CHANCE)) botBotTrade(state, rng, turn);
-  if (rng.chance(SALARY_DUMP_CHANCE)) botSalaryDump(state, rng, turn);
+  // Al massimo uno scambio tra bot per turno: la cessione di un contratto pesante solo se non c'è stato l'altro
+  const traded = rng.chance(BOT_TRADE_CHANCE) ? botBotTrade(state, rng, turn) : null;
+  if (!traded && rng.chance(SALARY_DUMP_CHANCE)) botSalaryDump(state, rng, turn);
   if (turn === 30) updateStrategies(state);
   fillMinimumRosters(state, turn);
   state.turn++;

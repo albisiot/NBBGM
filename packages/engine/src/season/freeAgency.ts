@@ -1,20 +1,21 @@
 import { overall } from '../overall.ts';
 import type { Rng } from '../rng.ts';
 import { maxSalaryFor, minimumSalaryFor, type SeasonConfig } from './config.ts';
-import { teamStrength, playerValue } from './bots.ts';
-import { autoDraftPick } from './initialDraft.ts';
+import { teamStrength, playerTalent } from './bots.ts';
+import { autoDraftPick, INITIAL_DRAFT_ROLE_TARGET } from './initialDraft.ts';
 import {
   MIN_STANDARD,
   canSign,
   marketValue,
   payroll,
+  releasedBy,
   roster,
   salaryRun,
   signContract,
   standardRoster,
   typicalYears,
 } from './finance.ts';
-import type { LeagueState, PlayerState } from './state.ts';
+import type { LeagueState, PlayerState, Strategy } from './state.ts';
 
 export interface Offer {
   teamId: string;
@@ -66,22 +67,49 @@ function expectedRole(state: LeagueState, teamId: string, p: PlayerState): numbe
   return better < 8 ? 0.6 : 0.3;
 }
 
+/** Partite di regular season da cui la classifica entra nella forza della squadra per gli svincolati. */
+export const APPEAL_MIN_GAMES = 10;
+
 /**
- * Punteggio di un'offerta per il giocatore: 0,55 soldi + 0,25 minuti attesi + 0,20 forza della squadra.
- * Dopo i 30 anni conta di più la durata.
+ * Forza della squadra per uno svincolato, da 0 a 1: l'overall della rotazione (da 60 a 75) e, con almeno 10 partite
+ * di regular season giocate, la percentuale di vittorie, metà e metà. In offseason la classifica è quella della
+ * stagione appena finita.
+ */
+export function teamAppeal(state: LeagueState): Map<string, number> {
+  const games = new Map(state.teams.map((t) => [t.id, { w: 0, g: 0 }]));
+  for (const g of state.games) {
+    if (g.phase !== 'regular') continue;
+    const home = games.get(g.homeId);
+    const away = games.get(g.awayId);
+    if (home) home.g++;
+    if (away) away.g++;
+    const winner = g.homeScore > g.awayScore ? home : away;
+    if (winner) winner.w++;
+  }
+  return new Map(
+    state.teams.map((t) => {
+      const s = Math.max(0, Math.min(1, (teamStrength(state, t.id) - 60) / 15));
+      const r = games.get(t.id) as { w: number; g: number };
+      return [t.id, r.g >= APPEAL_MIN_GAMES ? 0.5 * s + (0.5 * r.w) / r.g : s];
+    }),
+  );
+}
+
+/**
+ * Punteggio di un'offerta per il giocatore: 0,55 soldi + 0,25 minuti attesi + 0,20 forza della squadra (rotazione
+ * e classifica: teamAppeal). Dopo i 30 anni conta di più la durata.
  */
 export function offerScore(
   state: LeagueState,
   p: PlayerState,
   offer: Offer,
   ask: number,
-  strength: Map<string, number>,
+  appeal: Map<string, number>,
 ): number {
   const years = offer.salaries.length;
   const money = Math.min(1.5, (offer.salaries[0] ?? 0) / ask) * (p.age >= 30 ? 1 + 0.06 * (years - 1) : 1);
   const minutes = expectedRole(state, offer.teamId, p);
-  const s = Math.max(0, Math.min(1, ((strength.get(offer.teamId) ?? 60) - 60) / 15));
-  return 0.55 * money + 0.25 * minutes + 0.2 * s;
+  return 0.55 * money + 0.25 * minutes + 0.2 * (appeal.get(offer.teamId) ?? 0);
 }
 
 /**
@@ -95,7 +123,7 @@ export function resolveOffers(
   worstFirst: readonly string[],
   turn: number | null,
 ): string[] {
-  const strength = new Map(state.teams.map((t) => [t.id, teamStrength(state, t.id)]));
+  const appeal = teamAppeal(state);
   const byPlayer = new Map<string, Offer[]>();
   for (const o of offers) byPlayer.set(o.playerId, [...(byPlayer.get(o.playerId) ?? []), o]);
   const signed: string[] = [];
@@ -111,8 +139,8 @@ export function resolveOffers(
     );
     if (!valid.length) continue;
     const best = valid.reduce((a, b) => {
-      const sa = offerScore(state, p, a, ask, strength);
-      const sb = offerScore(state, p, b, ask, strength);
+      const sa = offerScore(state, p, a, ask, appeal);
+      const sb = offerScore(state, p, b, ask, appeal);
       if (sb > sa + 1e-9) return b;
       if (Math.abs(sb - sa) <= 1e-9 && worstFirst.indexOf(b.teamId) < worstFirst.indexOf(a.teamId)) return b;
       return a;
@@ -135,34 +163,83 @@ export function resolveOffers(
   return signed;
 }
 
-/** Offerte dei bot in un turno di free agency: coprono i posti liberi con chi vale di più per il prezzo. */
+/**
+ * Quanto conta il ruolo per una squadra: 1,15 se il ruolo principale del giocatore è scoperto (meno di 3 PG, 3 SG,
+ * 3 SF, 2 PF o 2 C con contratto standard, come nel draft iniziale), 0,8 se in quel ruolo ne ha già di più, 1 se è
+ * coperto giusto.
+ */
+export function roleNeed(state: LeagueState, teamId: string, p: Pick<PlayerState, 'role'>): number {
+  return roleNeedOf(roleCounts(state, teamId), p.role);
+}
+
+/** Contratti standard per ruolo principale di una squadra. */
+function roleCounts(state: LeagueState, teamId: string): Map<PlayerState['role'], number> {
+  const counts = new Map<PlayerState['role'], number>();
+  for (const x of standardRoster(state, teamId)) counts.set(x.role, (counts.get(x.role) ?? 0) + 1);
+  return counts;
+}
+
+function roleNeedOf(counts: Map<PlayerState['role'], number>, role: PlayerState['role']): number {
+  const n = INITIAL_DRAFT_ROLE_TARGET[role] - (counts.get(role) ?? 0);
+  return n > 0 ? 1.15 : n < 0 ? 0.8 : 1;
+}
+
+/** Offerte che un bot fa al massimo in un turno di free agency. */
+export const BOT_OFFERS_PER_ROUND = 3;
+
+/**
+ * Offerte dei bot in un turno di free agency. Ogni bot guarda quanto un giocatore vale per la sua strategia (il
+ * talento, corretto per il ruolo scoperto: roleNeed) sopra il sostituto, cioè il migliore che firmerebbe comunque al
+ * minimo, e spende lo spazio sotto il cap sui migliori che può pagare, uno dopo l'altro (con il saldo negativo solo
+ * fino al monte stipendi minimo, come vuole canSign). Chi chiede il minimo si firma sempre, per riempire la rosa.
+ * Sotto il monte stipendi minimo la differenza si paga comunque a fine regular season: in offseason, dove la rosa
+ * arriva a 21, il bot prende un giocatore anche con 15 contratti standard (alla preparazione si taglia il peggiore,
+ * e il residuo resta nel monte) e alza l'offerta fino a raggiungere il minimo.
+ */
 export function botOffers(state: LeagueState, round: number, rng: Rng, opts: { fillTo: number }): Offer[] {
-  const free = state.players.filter((p) => p.teamId === null && p.age < 39);
+  const c = state.config;
+  const free = state.players
+    .filter((p) => p.teamId === null && p.age < 39)
+    .map((p) => ({ p, ask: askingSalary(state, p, round), minimum: minimumSalaryFor(c, p.yearsInLeague) }));
   const offers: Offer[] = [];
+  // Il talento di ogni svincolato si calcola una volta per strategia, i ruoli una volta per squadra
+  const talents = new Map<Strategy, number[]>();
+  const talentFor = (strategy: Strategy) => {
+    let t = talents.get(strategy);
+    if (!t) talents.set(strategy, (t = free.map((x) => playerTalent(x.p, strategy, state))));
+    return t;
+  };
   for (const team of state.teams) {
     if (team.human) continue;
-    const open = opts.fillTo - standardRoster(state, team.id).length;
+    const pay = payroll(state, team.id);
+    let shortfall = state.phase === 'offseason' ? c.minimumTeamSalary - pay : 0;
+    const counts = roleCounts(state, team.id);
+    const standard = [...counts.values()].reduce((a, b) => a + b, 0);
+    const open = Math.min(Math.max(opts.fillTo - standard, shortfall > 0 ? 1 : 0), BOT_OFFERS_PER_ROUND);
     if (open <= 0) continue;
-    const space = state.config.salaryCap - payroll(state, team.id);
-    const scored = free
-      .map((p) => {
-        const ask = askingSalary(state, p, round);
-        const minimum = minimumSalaryFor(state.config, p.yearsInLeague);
-        const affordable = ask <= minimum || (space >= ask && team.balance >= 0);
-        return {
-          p,
-          ask,
-          affordable,
-          value: playerValue(p, undefined, team.strategy, state.config, state) / (ask / 1e6 + 2),
-        };
-      })
-      .filter((x) => x.affordable)
-      .sort((a, b) => b.value - a.value)
-      .slice(0, Math.min(open, 3) + 2);
-    for (const { p, ask } of scored.slice(0, Math.min(open, 3))) {
-      const salary = Math.round((ask * (1 + rng.next() * 0.08)) / 10_000) * 10_000;
-      const first = salary > space && salary > minimumSalaryFor(state.config, p.yearsInLeague) ? ask : salary;
+    let space = (team.balance >= 0 ? c.salaryCap : c.minimumTeamSalary) - pay;
+    const talent = talentFor(team.strategy);
+    const scored = free.map((x, i) => ({
+      ...x,
+      value: (talent[i] as number) * roleNeedOf(counts, x.p.role),
+    }));
+    const replacement = Math.max(0, ...scored.filter((x) => x.ask <= x.minimum).map((x) => x.value));
+    scored.sort((a, b) => b.value - a.value || (a.p.id < b.p.id ? -1 : 1));
+    let made = 0;
+    for (const { p, ask, minimum, value } of scored) {
+      if (made >= open) break;
+      if (releasedBy(state, team.id, p.id)) continue;
+      let first = ask;
+      if (ask > minimum) {
+        if (value <= replacement || ask > space) continue;
+        first = Math.min(space, Math.round((ask * (1 + rng.next() * 0.08)) / 10_000) * 10_000);
+      }
+      if (shortfall > 0)
+        first = Math.max(first, Math.min(shortfall, space, maxSalaryFor(c, p.yearsInLeague)));
+      if (first > minimum) space -= first;
+      shortfall -= first;
       offers.push({ teamId: team.id, playerId: p.id, salaries: salaryRun(first, typicalYears(p.age)) });
+      made++;
     }
   }
   return offers;
@@ -175,10 +252,17 @@ export const MINIMUM_SIGNING_SLACK = 1.2;
  * Svincolati che il server può firmare al minimo per riportare una rosa a 13: sani, sotto i 39 anni, e che
  * chiedono il minimo o poco più (la richiesta dell'ultimo turno di free agency, la più bassa, come in stagione).
  * Chi chiede di più va preso sul mercato. Solo se non resta nessuno così (caso limite) si passa a chi chiede
- * meno, prima i sani: la rosa deve comunque arrivare a 13.
+ * meno, prima i sani: la rosa deve comunque arrivare a 13. Con teamId, senza chi quella squadra ha tagliato in
+ * questa stagione.
  */
-export function minimumSigningPool(state: LeagueState): PlayerState[] {
-  const free = state.players.filter((p) => p.teamId === null && p.age < 39 && p.prospect == null);
+export function minimumSigningPool(state: LeagueState, teamId?: string): PlayerState[] {
+  const free = state.players.filter(
+    (p) =>
+      p.teamId === null &&
+      p.age < 39 &&
+      p.prospect == null &&
+      (teamId === undefined || !releasedBy(state, teamId, p.id)),
+  );
   const ask = (p: PlayerState) => askingSalaryFor(state.config, p, FREE_AGENCY_ROUNDS - 1);
   const minimum = (p: PlayerState) => minimumSalaryFor(state.config, p.yearsInLeague);
   const pool = free.filter((p) => p.injury === null && ask(p) <= minimum(p) * MINIMUM_SIGNING_SLACK);
@@ -195,7 +279,7 @@ export function fillMinimumRosters(state: LeagueState, turn: number | null): voi
   for (const team of state.teams) {
     if (team.human) continue;
     while (standardRoster(state, team.id).length < MIN_STANDARD) {
-      const free = minimumSigningPool(state).sort((a, b) => overall(b) - overall(a));
+      const free = minimumSigningPool(state, team.id).sort((a, b) => overall(b) - overall(a));
       const p = free[0];
       if (!p) break;
       const salary = minimumSalaryFor(state.config, p.yearsInLeague);
@@ -230,7 +314,7 @@ export function fillRosterAtMinimum(state: LeagueState, teamId: string, turn: nu
     overall: overall(p),
   });
   while (standardRoster(state, teamId).length < MIN_STANDARD) {
-    const free = minimumSigningPool(state);
+    const free = minimumSigningPool(state, teamId);
     if (!free.length) break;
     const choice = autoDraftPick(free.map(prospect), standardRoster(state, teamId).map(prospect));
     const p = free.find((x) => x.id === choice.id) as PlayerState;

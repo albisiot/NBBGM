@@ -145,6 +145,12 @@ export interface LeagueState {
   publicSeed?: string;
   /** Offseason in corso: draft dell'anno, lottery e chiamate (da startOffseason a startNewSeason). */
   offseason?: { draftYear: number; lottery: string[]; slots: DraftSlotState[] } | null;
+  /**
+   * Tagli della stagione, dalla prima giornata alla fine della preparazione: una squadra non rifirma chi ha tagliato
+   * (tagliare e rifirmare in stagione costava meno che rinnovare). Sul server vengono dalle richieste di taglio
+   * eseguite nei turni della stagione.
+   */
+  releases?: { playerId: string; teamId: string }[];
   /** Luxury tax e monte stipendi minimo pagati all'ultima fine di regular season (per il bilancio del server). */
   lastSettlement?: { teamId: string; payroll: number; tax: number; shortfall: number }[];
 }

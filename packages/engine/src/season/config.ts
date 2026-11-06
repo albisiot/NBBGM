@@ -63,8 +63,11 @@ export const CONFIG_2026_27: SeasonConfig = {
     [2_948_280, 3_095_640, 3_243_120, 5_853_832],
     [2_926_800, 3_073_080, 3_219_840, 5_811_811],
   ],
-  // Ricavi poco sopra il cap (+3%): chi spende fino alla tassa va in perdita. Calibrati con pnpm sim:seasons.
-  revenue: 170_000_000,
+  // Ricavi a metà tra il cap e la soglia della tassa (+11% sul cap): chi resta al cap guadagna, chi spende fino alla
+  // tassa va in perdita, chi la supera perde molto. Con stipendi come quelli veri, a saldi stabili il monte medio è
+  // circa i ricavi meno tasse e two-way: con 170 milioni (+3%) stava sotto il cap e i saldi scivolavano in rosso.
+  // Calibrati con pnpm sim:seasons.
+  revenue: 182_700_000,
   growth: 0.07,
 };
 

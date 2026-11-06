@@ -170,6 +170,38 @@ describe('valutazione degli scambi dei bot', () => {
     expect(valueWith(1)).toBeGreaterThan(free * 0.5);
   });
 
+  it('una prima scelta con la protezione quasi certa vale come la seconda scelta che diventa', () => {
+    const s = league();
+    const ranking = draftRanking(s);
+    const pick = (team: string, round: 1 | 2, year: number) =>
+      s.picks.find((k) => k.originalTeamId === team && k.round === round && k.draftYear === year)!;
+    const next = s.config.year + 1;
+    for (const strategy of ['rebuild', 'middle', 'contend'] as const) {
+      // La più debole al prossimo draft, protetta top 20: ci cade di sicuro, e dopo tre rinvii è una seconda scelta
+      // di tre anni dopo, che vale un po' meno della seconda scelta di quest'anno
+      const worst = ranking[29]!;
+      const secondNow = pickValue(s, pick(worst, 2, next), strategy, ranking);
+      const sure = pickValue(s, pick(worst, 1, next), strategy, ranking, 20);
+      expect(sure).toBeLessThan(secondNow);
+      expect(sure).toBeGreaterThan(secondNow * 0.9 ** 3 * 0.95);
+      // La diciannovesima (scelta attesa intorno alla 12) nel draft dopo, protetta top 20: ci cade circa 4 volte
+      // su 5, quindi vale vicino alla seconda scelta, non a un terzo della prima (prima era 6,5 contro 1,9 per chi
+      // ricostruisce)
+      const team = ranking[18]!;
+      const second = pickValue(s, pick(team, 2, next + 1), strategy, ranking);
+      const free = pickValue(s, pick(team, 1, next + 1), strategy, ranking);
+      const protected20 = pickValue(s, pick(team, 1, next + 1), strategy, ranking, 20);
+      expect(protected20).toBeLessThan(free * 0.3);
+      expect(protected20).toBeLessThan(second * 2.2);
+      expect(protected20).toBeGreaterThan(second);
+    }
+    // Chi è già stata rinviata ha meno rinvii davanti: diventa prima una seconda scelta, che vale di più
+    const first = pick(ranking[29]!, 1, next + 1);
+    expect(pickValue(s, { ...first, deferrals: 2 }, 'middle', ranking, 20)).toBeGreaterThan(
+      pickValue(s, { ...first, deferrals: 0 }, 'middle', ranking, 20),
+    );
+  });
+
   it('un infortunato da 60 partite vale meno: chi lo accettava sano ora lo rifiuta', () => {
     const s = league();
     const star = best(s, 'BOS')[0]!;

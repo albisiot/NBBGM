@@ -170,6 +170,8 @@ export interface LeagueStateRows {
     kind: 'release' | 'renew';
     payload: { salaries?: Num[] };
   }[];
+  /** Tagli eseguiti nei turni della stagione corrente: chi ha tagliato non rifirma (LeagueState.releases). */
+  releases?: { player_id: string; team_id: string }[];
   /** Squadra umana -> numero dell'ultimo turno in cui un bot le ha proposto uno scambio. */
   bot_proposals?: Record<string, number>;
   /** Ordine del draft annuale della stagione (dopo lottery, protezioni e swap). */
@@ -356,6 +358,7 @@ export function leagueStateFromRows(r: LeagueStateRows): { state: LeagueState; i
     talentReference: num(r.league.talent_reference),
     // Gli spareggi in classifica usano l'id della lega, che l'app conosce: il seed della lega resta segreto
     publicSeed: r.league.id,
+    releases: (r.releases ?? []).map((x) => ({ playerId: x.player_id, teamId: codeOf(x.team_id) })),
     offseason: r.draft_order?.length
       ? {
           draftYear: (r.draft_order[0] as { draft_year: number }).draft_year,
