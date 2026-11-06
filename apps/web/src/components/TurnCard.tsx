@@ -8,9 +8,11 @@ import { STAGE_LABEL } from '../lib/market.ts';
 import {
   alertText,
   answerAlert,
+  countsAsReady,
   forceRound,
   MAX_ROUND_ATTEMPTS,
   readiness,
+  readinessNote,
   reopenRound,
   roundError,
   roundStuck,
@@ -29,11 +31,18 @@ import { Button, Card, ErrorText } from './ui.tsx';
 const BADGE: Record<Readiness, { label: string; className: string }> = {
   ready: { label: 'Pronto', className: 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-100' },
   coach: { label: 'Allenatore', className: 'bg-sky-100 text-sky-800 dark:bg-sky-900 dark:text-sky-100' },
+  blocked: {
+    label: 'Deve decidere',
+    className: 'bg-amber-100 text-amber-900 dark:bg-amber-900 dark:text-amber-100',
+  },
   waiting: {
     label: 'In attesa',
-    className: 'bg-slate-100 text-slate-600 dark:bg-slate-700 dark:text-slate-300',
+    className: 'bg-slate-100 text-slate-700 dark:bg-slate-700 dark:text-slate-200',
   },
-  out: { label: 'Non gioca', className: 'bg-slate-50 text-slate-400 dark:bg-slate-800 dark:text-slate-500' },
+  out: {
+    label: 'Non gioca',
+    className: 'border border-slate-200 text-slate-600 dark:border-slate-600 dark:text-slate-300',
+  },
 };
 
 const LINK = 'font-semibold text-orange-700 hover:underline dark:text-orange-300';
@@ -103,7 +112,14 @@ export function TurnCard({
   const blocked = status.alerts.some((a) => a.blocking);
   // In play-in e playoff contano solo le squadre che giocano
   const inRound = humans.filter((t) => readiness(status, t.id, now) !== 'out');
-  const readyCount = inRound.filter((t) => readiness(status, t.id, now) !== 'waiting').length;
+  const readyCount = inRound.filter((t) => countsAsReady(readiness(status, t.id, now))).length;
+  const note = readinessNote(
+    inRound.map((t) => ({
+      name: t.ownerName ?? t.code,
+      mine: t.ownerId === userId,
+      state: readiness(status, t.id, now),
+    })),
+  );
   const champion = status.championId ? league.teams.find((t) => t.id === status.championId) : null;
   const code = (id: string) => league.teams.find((t) => t.id === id)?.code ?? '?';
   const stuck = roundStuck(round, status.trouble, now);
@@ -259,12 +275,8 @@ export function TurnCard({
               );
             })}
           </ul>
-          {readyCount === inRound.length && open && !status.paused && !draftPending && (
-            <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
-              {inRound.every((t) => readiness(status, t.id, now) === 'coach')
-                ? 'Tutti con l’allenatore: la lega avanza da sola, al ritmo scelto dal commissario.'
-                : 'Tutti pronti: il turno parte a momenti.'}
-            </p>
+          {note && open && !status.paused && !draftPending && (
+            <p className="mt-1 text-xs text-slate-600 dark:text-slate-300">{note}</p>
           )}
         </div>
 
@@ -275,9 +287,9 @@ export function TurnCard({
         )}
         {mine && open && myState !== 'out' && (
           <div className="space-y-2">
-            {myState === 'coach' && (
+            {(myState === 'coach' || myState === 'blocked') && (
               <p className="text-sm text-sky-800 dark:text-sky-200">
-                {blocked
+                {blocked || myState === 'blocked'
                   ? 'La squadra è affidata all’allenatore, ma è fermo finché non rispondi agli avvisi qui sotto.'
                   : 'La squadra è affidata all’allenatore: risulti pronto a ogni turno.'}
               </p>

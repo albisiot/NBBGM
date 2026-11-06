@@ -144,6 +144,18 @@ export function secondsLeft(deadline: string | null, now = Date.now()): number |
   return Math.max(0, Math.ceil((new Date(deadline).getTime() - now) / 1000));
 }
 
+/**
+ * Testo per i lettori di schermo nel draft dal vivo. Il conto alla rovescia cambia a ogni aggiornamento (ogni 2
+ * secondi): annunciarlo sempre coprirebbe tutto il resto. Questo testo cambia solo nei momenti importanti: quando
+ * tocca a te, quando restano 10 secondi e allo scadere. Vuoto quando tocca ad altri.
+ */
+export function draftAnnouncement(myTurn: boolean, left: number | null, pickSeconds: number): string {
+  if (!myTurn || left === null) return '';
+  if (left === 0) return 'Tempo scaduto: sceglie il server dalla tua lista.';
+  if (left <= 10 && pickSeconds > 10) return 'Restano 10 secondi per scegliere.';
+  return `Tocca a te: hai ${pickSeconds} secondi per scegliere.`;
+}
+
 /** Giro e chiamata nel giro: "giro 2, scelta 5". */
 export function pickLabel(pick: number, teams = 30): string {
   return `giro ${Math.floor(pick / teams) + 1}, scelta ${(pick % teams) + 1}`;

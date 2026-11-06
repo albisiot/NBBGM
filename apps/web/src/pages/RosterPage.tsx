@@ -159,7 +159,7 @@ export function RosterPage() {
   });
 
   return (
-    <div className="space-y-4 pb-24">
+    <div className="space-y-4 pb-[calc(6rem+env(safe-area-inset-bottom))]">
       <PageTitle
         sub={
           <>
@@ -211,7 +211,9 @@ export function RosterPage() {
           const fit = p ? roleFit(p, slot) : 1;
           return (
             <label key={slot} className="flex items-center gap-3">
-              <span className="w-8 shrink-0 text-sm font-bold text-slate-500">{slot}</span>
+              <span className="w-8 shrink-0 text-sm font-bold text-slate-500 dark:text-slate-400">
+                {slot}
+              </span>
               <select
                 className="min-h-11 min-w-0 flex-1 rounded-lg border border-slate-300 bg-white px-2 text-sm dark:border-slate-600 dark:bg-slate-900"
                 value={settings.starters[i] ?? ''}
@@ -271,7 +273,7 @@ export function RosterPage() {
                 </Link>
                 <Button
                   variant="ghost"
-                  className="min-h-9 px-2"
+                  className="min-w-11 px-2"
                   aria-label="Meno minuti"
                   onClick={() => setMinutes(p.id, m - 1)}
                 >
@@ -285,11 +287,11 @@ export function RosterPage() {
                   aria-label={`Minuti di ${p.lastName}`}
                   value={m}
                   onChange={(e) => setMinutes(p.id, Number(e.target.value))}
-                  className="h-9 w-14 rounded-lg border border-slate-300 bg-white text-center text-sm dark:border-slate-600 dark:bg-slate-900"
+                  className="h-11 w-14 rounded-lg border border-slate-300 bg-white text-center text-sm dark:border-slate-600 dark:bg-slate-900"
                 />
                 <Button
                   variant="ghost"
-                  className="min-h-9 px-2"
+                  className="min-w-11 px-2"
                   aria-label="Più minuti"
                   onClick={() => setMinutes(p.id, m + 1)}
                 >
@@ -315,7 +317,7 @@ export function RosterPage() {
                   onClick={() =>
                     update({ ...settings, tactics: { ...settings.tactics, [t.key]: o.value } as Tactics })
                   }
-                  className={`min-h-10 rounded-lg border px-3 text-sm ${
+                  className={`min-h-11 rounded-lg border px-3 text-sm ${
                     settings.tactics[t.key] === o.value
                       ? 'border-orange-500 bg-orange-50 font-semibold dark:bg-orange-950'
                       : 'border-slate-200 dark:border-slate-700'
@@ -343,7 +345,7 @@ export function RosterPage() {
         }}
       />
 
-      <div className="fixed inset-x-0 bottom-0 z-10 border-t border-slate-200 bg-white/95 p-3 backdrop-blur dark:border-slate-700 dark:bg-slate-900/95">
+      <div className="fixed inset-x-0 bottom-0 z-10 border-t border-slate-200 bg-white/95 pt-3 pr-[max(0.75rem,env(safe-area-inset-right))] pb-[max(0.75rem,env(safe-area-inset-bottom))] pl-[max(0.75rem,env(safe-area-inset-left))] backdrop-blur dark:border-slate-700 dark:bg-slate-900/95">
         <div className="mx-auto flex max-w-4xl items-center justify-between gap-3">
           <div className="min-w-0 text-sm">
             {problems.length > 0 ? (
@@ -353,7 +355,7 @@ export function RosterPage() {
             ) : dirty ? (
               <span className="text-slate-600 dark:text-slate-300">Modifiche non salvate.</span>
             ) : (
-              <span className="text-slate-500">Nessuna modifica.</span>
+              <span className="text-slate-500 dark:text-slate-400">Nessuna modifica.</span>
             )}
             {error && <span className="block text-red-600">{error}</span>}
           </div>

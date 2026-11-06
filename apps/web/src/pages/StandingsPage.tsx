@@ -96,8 +96,9 @@ function StandingsTable({
       <table className="w-full min-w-[36rem] text-sm">
         <thead>
           <tr className="border-b border-slate-200 text-xs text-slate-500 dark:border-slate-700 dark:text-slate-400">
-            <th className="w-8 py-1 text-left font-medium">#</th>
-            <th className="py-1 text-left font-medium">Squadra</th>
+            <th className="sticky left-0 bg-white py-1 pr-2 pl-2 text-left font-medium dark:bg-slate-800">
+              <span className="inline-block w-6">#</span>Squadra
+            </th>
             <th className={th}>V</th>
             <th className={th}>P</th>
             <th className={th}>%</th>
@@ -113,13 +114,15 @@ function StandingsTable({
           {lines.map((l, i) => {
             const rank = seeds ? l.confRank : i + 1;
             const t = team.get(l.teamId);
+            // Segno dei posti playoff e play-in: un'ombra interna, perché il bordo di una cella fissa (sticky)
+            // in una tabella con i bordi collassati non la segue quando la tabella scorre
             const mark = !seeds
               ? ''
               : rank <= 6
-                ? 'border-l-green-500'
+                ? 'shadow-[inset_4px_0_0_var(--color-green-500)]'
                 : rank <= 10
-                  ? 'border-l-orange-400'
-                  : 'border-l-transparent';
+                  ? 'shadow-[inset_4px_0_0_var(--color-orange-400)]'
+                  : '';
             const gb = leader ? (leader.w - l.w + (l.l - leader.l)) / 2 : 0;
             return (
               <tr
@@ -128,9 +131,11 @@ function StandingsTable({
                   seeds && rank === 6 ? 'border-b-slate-300 dark:border-b-slate-500' : ''
                 } ${seeds && rank === 10 ? 'border-b-slate-300 dark:border-b-slate-500' : ''}`}
               >
-                <td className={`border-l-4 py-1 pl-1 ${mark}`}>{rank}</td>
-                <td className="max-w-48 truncate py-1 pr-2">
+                <td
+                  className={`sticky left-0 max-w-[12rem] truncate bg-white py-1 pr-2 pl-2 sm:max-w-60 dark:bg-slate-800 ${mark}`}
+                >
                   <span className="flex items-center gap-2">
+                    <span className="w-5 shrink-0 font-normal">{rank}</span>
                     <TeamCode code={t?.code ?? '?'} strong={l.teamId === mine} />
                     <span className="truncate">{t?.fullName}</span>
                   </span>

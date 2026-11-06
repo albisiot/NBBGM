@@ -31,7 +31,8 @@ function Routed() {
         <Spinner />
       </div>
     );
-  // Senza login si vede solo l'accesso; un link d'invito resta nell'indirizzo e si apre dopo
+  // Senza login si vede solo l'accesso. Un link d'invito resta nell'indirizzo e si apre dopo: con il codice via
+  // email la pagina non cambia, con Google si salva prima di andare e si rimette al ritorno (lib/returnTo.ts)
   if (!session) return <LoginPage />;
   return (
     <Routes>

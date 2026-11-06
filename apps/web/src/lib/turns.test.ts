@@ -1,5 +1,14 @@
 import { describe, expect, it } from 'vitest';
-import { alertText, coachActive, readiness, roundStuck, timeLeft, type TurnStatus } from './turns.ts';
+import {
+  alertText,
+  coachActive,
+  countsAsReady,
+  readiness,
+  readinessNote,
+  roundStuck,
+  timeLeft,
+  type TurnStatus,
+} from './turns.ts';
 
 const NOW = Date.parse('2026-11-05T12:00:00Z');
 
@@ -24,6 +33,8 @@ function status(over: Partial<TurnStatus> = {}): TurnStatus {
     playing: null,
     championId: null,
     trouble: null,
+    myTeamId: null,
+    teamStates: null,
     ...over,
   };
 }
@@ -54,10 +65,76 @@ describe('chi è pronto', () => {
     expect(['a', 'b', 'c'].map((t) => readiness(s, t, NOW))).toEqual(['ready', 'waiting', 'out']);
   });
 
+  it('senza lo stato del server, l’avviso bloccante si vede solo per la propria squadra', () => {
+    const coach = (teamId: string) => ({ teamId, active: true, untilRound: null, untilAt: null });
+    const alert = { id: 'x', kind: 'trade_offer', blocking: true, payload: {}, createdAt: '' };
+    const s = status({ myTeamId: 'a', alerts: [alert], delegations: [coach('a'), coach('b')] });
+    expect(readiness(s, 'a', NOW)).toBe('blocked');
+    expect(readiness(s, 'b', NOW)).toBe('coach');
+  });
+
+  it('con lo stato del server vale quello: anche gli avvisi delle altre squadre', () => {
+    const s = status({
+      ready: new Set(),
+      delegations: [
+        { teamId: 'b', active: true, untilRound: null, untilAt: null },
+        { teamId: 'c', active: true, untilRound: null, untilAt: '2026-11-05T11:00:00Z' },
+      ],
+      teamStates: new Map([
+        ['a', 'ready'],
+        ['b', 'blocked'],
+        // Delega scaduta dopo la lettura: non è più con l'allenatore
+        ['c', 'coach'],
+        ['d', 'out'],
+      ]),
+    });
+    expect(['a', 'b', 'c', 'd'].map((t) => readiness(s, t, NOW))).toEqual([
+      'ready',
+      'blocked',
+      'waiting',
+      'out',
+    ]);
+    // Una squadra che il server non conosce ancora (appena entrata) si ricava dalle tabelle
+    expect(readiness({ ...s, ready: new Set(['e']) }, 'e', NOW)).toBe('ready');
+    expect(['ready', 'coach', 'blocked', 'waiting'].map((r) => countsAsReady(r as never))).toEqual([
+      true,
+      true,
+      false,
+      false,
+    ]);
+  });
+
   it('la delega fino a un turno vale fino a quel turno compreso', () => {
     const d = { teamId: 'x', active: true, untilRound: 4, untilAt: null };
     expect(coachActive(d, 4, NOW)).toBe(true);
     expect(coachActive(d, 5, NOW)).toBe(false);
+  });
+});
+
+describe('nota sotto i manager', () => {
+  const t = (name: string, state: Parameters<typeof readinessNote>[0][number]['state'], mine = false) => ({
+    name,
+    state,
+    mine,
+  });
+
+  it('tutti pronti o tutti con l’allenatore', () => {
+    expect(readinessNote([t('Anna', 'ready'), t('Bruno', 'coach'), t('Carla', 'out')])).toBe(
+      'Tutti pronti: il turno parte a momenti.',
+    );
+    expect(readinessNote([t('Anna', 'coach'), t('Bruno', 'coach')])).toMatch(/la lega avanza da sola/);
+  });
+
+  it('con l’allenatore fermo da un avviso non dice che la lega avanza: dice chi deve decidere', () => {
+    expect(readinessNote([t('Anna', 'coach'), t('Bruno', 'blocked')])).toBe(
+      'Si aspetta una decisione da Bruno: con un avviso aperto l’allenatore si ferma finché il manager non risponde.',
+    );
+    expect(readinessNote([t('Anna', 'blocked', true), t('Bruno', 'blocked'), t('Carla', 'blocked')])).toMatch(
+      /^Si aspetta una decisione da Bruno, Carla e te:/,
+    );
+    // Qualcuno non ha ancora premuto Pronto e nessuno è fermo: niente da dire
+    expect(readinessNote([t('Anna', 'coach'), t('Bruno', 'waiting')])).toBeNull();
+    expect(readinessNote([t('Anna', 'out')])).toBeNull();
   });
 });
 

@@ -11,7 +11,7 @@ import { useAsync } from '../lib/useAsync.ts';
 type SortKey = 'pts' | 'reb' | 'ast' | 'stl' | 'blk' | 'tov' | 'min' | 'g' | 'fgPct' | 'tpPct' | 'ftPct';
 
 const COLUMNS: { key: SortKey; label: string; title: string; pct?: boolean; int?: boolean }[] = [
-  { key: 'g', label: 'PG', title: 'Partite giocate', int: true },
+  { key: 'g', label: 'G', title: 'Partite giocate', int: true },
   { key: 'min', label: 'MIN', title: 'Minuti' },
   { key: 'pts', label: 'PT', title: 'Punti' },
   { key: 'reb', label: 'RIM', title: 'Rimbalzi' },
@@ -25,6 +25,9 @@ const COLUMNS: { key: SortKey; label: string; title: string; pct?: boolean; int?
 ];
 
 const LIMIT = 100;
+
+// Colonna del nome fissa a sinistra quando la tabella scorre (su telefono): fondo della scheda sotto
+const STICKY = 'sticky left-0 bg-white pl-1 dark:bg-slate-800';
 
 export function StatsPage() {
   const { id = '' } = useParams();
@@ -63,7 +66,7 @@ export function StatsPage() {
         <label className="flex items-center gap-2">
           Squadra
           <select
-            className="min-h-10 rounded-lg border border-slate-300 bg-white px-2 dark:border-slate-600 dark:bg-slate-800"
+            className="min-h-11 rounded-lg border border-slate-300 bg-white px-2 dark:border-slate-600 dark:bg-slate-800"
             value={teamFilter}
             onChange={(e) => setTeamFilter(e.target.value)}
           >
@@ -92,22 +95,23 @@ export function StatsPage() {
       </div>
 
       {rows.length === 0 ? (
-        <p className="text-sm text-slate-500">Nessuna partita giocata.</p>
+        <p className="text-sm text-slate-500 dark:text-slate-400">Nessuna partita giocata.</p>
       ) : (
         <Card className="!p-4">
           <div className="overflow-x-auto">
             <table className="w-full min-w-[46rem] text-sm">
               <thead>
                 <tr className="border-b border-slate-200 text-xs text-slate-500 dark:border-slate-700 dark:text-slate-400">
-                  <th className="w-8 py-1 text-left font-medium">#</th>
-                  <th className="py-1 text-left font-medium">Giocatore</th>
+                  <th className={`${STICKY} py-1 pr-2 text-left font-medium`}>
+                    <span className="inline-block w-6">#</span>Giocatore
+                  </th>
                   {COLUMNS.map((c) => (
                     <th key={c.key} className="px-1 py-1 text-right font-medium">
                       <button
                         type="button"
                         title={c.title}
                         onClick={() => setSort(c.key)}
-                        className={`min-h-8 rounded px-1 ${sort === c.key ? 'font-bold text-orange-700 dark:text-orange-300' : 'hover:text-slate-900 dark:hover:text-white'}`}
+                        className={`min-h-11 min-w-11 rounded px-1 ${sort === c.key ? 'font-bold text-orange-700 dark:text-orange-300' : 'hover:text-slate-900 dark:hover:text-white'}`}
                       >
                         {c.label}
                         {sort === c.key ? ' ↓' : ''}
@@ -132,7 +136,7 @@ export function StatsPage() {
             </table>
           </div>
           {rows.length > LIMIT && (
-            <p className="mt-2 text-xs text-slate-500">
+            <p className="mt-2 text-xs text-slate-500 dark:text-slate-400">
               I primi {LIMIT} su {rows.length}.
             </p>
           )}
@@ -159,14 +163,15 @@ function Row({
 }) {
   return (
     <tr className={`border-b border-slate-100 dark:border-slate-700/60 ${mine ? 'font-semibold' : ''}`}>
-      <td className="py-1 text-xs text-slate-500">{rank}</td>
-      <td className="max-w-52 truncate py-1 pr-2">
+      <td className={`${STICKY} max-w-[13rem] truncate py-1 pr-2 sm:max-w-64`}>
         <span className="flex items-center gap-2">
+          <span className="w-4 shrink-0 text-xs font-normal text-slate-500 dark:text-slate-400">{rank}</span>
           <TeamCode code={code ?? 'SV'} strong={mine} />
           <Link to={`/lega/${leagueId}/giocatore/${p.id}`} className="truncate hover:underline">
             {p.name}
           </Link>
-          <span className="text-xs text-slate-400">{p.role}</span>
+          {/* Su telefono il ruolo lascia spazio al nome: si vede nella scheda del giocatore */}
+          <span className="hidden text-xs text-slate-500 sm:inline dark:text-slate-400">{p.role}</span>
         </span>
       </td>
       {COLUMNS.map((c) => {

@@ -102,6 +102,10 @@ export function faRoundOf(stage: string | null): number | null {
   return m ? Number(m[1]) - 1 : null;
 }
 
+/** Turno dell'offseason dopo il draft: contratti e configurazione sono già quelli della stagione che arriva. */
+const afterDraft = (kind: string | null, stage: string | null) =>
+  kind === 'offseason' && stage !== null && stage !== 'draft';
+
 /**
  * Configurazione con cui lavora il server: dopo il draft dell'offseason è già quella della stagione che arriva.
  */
@@ -110,7 +114,15 @@ export function effectiveConfig(
   kind: string | null,
   stage: string | null,
 ): SeasonConfig {
-  return kind === 'offseason' && stage && stage !== 'draft' ? nextConfig(config) : config;
+  return afterDraft(kind, stage) ? nextConfig(config) : config;
+}
+
+/**
+ * Stagione del primo stipendio di un contratto: quella in corso, oppure, dopo il draft dell'offseason (contratti
+ * già scalati), quella che arriva.
+ */
+export function contractFirstYear(seasonYear: number, kind: string | null, stage: string | null): number {
+  return afterDraft(kind, stage) ? seasonYear + 1 : seasonYear;
 }
 
 /** Richiesta di rinnovo di un giocatore in scadenza nel turno dei rinnovi, come la calcola il server. */

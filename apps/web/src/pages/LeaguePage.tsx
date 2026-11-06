@@ -151,7 +151,7 @@ function TeamList({ title, teams, userId }: { title: string; teams: LeagueTeam[]
               <span className="truncate">{t.fullName}</span>
             </span>
             <span
-              className={`shrink-0 text-xs ${t.ownerId ? 'text-orange-700 dark:text-orange-300' : 'text-slate-400'}`}
+              className={`shrink-0 text-xs ${t.ownerId ? 'text-orange-700 dark:text-orange-300' : 'text-slate-500'}`}
             >
               {t.ownerId === userId ? 'Tu' : (t.ownerName ?? 'Bot')}
             </span>

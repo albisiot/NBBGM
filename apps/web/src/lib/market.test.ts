@@ -1,6 +1,7 @@
 import { CONFIG_2026_27, luxuryTax, nextConfig, salaryRun } from '@nbbgm/engine';
 import { describe, expect, it } from 'vitest';
 import {
+  contractFirstYear,
   effectiveConfig,
   faRoundOf,
   millions,
@@ -9,6 +10,16 @@ import {
   projectedTax,
   salaryRunOf,
 } from './market.ts';
+
+describe('stagioni dei contratti', () => {
+  it('dopo il draft dell’offseason il primo stipendio è della stagione che arriva', () => {
+    expect(contractFirstYear(2026, 'regular', null)).toBe(2026);
+    expect(contractFirstYear(2026, 'playoffs', null)).toBe(2026);
+    expect(contractFirstYear(2026, 'offseason', 'draft')).toBe(2026);
+    expect(contractFirstYear(2026, 'offseason', 'renewals')).toBe(2027);
+    expect(contractFirstYear(2026, 'offseason', 'preparation')).toBe(2027);
+  });
+});
 
 describe('mercato nell’app', () => {
   it('stipendi e tassa come li calcola il server', () => {

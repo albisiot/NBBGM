@@ -99,6 +99,7 @@ describe('permessi', () => {
       'player_scouting(uuid)',
       'reopen_round(uuid,boolean)',
       'round_error(uuid)',
+      'round_readiness(uuid)',
       'set_ready(uuid,boolean,uuid)',
       'team_balance(uuid)',
     ]);
@@ -155,6 +156,7 @@ describe('permessi', () => {
       'private.cron_tick()',
       'private.round_due(uuid)',
       'private.coach_active(uuid,uuid)',
+      'private.team_readiness(uuid)',
     ]) {
       for (const role of ['anon', 'authenticated', 'service_role']) {
         const ok = await db.query<{ ok: boolean }>(`select has_function_privilege($1, $2, 'EXECUTE') as ok`, [

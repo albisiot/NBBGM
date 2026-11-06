@@ -61,6 +61,13 @@ export interface TurnStatus {
   championId: string | null;
   /** Solo per un turno in chiusura: tentativi di simulazione e stato fermo. */
   trouble: RoundTrouble | null;
+  /** Squadra del manager collegato, se ne ha una. */
+  myTeamId: string | null;
+  /**
+   * Stato delle squadre umane calcolato dal server (round_readiness), con la regola che decide la chiusura del
+   * turno; null se il database non ha ancora la funzione.
+   */
+  teamStates: Map<string, Readiness> | null;
 }
 
 export async function turnStatus(leagueId: string, myTeamId: string | null): Promise<TurnStatus> {
@@ -88,7 +95,7 @@ export async function turnStatus(leagueId: string, myTeamId: string | null): Pro
     } | null;
   } | null;
   const round = l?.round ?? null;
-  const [flags, delegations, alerts, games] = await Promise.all([
+  const [flags, delegations, alerts, games, teamStates] = await Promise.all([
     round
       ? supabase.from('ready_flags').select('team_id').eq('round_id', round.id).eq('ready', true)
       : Promise.resolve({ data: [], error: null }),
@@ -114,6 +121,7 @@ export async function turnStatus(leagueId: string, myTeamId: string | null): Pro
           .order('played_at', { ascending: false })
           .limit(1)
       : Promise.resolve({ data: [], error: null }),
+    round ? serverReadiness(leagueId) : Promise.resolve(null),
   ]);
   for (const r of [flags, delegations, alerts, games]) if (r.error) throw r.error;
   let playing: Set<string> | null = null;
@@ -204,7 +212,26 @@ export async function turnStatus(leagueId: string, myTeamId: string | null): Pro
     playing,
     championId,
     trouble,
+    myTeamId,
+    teamStates,
   };
+}
+
+const READINESS: readonly Readiness[] = ['ready', 'coach', 'blocked', 'waiting', 'out'];
+
+/**
+ * Stato delle squadre umane nel turno corrente, dal server. Null se il database non ha ancora round_readiness
+ * (l'app si pubblica insieme alle migrazioni): la scheda lo ricava allora dalle tabelle.
+ */
+async function serverReadiness(leagueId: string): Promise<Map<string, Readiness> | null> {
+  const { data, error } = await supabase.rpc('round_readiness', { p_league: leagueId });
+  if (error?.code === 'PGRST202') return null;
+  if (error) throw error;
+  return new Map(
+    ((data ?? []) as { team_id: string; state: string }[])
+      .filter((r) => (READINESS as readonly string[]).includes(r.state))
+      .map((r) => [r.team_id, r.state as Readiness]),
+  );
 }
 
 /**
@@ -243,18 +270,62 @@ export function coachActive(d: Delegation | undefined, roundNumber: number, now 
   return true;
 }
 
-export type Readiness = 'ready' | 'coach' | 'waiting' | 'out';
+/**
+ * Stato di una squadra umana nel turno:
+ *   ready     Pronto premuto
+ *   coach     allenatore attivo, senza avvisi bloccanti: conta come pronta
+ *   blocked   allenatore attivo ma con un avviso bloccante aperto: non è pronta finché il manager non risponde
+ *   waiting   non pronta
+ *   out       in play-in e playoff senza partita nel turno: non deve essere pronta
+ */
+export type Readiness = 'ready' | 'coach' | 'blocked' | 'waiting' | 'out';
+
+/** La squadra conta come pronta per la chiusura del turno. */
+export const countsAsReady = (r: Readiness): boolean => r === 'ready' || r === 'coach';
 
 /**
- * Stato di una squadra umana nel turno: Pronto premuto, allenatore attivo, in attesa, oppure fuori dal turno
- * (in play-in e playoff chi non gioca non deve essere pronto).
+ * Stato di una squadra nel turno. Lo dà il server, che vede gli avvisi di tutti; senza (database non ancora
+ * aggiornato) si ricava dalle tabelle, e gli avvisi bloccanti si vedono solo per la propria squadra.
  */
 export function readiness(status: TurnStatus, teamId: string, now = Date.now()): Readiness {
+  const d = status.delegations.find((x) => x.teamId === teamId);
+  const coach = status.round !== null && coachActive(d, status.round.number, now);
+  const server = status.teamStates?.get(teamId);
+  if (server !== undefined)
+    // La delega può scadere tra una lettura e l'altra
+    return (server === 'coach' || server === 'blocked') && !coach ? 'waiting' : server;
   if (status.playing && !status.playing.has(teamId)) return 'out';
   if (status.ready.has(teamId)) return 'ready';
-  const d = status.delegations.find((x) => x.teamId === teamId);
-  if (status.round && coachActive(d, status.round.number, now)) return 'coach';
-  return 'waiting';
+  if (!coach) return 'waiting';
+  return teamId === status.myTeamId && status.alerts.some((a) => a.blocking) ? 'blocked' : 'coach';
+}
+
+/** "Bruno", "Bruno e Carla", "Bruno, Carla e te" */
+function namesList(names: string[]): string {
+  if (names.length <= 1) return names[0] ?? '';
+  return `${names.slice(0, -1).join(', ')} e ${names[names.length - 1]}`;
+}
+
+/**
+ * Nota sotto l'elenco dei manager, per un turno aperto e una lega non in pausa: chi deve ancora decidere (con
+ * l'allenatore fermo da un avviso) oppure, se tutti sono pronti, come parte il turno. Null se non c'è niente da
+ * dire.
+ */
+export function readinessNote(teams: { name: string; mine: boolean; state: Readiness }[]): string | null {
+  const inRound = teams.filter((t) => t.state !== 'out');
+  if (inRound.length === 0) return null;
+  if (inRound.every((t) => countsAsReady(t.state)))
+    return inRound.every((t) => t.state === 'coach')
+      ? 'Tutti con l’allenatore: la lega avanza da sola, al ritmo scelto dal commissario.'
+      : 'Tutti pronti: il turno parte a momenti.';
+  const blocked = inRound.filter((t) => t.state === 'blocked');
+  if (blocked.length === 0) return null;
+  // Prima gli altri, "te" in fondo
+  const names = [
+    ...blocked.filter((t) => !t.mine).map((t) => t.name),
+    ...(blocked.some((t) => t.mine) ? ['te'] : []),
+  ];
+  return `Si aspetta una decisione da ${namesList(names)}: con un avviso aperto l’allenatore si ferma finché il manager non risponde.`;
 }
 
 /**

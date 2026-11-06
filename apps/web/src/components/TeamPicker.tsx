@@ -24,7 +24,7 @@ export function TeamPicker({
           </h3>
           {conf.divisions.map((division) => (
             <div key={division} className="mt-2">
-              <p className="text-xs text-slate-400 dark:text-slate-500">{division}</p>
+              <p className="text-xs text-slate-500 dark:text-slate-500">{division}</p>
               <div className="mt-1 grid grid-cols-1 gap-1 sm:grid-cols-2">
                 {TEAMS.filter((t) => t.division === division).map((t) => {
                   const isTaken = taken.includes(t.id);

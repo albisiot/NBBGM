@@ -16,6 +16,7 @@ import { formatSalary } from '../lib/draft.ts';
 import { friendlyError } from '../lib/errors.ts';
 import { leagueDetail } from '../lib/leagues.ts';
 import {
+  contractFirstYear,
   marketAction,
   millions,
   myRequests,
@@ -58,7 +59,12 @@ export function PlayerPage() {
   if (!data?.player) return <ErrorText>Giocatore non trovato.</ErrorText>;
   const { player: p, scouting: s, league } = data;
   const team = league?.teams.find((t) => t.id === p.teamId);
-  const year = league?.seasonYear ?? 2026;
+  // Dopo il draft dell'offseason i contratti sono già scalati: il primo stipendio è della stagione che arriva
+  const year = contractFirstYear(
+    league?.seasonYear ?? 2026,
+    league?.roundKind ?? null,
+    league?.roundStage ?? null,
+  );
   const games = p.stats.g ?? 0;
   const perGame = (k: string) => (games > 0 ? ((p.stats[k] ?? 0) / games).toFixed(1) : '—');
   const groups = [...new Set(RATING_FIELDS.map((f) => f.group))];
@@ -85,19 +91,19 @@ export function PlayerPage() {
             </div>
           </div>
           <dl className="mt-3 grid grid-cols-2 gap-x-4 gap-y-1 text-sm">
-            <dt className="text-slate-500">Età</dt>
+            <dt className="text-slate-500 dark:text-slate-400">Età</dt>
             <dd>{p.age} anni</dd>
-            <dt className="text-slate-500">Altezza</dt>
+            <dt className="text-slate-500 dark:text-slate-400">Altezza</dt>
             <dd>{p.heightCm} cm</dd>
-            <dt className="text-slate-500">Apertura alare</dt>
+            <dt className="text-slate-500 dark:text-slate-400">Apertura alare</dt>
             <dd>{p.wingspanCm} cm</dd>
-            <dt className="text-slate-500">Peso</dt>
+            <dt className="text-slate-500 dark:text-slate-400">Peso</dt>
             <dd>{p.weightKg} kg</dd>
-            <dt className="text-slate-500">Mano</dt>
+            <dt className="text-slate-500 dark:text-slate-400">Mano</dt>
             <dd>{p.hand === 'L' ? 'sinistra' : 'destra'}</dd>
-            <dt className="text-slate-500">Nazionalità</dt>
+            <dt className="text-slate-500 dark:text-slate-400">Nazionalità</dt>
             <dd>{p.nationality || '—'}</dd>
-            <dt className="text-slate-500">Anni nella lega</dt>
+            <dt className="text-slate-500 dark:text-slate-400">Anni nella lega</dt>
             <dd>{p.yearsInLeague ?? '—'}</dd>
           </dl>
         </Card>
@@ -115,13 +121,13 @@ export function PlayerPage() {
           )}
           <h3 className="pt-2 font-semibold">Stime {s.own ? '(della tua squadra: più precise)' : ''}</h3>
           <dl className="grid grid-cols-2 gap-x-4 gap-y-1">
-            <dt className="text-slate-500">Costanza in attacco</dt>
+            <dt className="text-slate-500 dark:text-slate-400">Costanza in attacco</dt>
             <dd>{s.offensive_consistency ?? '—'}</dd>
-            <dt className="text-slate-500">Costanza in difesa</dt>
+            <dt className="text-slate-500 dark:text-slate-400">Costanza in difesa</dt>
             <dd>{s.defensive_consistency ?? '—'}</dd>
-            <dt className="text-slate-500">Etica del lavoro</dt>
+            <dt className="text-slate-500 dark:text-slate-400">Etica del lavoro</dt>
             <dd>{s.work_ethic ?? '—'}</dd>
-            <dt className="text-slate-500">A rischio</dt>
+            <dt className="text-slate-500 dark:text-slate-400">A rischio</dt>
             <dd>{s.risks.length ? s.risks.join(', ') : 'nessun punto debole noto'}</dd>
           </dl>
         </Card>
@@ -132,7 +138,7 @@ export function PlayerPage() {
           Contratto {p.contractType ? CONTRACT_LABEL[p.contractType] : ''}
         </h2>
         {p.salaries.length === 0 ? (
-          <p className="text-sm text-slate-500">
+          <p className="text-sm text-slate-500 dark:text-slate-400">
             {p.contractType === 'two-way'
               ? 'Stipendio fisso da two-way.'
               : p.contractType
@@ -143,7 +149,8 @@ export function PlayerPage() {
           <ul className="grid grid-cols-2 gap-1 text-sm sm:grid-cols-3">
             {p.salaries.map((sal, i) => (
               <li key={i}>
-                <span className="text-slate-500">{seasonLabel(year + i)}</span> {formatSalary(sal)}
+                <span className="text-slate-500 dark:text-slate-400">{seasonLabel(year + i)}</span>{' '}
+                {formatSalary(sal)}
                 {p.options[i] && (
                   <span className="ml-1 text-xs text-orange-700">
                     opzione {p.options[i] === 'player' ? 'giocatore' : 'squadra'}
@@ -170,7 +177,7 @@ export function PlayerPage() {
       <Card>
         <h2 className="mb-2 font-semibold">Statistiche della stagione</h2>
         {games === 0 ? (
-          <p className="text-sm text-slate-500">Nessuna partita giocata.</p>
+          <p className="text-sm text-slate-500 dark:text-slate-400">Nessuna partita giocata.</p>
         ) : (
           <dl className="grid grid-cols-3 gap-2 text-center text-sm sm:grid-cols-6">
             <Stat label="Partite" value={String(games)} />
@@ -234,7 +241,7 @@ function Meter({ label, value }: { label: string; value: number }) {
 function Stat({ label, value }: { label: string; value: string }) {
   return (
     <div>
-      <dt className="text-xs text-slate-500">{label}</dt>
+      <dt className="text-xs text-slate-500 dark:text-slate-400">{label}</dt>
       <dd className="text-lg font-semibold">{value}</dd>
     </div>
   );
@@ -285,7 +292,9 @@ function OwnPlayerMarket({
     <Card className="space-y-3 text-sm">
       <h2 className="font-semibold">Contratto e rosa</h2>
       {!marketOpen && (
-        <p className="text-slate-500">Durante play-in e playoff non si taglia e non si rinnova.</p>
+        <p className="text-slate-500 dark:text-slate-400">
+          Durante play-in e playoff non si taglia e non si rinnova.
+        </p>
       )}
       {release ? (
         <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg bg-orange-50 p-3 dark:bg-orange-950">

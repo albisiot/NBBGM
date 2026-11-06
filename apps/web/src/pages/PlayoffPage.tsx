@@ -39,7 +39,9 @@ export function PlayoffPage() {
               <ol className="space-y-1 text-sm">
                 {standings[c].slice(0, 10).map((l) => (
                   <li key={l.teamId} className="flex items-center gap-2">
-                    <span className="w-5 text-right text-xs text-slate-500">{l.confRank}</span>
+                    <span className="w-5 text-right text-xs text-slate-500 dark:text-slate-400">
+                      {l.confRank}
+                    </span>
                     <TeamCode code={team.get(l.teamId)?.code ?? '?'} strong={l.teamId === mine} />
                     <span className="min-w-0 flex-1 truncate">{team.get(l.teamId)?.fullName}</span>
                     <span className="font-mono text-xs">
@@ -141,10 +143,10 @@ function SeriesCard({
         <div
           key={x.id}
           className={`flex items-center gap-2 py-0.5 ${s.winnerTeamId === x.id ? 'font-semibold' : ''} ${
-            s.winnerTeamId && s.winnerTeamId !== x.id ? 'text-slate-400' : ''
+            s.winnerTeamId && s.winnerTeamId !== x.id ? 'text-slate-500 dark:text-slate-400' : ''
           }`}
         >
-          <span className="w-4 text-right text-xs text-slate-500">{x.seed || ''}</span>
+          <span className="w-4 text-right text-xs text-slate-500 dark:text-slate-400">{x.seed || ''}</span>
           <TeamCode code={code(x.id)} strong={x.id === mine} />
           <span className="min-w-0 flex-1 truncate">{team.get(x.id)?.fullName}</span>
           <span className="w-5 text-right font-mono text-base">{x.wins}</span>
@@ -199,7 +201,9 @@ function PlayIn({
                 const won = score !== null && other !== null && score > other;
                 return (
                   <div key={tid} className={`flex items-center gap-2 py-0.5 ${won ? 'font-semibold' : ''}`}>
-                    <span className="w-4 text-right text-xs text-slate-500">{seedOf(tid) || ''}</span>
+                    <span className="w-4 text-right text-xs text-slate-500 dark:text-slate-400">
+                      {seedOf(tid) || ''}
+                    </span>
                     <TeamCode code={team.get(tid)?.code ?? '?'} strong={tid === mine} />
                     <span className="min-w-0 flex-1 truncate">{team.get(tid)?.fullName}</span>
                     <span className="font-mono">{score ?? '–'}</span>
@@ -207,7 +211,7 @@ function PlayIn({
                 );
               })
             ) : (
-              <p className="text-xs text-slate-400">Dopo le prime due partite</p>
+              <p className="text-xs text-slate-500 dark:text-slate-400">Dopo le prime due partite</p>
             )}
           </div>
         ))}

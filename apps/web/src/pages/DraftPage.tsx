@@ -6,6 +6,7 @@ import { Button, Card, ErrorText, PageTitle, Spinner } from '../components/ui.ts
 import { useUserId } from '../lib/auth.tsx';
 import {
   draftAction,
+  draftAnnouncement,
   draftPicks,
   draftPool,
   draftState,
@@ -19,6 +20,7 @@ import {
   type DraftState,
 } from '../lib/draft.ts';
 import { friendlyError } from '../lib/errors.ts';
+import { latestSaver } from '../lib/latestSaver.ts';
 import { leagueDetail, type LeagueDetail } from '../lib/leagues.ts';
 
 type Tab = 'players' | 'list' | 'picks' | 'rosters';
@@ -104,6 +106,18 @@ export function DraftPage() {
   const taken = useMemo(() => new Set(picks.map((p) => p.playerId)), [picks]);
   const byId = useMemo(() => new Map(pool.map((p) => [p.id, p])), [pool]);
   const teamById = useMemo(() => new Map((league?.teams ?? []).map((t) => [t.id, t])), [league]);
+  // La lista si riscrive intera a ogni tocco: un salvataggio alla volta, l'ultimo vince
+  const myTeamId = myTeam?.id;
+  const saver = useMemo(
+    () =>
+      myTeamId
+        ? latestSaver(
+            (ids: string[]) => saveDraftList(myTeamId, id, ids),
+            (e) => setError(friendlyError(e)),
+          )
+        : null,
+    [myTeamId, id],
+  );
 
   async function run(action: 'start' | 'to-list' | 'pick', playerId?: string) {
     setBusy(true);
@@ -119,9 +133,9 @@ export function DraftPage() {
   }
 
   function updateList(next: string[]) {
-    if (!myTeam || !league) return;
+    if (!saver) return;
     setList(next);
-    saveDraftList(myTeam.id, league.id, next).catch((e: unknown) => setError(friendlyError(e)));
+    void saver.save(next);
   }
 
   if (loading) return <Spinner />;
@@ -174,17 +188,14 @@ export function DraftPage() {
               <p className={`text-lg font-semibold ${myTurn ? 'text-orange-600' : ''}`}>
                 {myTurn ? 'Tocca a te!' : `Tocca a ${onClockTeam?.fullName ?? '…'}`}
                 {!myTurn && onClockTeam && (
-                  <span className="ml-2 text-sm font-normal text-slate-500">
+                  <span className="ml-2 text-sm font-normal text-slate-500 dark:text-slate-400">
                     {onClockTeam.ownerName ?? 'Bot'}
                   </span>
                 )}
               </p>
             </div>
             {left !== null && (
-              <p
-                className={`font-mono text-3xl font-bold ${left <= 10 ? 'text-red-600' : ''}`}
-                aria-live="polite"
-              >
+              <p className={`font-mono text-3xl font-bold ${left <= 10 ? 'text-red-600' : ''}`}>
                 {Math.floor(left / 60)}:{String(left % 60).padStart(2, '0')}
               </p>
             )}
@@ -200,6 +211,11 @@ export function DraftPage() {
             Draft concluso: ogni squadra ha 13 giocatori. Chi non è stato scelto è svincolato.
           </p>
         )}
+        {/* Il conto alla rovescia cambia ogni 2 secondi: ai lettori di schermo si annunciano solo i momenti
+            importanti. La regione resta sempre nella pagina perché i cambi vengano letti. */}
+        <p className="sr-only" aria-live="polite">
+          {draftAnnouncement(myTurn, draft.state === 'running' ? left : null, draft.pickSeconds)}
+        </p>
         <ErrorText>{error}</ErrorText>
       </Card>
 
@@ -259,17 +275,23 @@ export function DraftPage() {
               return (
                 <li key={k.pick} className="flex items-center justify-between gap-2 py-1.5">
                   <span className="min-w-0 truncate">
-                    <span className="mr-2 font-mono text-xs text-slate-400">#{k.pick + 1}</span>
+                    <span className="mr-2 font-mono text-xs text-slate-500 dark:text-slate-400">
+                      #{k.pick + 1}
+                    </span>
                     <strong>{team?.code}</strong> {p?.name}{' '}
-                    <span className="text-slate-500">
+                    <span className="text-slate-500 dark:text-slate-400">
                       {p?.role} · {p ? Math.round(p.overall) : ''}
                     </span>
                   </span>
-                  {k.auto && <span className="shrink-0 text-xs text-slate-400">auto</span>}
+                  {k.auto && (
+                    <span className="shrink-0 text-xs text-slate-500 dark:text-slate-400">auto</span>
+                  )}
                 </li>
               );
             })}
-            {picks.length === 0 && <li className="py-2 text-slate-500">Nessuna scelta ancora.</li>}
+            {picks.length === 0 && (
+              <li className="py-2 text-slate-500 dark:text-slate-400">Nessuna scelta ancora.</li>
+            )}
           </ol>
         </Card>
       )}
@@ -355,12 +377,12 @@ function PlayersTab(props: {
         {shown.map((p) => (
           <PlayerRow key={p.id} p={p}>
             {props.myTurn && (
-              <Button className="min-h-9 px-3" onClick={() => props.onPick(p.id)}>
+              <Button className="px-3" onClick={() => props.onPick(p.id)}>
                 Scegli
               </Button>
             )}
             {props.canEditList && !props.list.includes(p.id) && (
-              <Button variant="secondary" className="min-h-9 px-3" onClick={() => props.onAdd(p.id)}>
+              <Button variant="secondary" className="px-3" onClick={() => props.onAdd(p.id)}>
                 + Lista
               </Button>
             )}
@@ -395,7 +417,9 @@ function ListTab(props: {
         Senza lista sceglie il migliore per il ruolo più scoperto.
       </p>
       {props.list.length === 0 && (
-        <p className="text-sm text-slate-500">La lista è vuota: aggiungi giocatori dalla scheda Giocatori.</p>
+        <p className="text-sm text-slate-500 dark:text-slate-400">
+          La lista è vuota: aggiungi giocatori dalla scheda Giocatori.
+        </p>
       )}
       <ol className="divide-y divide-slate-100 dark:divide-slate-700">
         {props.list.map((pid, i) => {
@@ -406,7 +430,7 @@ function ListTab(props: {
             <PlayerRow key={pid} p={p} className={gone ? 'opacity-40' : ''}>
               {gone && <span className="text-xs">già scelto</span>}
               {!gone && props.myTurn && (
-                <Button className="min-h-9 px-3" onClick={() => props.onPick(pid)}>
+                <Button className="px-3" onClick={() => props.onPick(pid)}>
                   Scegli
                 </Button>
               )}
@@ -414,7 +438,7 @@ function ListTab(props: {
                 <>
                   <Button
                     variant="ghost"
-                    className="min-h-9 px-2"
+                    className="min-w-11 px-2"
                     aria-label="Su"
                     onClick={() => move(i, -1)}
                   >
@@ -422,7 +446,7 @@ function ListTab(props: {
                   </Button>
                   <Button
                     variant="ghost"
-                    className="min-h-9 px-2"
+                    className="min-w-11 px-2"
                     aria-label="Giù"
                     onClick={() => move(i, 1)}
                   >
@@ -430,7 +454,7 @@ function ListTab(props: {
                   </Button>
                   <Button
                     variant="ghost"
-                    className="min-h-9 px-2"
+                    className="min-w-11 px-2"
                     aria-label="Togli dalla lista"
                     onClick={() => props.onChange(props.list.filter((x) => x !== pid))}
                   >

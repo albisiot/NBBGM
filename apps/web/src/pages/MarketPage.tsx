@@ -1,9 +1,20 @@
 // Mercato della propria squadra: svincolati (offerte a busta chiusa), scambi (proposte ricevute e inviate, nuova
 // proposta con giocatori, scelte protette e swap) e bilancio. Tutto si esegue alla chiusura del turno.
 import { MAX_PROTECTION, overall, TRADE_DEADLINE_TURN, type SeasonConfig } from '@nbbgm/engine';
-import { useMemo, useState, type ReactNode } from 'react';
+import { useCallback, useMemo, useState, type ReactNode } from 'react';
 import { Link, useParams, useSearchParams } from 'react-router';
-import { Button, Card, ErrorText, PageTitle, Segmented, Spinner, TeamCode } from '../components/ui.tsx';
+import {
+  Button,
+  Card,
+  ConfirmButton,
+  ErrorText,
+  PageTitle,
+  Segmented,
+  Spinner,
+  TeamCode,
+  Toast,
+  type ToastMessage,
+} from '../components/ui.tsx';
 import { useUserId } from '../lib/auth.tsx';
 import { friendlyError } from '../lib/errors.ts';
 import { leagueDetail, type LeagueDetail, type LeagueTeam } from '../lib/leagues.ts';
@@ -101,7 +112,9 @@ export function MarketPage() {
   // Turno nuovo: richieste, offerte e scambi cambiano
   useRoundChange(id, reload);
   const [busy, setBusy] = useState(false);
-  const [message, setMessage] = useState<{ ok: boolean; text: string } | null>(null);
+  // L'esito delle azioni compare in basso, vicino a dove si è toccato anche in fondo a una lista lunga
+  const [message, setMessage] = useState<ToastMessage | null>(null);
+  const closeMessage = useCallback(() => setMessage(null), []);
 
   async function run(action: MarketAction, ok: string): Promise<boolean> {
     setBusy(true);
@@ -144,18 +157,6 @@ export function MarketPage() {
           { label: 'Bilancio', value: 'bilancio' },
         ]}
       />
-      {message && (
-        <p
-          role="status"
-          className={`rounded-lg px-3 py-2 text-sm ${
-            message.ok
-              ? 'bg-green-50 text-green-800 dark:bg-green-950 dark:text-green-100'
-              : 'bg-red-50 text-red-700 dark:bg-red-950 dark:text-red-200'
-          }`}
-        >
-          {message.text}
-        </p>
-      )}
       {!regular && !offseason && tab !== 'bilancio' && (
         <p className="text-sm text-slate-600 dark:text-slate-300">
           Durante play-in e playoff il mercato è chiuso (gli scambi si fermano dopo la giornata{' '}
@@ -178,6 +179,7 @@ export function MarketPage() {
       {tab === 'svincolati' && <FreeAgents data={data} busy={busy} run={run} />}
       {tab === 'scambi' && <Trades data={data} busy={busy} run={run} />}
       {tab === 'bilancio' && <Ledger data={data} />}
+      <Toast message={message} onClose={closeMessage} />
     </div>
   );
 }
@@ -276,7 +278,7 @@ function FreeAgents({ data, busy, run }: { data: MarketData; busy: boolean; run:
           <h2 className="font-semibold">Svincolati</h2>
           <select
             aria-label="Ruolo"
-            className="min-h-10 rounded-lg border border-slate-300 bg-white px-2 text-sm dark:border-slate-600 dark:bg-slate-800"
+            className="min-h-11 rounded-lg border border-slate-300 bg-white px-2 text-sm dark:border-slate-600 dark:bg-slate-800"
             value={role}
             onChange={(e) => setRole(e.target.value)}
           >
@@ -293,7 +295,9 @@ function FreeAgents({ data, busy, run }: { data: MarketData; busy: boolean; run:
           richiesta, quella con il punteggio migliore (soldi, minuti attesi, forza della squadra). Sopra il
           cap si firma solo al minimo.
         </p>
-        {list.length === 0 && <p className="text-sm text-slate-500">Nessuno svincolato.</p>}
+        {list.length === 0 && (
+          <p className="text-sm text-slate-500 dark:text-slate-400">Nessuno svincolato.</p>
+        )}
         <ul className="divide-y divide-slate-100 dark:divide-slate-700">
           {list.map(({ p, ovr, ask }) => (
             <li key={p.id} className="py-2 text-sm">
@@ -304,7 +308,7 @@ function FreeAgents({ data, busy, run }: { data: MarketData; busy: boolean; run:
                   className="min-w-0 flex-1 truncate hover:underline"
                 >
                   {p.firstName} {p.lastName}
-                  <span className="ml-1 text-xs text-slate-500">
+                  <span className="ml-1 text-xs text-slate-500 dark:text-slate-400">
                     {p.role}
                     {p.secondaryRole ? `/${p.secondaryRole}` : ''} · {p.age} anni · pot. {p.scoutedPotential}
                   </span>
@@ -363,7 +367,7 @@ function OfferForm({
         Primo anno (milioni)
         <input
           inputMode="decimal"
-          className="mt-1 block min-h-10 w-28 rounded-lg border border-slate-300 bg-white px-2 text-sm dark:border-slate-600 dark:bg-slate-800"
+          className="mt-1 block min-h-11 w-28 rounded-lg border border-slate-300 bg-white px-2 text-sm dark:border-slate-600 dark:bg-slate-800"
           value={salary}
           onChange={(e) => setSalary(e.target.value)}
         />
@@ -371,7 +375,7 @@ function OfferForm({
       <label className="text-xs">
         Anni
         <select
-          className="mt-1 block min-h-10 rounded-lg border border-slate-300 bg-white px-2 text-sm dark:border-slate-600 dark:bg-slate-800"
+          className="mt-1 block min-h-11 rounded-lg border border-slate-300 bg-white px-2 text-sm dark:border-slate-600 dark:bg-slate-800"
           value={years}
           onChange={(e) => setYears(Number(e.target.value))}
         >
@@ -411,9 +415,10 @@ function Trades({ data, busy, run }: { data: MarketData; busy: boolean; run: Run
         data={data}
         actions={(o) => (
           <>
-            <Button
+            <ConfirmButton
               disabled={busy}
-              onClick={() =>
+              confirmLabel="Confermi lo scambio?"
+              onConfirm={() =>
                 void run(
                   { kind: 'respond_trade', offer_id: o.id, accept: true },
                   'Scambio accettato: si esegue alla chiusura del turno.',
@@ -421,7 +426,7 @@ function Trades({ data, busy, run }: { data: MarketData; busy: boolean; run: Run
               }
             >
               Accetta
-            </Button>
+            </ConfirmButton>
             <Button
               variant="secondary"
               disabled={busy}
@@ -490,7 +495,7 @@ function OfferList({
   return (
     <Card className="space-y-3 !p-4">
       <h2 className="font-semibold">{title}</h2>
-      {offers.length === 0 && <p className="text-sm text-slate-500">{empty}</p>}
+      {offers.length === 0 && <p className="text-sm text-slate-500 dark:text-slate-400">{empty}</p>}
       {offers.map((o) => {
         const mineFrom = o.fromTeamId === me;
         const other = teams.get(mineFrom ? o.toTeamId : o.fromTeamId);
@@ -593,7 +598,7 @@ function NewTrade({ data, busy, run }: { data: MarketData; busy: boolean; run: R
       <h2 className="font-semibold">Nuova proposta</h2>
       <select
         aria-label="Squadra"
-        className="min-h-10 w-full rounded-lg border border-slate-300 bg-white px-2 text-sm sm:w-auto dark:border-slate-600 dark:bg-slate-800"
+        className="min-h-11 w-full rounded-lg border border-slate-300 bg-white px-2 text-sm sm:w-auto dark:border-slate-600 dark:bg-slate-800"
         value={partner}
         onChange={(e) => {
           setPartner(e.target.value);
@@ -642,7 +647,7 @@ function NewTrade({ data, busy, run }: { data: MarketData; busy: boolean; run: R
               <div key={i} className="flex flex-wrap items-center gap-2 text-sm">
                 <select
                   aria-label="Chi ha il diritto"
-                  className="min-h-10 rounded-lg border border-slate-300 bg-white px-2 dark:border-slate-600 dark:bg-slate-800"
+                  className="min-h-11 rounded-lg border border-slate-300 bg-white px-2 dark:border-slate-600 dark:bg-slate-800"
                   value={w.holder}
                   onChange={(e) =>
                     setSwaps((s) =>
@@ -655,7 +660,7 @@ function NewTrade({ data, busy, run }: { data: MarketData; busy: boolean; run: R
                 </select>
                 <select
                   aria-label="Draft"
-                  className="min-h-10 rounded-lg border border-slate-300 bg-white px-2 dark:border-slate-600 dark:bg-slate-800"
+                  className="min-h-11 rounded-lg border border-slate-300 bg-white px-2 dark:border-slate-600 dark:bg-slate-800"
                   value={w.draft_year}
                   onChange={(e) =>
                     setSwaps((s) =>
@@ -671,7 +676,7 @@ function NewTrade({ data, busy, run }: { data: MarketData; busy: boolean; run: R
                 </select>
                 <select
                   aria-label="Giro"
-                  className="min-h-10 rounded-lg border border-slate-300 bg-white px-2 dark:border-slate-600 dark:bg-slate-800"
+                  className="min-h-11 rounded-lg border border-slate-300 bg-white px-2 dark:border-slate-600 dark:bg-slate-800"
                   value={w.round}
                   onChange={(e) =>
                     setSwaps((s) => s.map((x, j) => (j === i ? { ...x, round: Number(e.target.value) } : x)))
@@ -756,7 +761,7 @@ function Side({
       <ul className="max-h-72 space-y-1 overflow-y-auto text-sm">
         {sorted.map((p) => (
           <li key={p.id}>
-            <label className="flex min-h-9 cursor-pointer items-center gap-2 rounded px-1 hover:bg-slate-50 dark:hover:bg-slate-900">
+            <label className="flex min-h-11 cursor-pointer items-center gap-2 rounded px-1 hover:bg-slate-50 dark:hover:bg-slate-900">
               <input
                 type="checkbox"
                 className="size-4 accent-orange-600"
@@ -766,11 +771,11 @@ function Side({
               <span className="w-7 text-center font-mono text-xs">{overall(p)}</span>
               <span className="min-w-0 flex-1 truncate">
                 {p.firstName} {p.lastName}
-                <span className="ml-1 text-xs text-slate-500">
+                <span className="ml-1 text-xs text-slate-500 dark:text-slate-400">
                   {p.role} · {p.age}
                 </span>
               </span>
-              <span className="shrink-0 text-xs text-slate-500">
+              <span className="shrink-0 text-xs text-slate-500 dark:text-slate-400">
                 {p.contractType === 'two-way'
                   ? 'two-way'
                   : p.salaries[0]
@@ -786,7 +791,7 @@ function Side({
           const canProtect =
             onProtection && k.round === 1 && k.originalTeamId === ownTeamId && k.protection === null;
           return (
-            <li key={k.id} className="flex min-h-9 items-center gap-2 px-1">
+            <li key={k.id} className="flex min-h-11 items-center gap-2 px-1">
               <label className="flex flex-1 cursor-pointer items-center gap-2">
                 <input
                   type="checkbox"
@@ -799,7 +804,7 @@ function Side({
               {canProtect && selectedPicks.has(k.id) && (
                 <select
                   aria-label="Protezione"
-                  className="min-h-9 rounded border border-slate-300 bg-white px-1 text-xs dark:border-slate-600 dark:bg-slate-800"
+                  className="min-h-11 rounded border border-slate-300 bg-white px-1 text-xs dark:border-slate-600 dark:bg-slate-800"
                   value={protections?.[k.id] ?? 0}
                   onChange={(e) => onProtection(k.id, Number(e.target.value))}
                 >
@@ -828,13 +833,13 @@ function Ledger({ data }: { data: MarketData }) {
       <Card className="space-y-2 !p-4 text-sm">
         <h2 className="font-semibold">Stagione</h2>
         <dl className="grid grid-cols-2 gap-x-4 gap-y-1 sm:grid-cols-[auto_1fr]">
-          <dt className="text-slate-500">Ricavi della stagione</dt>
+          <dt className="text-slate-500 dark:text-slate-400">Ricavi della stagione</dt>
           <dd>{millions(config.revenue)} (uguali per tutti, giornata per giornata)</dd>
-          <dt className="text-slate-500">Salary cap</dt>
+          <dt className="text-slate-500 dark:text-slate-400">Salary cap</dt>
           <dd>{millions(config.salaryCap)}</dd>
-          <dt className="text-slate-500">Soglia della luxury tax</dt>
+          <dt className="text-slate-500 dark:text-slate-400">Soglia della luxury tax</dt>
           <dd>{millions(config.luxuryTax)}</dd>
-          <dt className="text-slate-500">Monte stipendi minimo</dt>
+          <dt className="text-slate-500 dark:text-slate-400">Monte stipendi minimo</dt>
           <dd>{millions(config.minimumTeamSalary)}</dd>
         </dl>
         <p className="text-xs text-slate-500 dark:text-slate-400">
@@ -860,13 +865,15 @@ function Ledger({ data }: { data: MarketData }) {
       )}
       <Card className="space-y-2 !p-4">
         <h2 className="font-semibold">Movimenti</h2>
-        {finance.ledger.length === 0 && <p className="text-sm text-slate-500">Nessun movimento ancora.</p>}
+        {finance.ledger.length === 0 && (
+          <p className="text-sm text-slate-500 dark:text-slate-400">Nessun movimento ancora.</p>
+        )}
         <ul className="divide-y divide-slate-100 text-sm dark:divide-slate-700">
           {finance.ledger.map((l, i) => (
             <li key={i} className="flex justify-between gap-2 py-1">
               <span>
                 {LEDGER_LABEL[l.kind] ?? l.kind}
-                {l.note && <span className="ml-1 text-xs text-slate-500">{l.note}</span>}
+                {l.note && <span className="ml-1 text-xs text-slate-500 dark:text-slate-400">{l.note}</span>}
               </span>
               <span
                 className={`font-mono ${l.amount < 0 ? 'text-red-600 dark:text-red-400' : 'text-green-700 dark:text-green-400'}`}
@@ -894,7 +901,9 @@ function Renewals({ data, busy, run }: { data: MarketData; busy: boolean; run: R
         Le richieste sono ai prezzi della prossima stagione e dipendono da valore, età e morale. Con il morale
         sotto 30 il giocatore non rinnova. Alla chiusura del turno chi non hai rinnovato diventa svincolato.
       </p>
-      {expiring.length === 0 && <p className="text-sm text-slate-500">Nessun giocatore in scadenza.</p>}
+      {expiring.length === 0 && (
+        <p className="text-sm text-slate-500 dark:text-slate-400">Nessun giocatore in scadenza.</p>
+      )}
       <ul className="divide-y divide-slate-100 text-sm dark:divide-slate-700">
         {expiring.map((p) => {
           const ask = expiringAskOf(data.config, p);
@@ -907,7 +916,7 @@ function Renewals({ data, busy, run }: { data: MarketData; busy: boolean; run: R
                 className="min-w-0 flex-1 truncate hover:underline"
               >
                 {p.firstName} {p.lastName}
-                <span className="ml-1 text-xs text-slate-500">
+                <span className="ml-1 text-xs text-slate-500 dark:text-slate-400">
                   {p.role} · {p.age} anni · morale {Math.round(p.morale)}
                 </span>
               </Link>

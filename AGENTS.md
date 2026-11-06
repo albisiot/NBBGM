@@ -13,7 +13,7 @@ Riassunto del documento di design (versione 2.4, 4 novembre 2026). È la fonte d
 
 ## Stato del lavoro
 
-- Fasi 1-13 completate: l'app è pubblicata e installata dal telefono, e in produzione una lega ha giocato i suoi turni (con il Pronto e con l'allenatore). Dopo la Fase 13 sono stati corretti sette bug trovati analizzando l'app e rinforzati server e app: turni bloccati, spazio del database, strumenti del commissario, service worker, pubblicazione dopo i controlli; poi sistemati motore e regole di gioco: finali, rimonte, tiri da vicino, regola Stepien, stipendi massimi, rose corte (vedi "Scelte prese dopo la Fase 13"). Si lavora su `main`; `fasi-1-3` è il ramo storico delle fasi. La logica di stagione sta in `packages/engine/src/season/`; database e sicurezza in `supabase/migrations/` (vedi `supabase/README.md`).
+- Fasi 1-13 completate: l'app è pubblicata e installata dal telefono, e in produzione una lega ha giocato i suoi turni (con il Pronto e con l'allenatore). Dopo la Fase 13 sono stati corretti sette bug trovati analizzando l'app e rinforzati server e app: turni bloccati, spazio del database, strumenti del commissario, service worker, pubblicazione dopo i controlli; poi sistemati motore e regole di gioco: finali, rimonte, tiri da vicino, regola Stepien, stipendi massimi, rose corte; poi i dettagli dell'app: esito del mercato, invito con Google, uscita solo dal dispositivo, stato delle squadre nel turno dal server, uso da telefono (vedi "Scelte prese dopo la Fase 13"). Si lavora su `main`; `fasi-1-3` è il ramo storico delle fasi. La logica di stagione sta in `packages/engine/src/season/`; database e sicurezza in `supabase/migrations/` (vedi `supabase/README.md`).
 - App: `pnpm dev` (o `pnpm dev:lan` per provarla dal telefono sulla stessa Wi-Fi). Legge URL e chiave publishable da `apps/web/.env.local` (modello in `.env.example`).
 - Pubblicata su **GitHub Pages**: `https://albisiot.github.io/NBBGM/` (repository pubblico `albisiot/NBBGM`, ramo `main`). Workflow in `.github/workflows/`: `ci.yml` (controlli), e dopo i controlli riusciti su `main` `pages.yml` (app, con le variabili `SUPABASE_URL` e `SUPABASE_PUBLISHABLE_KEY`) e `supabase.yml` (migrazioni e funzioni, con il segreto `SUPABASE_ACCESS_TOKEN`). Icone della PWA con `pnpm icons`.
 - Edge Functions `create-league`, `draft`, `advance-turn` e `market` in `supabase/functions/`; il codice comune a Edge Function e script sta in `supabase/functions/_shared/`: `league.ts` (dati di partenza <-> motore, righe per `insert_league`), `draft.ts` (draft iniziale), `state.ts` (stato della lega dal database al motore, con `league_state`) `turn.ts` (un turno: dal motore alle sezioni di `apply_turn`) e `market.ts` (controllo delle azioni di mercato). Si pubblicano con `npx.cmd --yes supabase@3.0.0 functions deploy create-league draft advance-turn market --use-api`.
@@ -209,6 +209,27 @@ Motore e regole di gioco.
 - **Two-way:** uno scambio non porta una squadra oltre 3 two-way; in offseason un two-way non si firma con la rosa già a 21.
 - **Svincolati infortunati:** guariscono un turno alla volta anche senza squadra.
 - **Draft dei bot:** il rumore nella valutazione di un prospetto si estrae una volta sola (prima si riestraeva a ogni confronto).
+
+Dettagli dell'app.
+
+- **Stato delle squadre nel turno dato dal server** (`round_readiness`, per i membri della lega):
+  - pronta (Pronto premuto), con l'allenatore, in attesa di una decisione (allenatore attivo ma un avviso bloccante aperto), non pronta, oppure fuori dal turno in play-in e playoff;
+  - lo calcola `private.team_readiness`, la stessa funzione su cui ora poggia `round_all_ready` (e quindi `private.round_due`): la scheda del turno e la chiusura non possono più dire cose diverse (prima l'app contava pronta una squadra con l'allenatore fermo da un avviso, e diceva che la lega avanzava da sola);
+  - ai membri dice solo che c'è una decisione in sospeso, non quale (`coach_ready` resta chiusa al client). La scheda mostra "Deve decidere" e da chi si aspetta una decisione;
+  - gli avvisi degli altri non arrivano in tempo reale (RLS): il cambio si vede alla rilettura, al più tardi dopo 30 secondi. Senza la funzione (app pubblicata prima delle migrazioni) l'app ricava lo stato dalle tabelle come prima, con gli avvisi della sola propria squadra.
+- **Esito delle azioni del mercato** in un avviso fisso in basso (`Toast`), visibile anche in fondo a una lista lunga: le conferme spariscono dopo 6 secondi, gli errori restano finché non si chiudono. Accettare uno scambio ricevuto chiede conferma (`ConfirmButton`: secondo tocco entro 5 secondi).
+- **Login con Google e invito:** Google torna all'indirizzo senza la parte `#/...`; la pagina (per esempio `#/entra/CODICE`) si salva in `sessionStorage` prima di andare e si rimette al ritorno, prima del router (`lib/returnTo.ts`). Con il codice via email la pagina resta nell'indirizzo.
+- **Esci** chiude la sessione solo sul dispositivo (`signOut({ scope: 'local' })`): uscire dal computer non fa più uscire l'app sul telefono.
+- **Dati legati ai parametri** (`useAsync`): cambiando lega (o squadra nella proposta di scambio) la pagina non mostra i dati di prima mentre carica i nuovi; con `reload()` restano visibili. L'elenco delle leghe nell'intestazione usa `keep`.
+- **Liste del draft** (iniziale e annuale) salvate in fila: uno alla volta e, dei tocchi arrivati nel frattempo, solo l'ultimo (`latestSaver`), così non può arrivare per ultimo un salvataggio vecchio.
+- **Contratti nella scheda giocatore:** dopo il draft dell'offseason le stagioni partono da quella che arriva (`contractFirstYear`), perché i contratti sono già scalati.
+- **Draft dal vivo e lettori di schermo:** il conto alla rovescia non è più una regione `aria-live`; si annunciano solo il proprio turno, gli ultimi 10 secondi e la scadenza (`draftAnnouncement`).
+- **Da telefono:**
+  - nelle tabelle larghe (classifica, statistiche, box score) posizione e nome restano fissi a sinistra quando la tabella scorre; il segno dei posti playoff e play-in è un'ombra interna, perché il bordo di una cella fissa in una tabella con i bordi collassati non la segue. Nelle statistiche su telefono il ruolo si vede solo nella scheda, per lasciare spazio al nome;
+  - margini `env(safe-area-inset-*)` per intestazione, pagina, barra Salva della squadra e avviso in basso (c'è `viewport-fit=cover`);
+  - bersagli di tocco di almeno 44 px (± dei minuti, intestazioni ordinabili, `Segmented`, pulsanti del draft, menu e selettori);
+  - grigi del testo almeno `slate-500` su fondo chiaro e `slate-400` su fondo scuro;
+  - la colonna delle partite nelle statistiche si chiama "G" (PG era anche il ruolo).
 
 ## Visione
 

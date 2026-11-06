@@ -1,5 +1,11 @@
 // Pezzi d'interfaccia comuni.
-import type { ButtonHTMLAttributes, InputHTMLAttributes, ReactNode } from 'react';
+import {
+  useEffect,
+  useState,
+  type ButtonHTMLAttributes,
+  type InputHTMLAttributes,
+  type ReactNode,
+} from 'react';
 
 export function Button({
   variant = 'primary',
@@ -20,6 +26,42 @@ export function Button({
     />
   );
 }
+
+/**
+ * Pulsante da toccare due volte per le azioni che non si annullano con un tocco: il primo chiede conferma
+ * (confirmLabel), il secondo esegue. Dopo qualche secondo senza conferma torna com'era.
+ */
+export function ConfirmButton({
+  confirmLabel,
+  onConfirm,
+  children,
+  ...props
+}: Omit<ButtonHTMLAttributes<HTMLButtonElement>, 'onClick'> & {
+  variant?: 'primary' | 'secondary' | 'ghost' | 'danger';
+  confirmLabel: string;
+  onConfirm: () => void;
+}) {
+  const [armed, setArmed] = useState(false);
+  useEffect(() => {
+    if (!armed) return;
+    const t = setTimeout(() => setArmed(false), CONFIRM_MS);
+    return () => clearTimeout(t);
+  }, [armed]);
+  return (
+    <Button
+      {...props}
+      onClick={() => {
+        if (!armed) return setArmed(true);
+        setArmed(false);
+        onConfirm();
+      }}
+    >
+      {armed ? confirmLabel : children}
+    </Button>
+  );
+}
+
+const CONFIRM_MS = 5000;
 
 export function TextInput({
   label,
@@ -144,7 +186,7 @@ export function Segmented<T extends string | number>({
           type="button"
           aria-pressed={o.value === value}
           onClick={() => onChange(o.value)}
-          className={`min-h-9 rounded-md px-3 text-sm font-medium ${
+          className={`min-h-11 min-w-11 rounded-md px-3 text-sm font-medium ${
             o.value === value
               ? 'bg-white text-orange-700 shadow-sm dark:bg-slate-700 dark:text-orange-300'
               : 'text-slate-600 hover:text-slate-900 dark:text-slate-300 dark:hover:text-white'
@@ -153,6 +195,54 @@ export function Segmented<T extends string | number>({
           {o.label}
         </button>
       ))}
+    </div>
+  );
+}
+
+export interface ToastMessage {
+  ok: boolean;
+  text: string;
+}
+
+/** Secondi per cui resta un messaggio di conferma; gli errori restano finché non si chiudono. */
+export const TOAST_MS = 6000;
+
+/**
+ * Esito di un'azione in un avviso fisso in basso, visibile in qualunque punto della pagina (su telefono il
+ * pulsante premuto può essere molto più in basso dell'inizio della pagina). Il contenitore resta sempre nella
+ * pagina perché i lettori di schermo annuncino i messaggi nuovi.
+ */
+export function Toast({ message, onClose }: { message: ToastMessage | null; onClose: () => void }) {
+  useEffect(() => {
+    if (!message?.ok) return;
+    const t = setTimeout(onClose, TOAST_MS);
+    return () => clearTimeout(t);
+  }, [message, onClose]);
+  return (
+    <div
+      role="status"
+      aria-live="polite"
+      className="pointer-events-none fixed inset-x-0 bottom-0 z-40 flex justify-center px-3 pb-[max(0.75rem,env(safe-area-inset-bottom))]"
+    >
+      {message && (
+        <div
+          className={`pointer-events-auto flex w-full max-w-lg items-center gap-2 rounded-xl py-1 pr-1 pl-4 text-sm shadow-lg ring-1 ${
+            message.ok
+              ? 'bg-green-50 text-green-900 ring-green-200 dark:bg-green-950 dark:text-green-50 dark:ring-green-800'
+              : 'bg-red-50 text-red-800 ring-red-200 dark:bg-red-950 dark:text-red-100 dark:ring-red-800'
+          }`}
+        >
+          <p className="min-w-0 flex-1 py-2">{message.text}</p>
+          <button
+            type="button"
+            aria-label="Chiudi il messaggio"
+            onClick={onClose}
+            className="inline-flex size-11 shrink-0 items-center justify-center rounded-lg hover:bg-black/5 dark:hover:bg-white/10"
+          >
+            ✕
+          </button>
+        </div>
+      )}
     </div>
   );
 }

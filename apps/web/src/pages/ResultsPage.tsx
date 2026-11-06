@@ -69,7 +69,9 @@ export function ResultsPage() {
                   <span className="min-w-0 flex-1 truncate text-sm">
                     {team.get(tid)?.fullName}
                     {tid === g.homeTeamId && (
-                      <span className="ml-1 text-xs font-normal text-slate-400">casa</span>
+                      <span className="ml-1 text-xs font-normal text-slate-500 dark:text-slate-400">
+                        casa
+                      </span>
                     )}
                   </span>
                   <span className="w-10 text-right font-mono text-lg">{score ?? '–'}</span>
@@ -92,7 +94,9 @@ export function ResultsPage() {
           </Card>
         ))}
       </div>
-      {list.length === 0 && <p className="text-sm text-slate-500">Nessuna partita in questo turno.</p>}
+      {list.length === 0 && (
+        <p className="text-sm text-slate-500 dark:text-slate-400">Nessuna partita in questo turno.</p>
+      )}
     </div>
   );
 }

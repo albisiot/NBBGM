@@ -31,7 +31,7 @@ export function GamePage() {
         <PageTitle>
           {away?.fullName} – {home?.fullName}
         </PageTitle>
-        <p className="text-sm text-slate-500">La partita non è ancora stata giocata.</p>
+        <p className="text-sm text-slate-500 dark:text-slate-400">La partita non è ancora stata giocata.</p>
       </div>
     );
 
@@ -124,6 +124,9 @@ function Quarters({
 
 const shot = (m: number, a: number) => `${m}-${a}`;
 
+// Colonna del nome fissa a sinistra quando la tabella scorre (su telefono): fondo della scheda sotto
+const STICKY = 'sticky left-0 bg-white pl-1 dark:bg-slate-800';
+
 function BoxTable({ leagueId, lines }: { leagueId: string; lines: BoxLine[] }) {
   const total = lines.reduce(
     (a, l) => ({
@@ -150,7 +153,7 @@ function BoxTable({ leagueId, lines }: { leagueId: string; lines: BoxLine[] }) {
       <table className="w-full min-w-[42rem] text-sm">
         <thead>
           <tr className="border-b border-slate-200 text-xs text-slate-500 dark:border-slate-700 dark:text-slate-400">
-            <th className="py-1 text-left font-medium">Giocatore</th>
+            <th className={`${STICKY} py-1 pr-2 text-left font-medium`}>Giocatore</th>
             <th className={th}>MIN</th>
             <th className={th}>PT</th>
             <th className={th}>RIM</th>
@@ -169,13 +172,13 @@ function BoxTable({ leagueId, lines }: { leagueId: string; lines: BoxLine[] }) {
           {lines.map((l) => (
             <tr
               key={l.playerId}
-              className={`border-b border-slate-100 dark:border-slate-700/60 ${l.seconds === 0 ? 'text-slate-400' : ''}`}
+              className={`border-b border-slate-100 dark:border-slate-700/60 ${l.seconds === 0 ? 'text-slate-500 dark:text-slate-400' : ''}`}
             >
-              <td className="max-w-44 truncate py-1 pr-2">
+              <td className={`${STICKY} max-w-[10rem] truncate py-1 pr-2 sm:max-w-52`}>
                 <Link to={`/lega/${leagueId}/giocatore/${l.playerId}`} className="hover:underline">
                   {l.name}
                 </Link>
-                <span className="ml-1 text-xs text-slate-400">
+                <span className="ml-1 text-xs text-slate-500 dark:text-slate-400">
                   {l.role}
                   {l.starter ? ' · Q' : ''}
                 </span>
@@ -203,7 +206,7 @@ function BoxTable({ leagueId, lines }: { leagueId: string; lines: BoxLine[] }) {
             </tr>
           ))}
           <tr className="font-semibold">
-            <td className="py-1">Totale</td>
+            <td className={`${STICKY} py-1`}>Totale</td>
             <td className={td} />
             <td className={td}>{total.pts}</td>
             <td className={td}>{total.reb}</td>

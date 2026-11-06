@@ -3,6 +3,7 @@
 import { useEffect, useState, type FormEvent } from 'react';
 import { Button, Card, ErrorText, TextInput } from '../components/ui.tsx';
 import { friendlyError, normalizeOtp } from '../lib/errors.ts';
+import { rememberPage } from '../lib/returnTo.ts';
 import { supabase } from '../lib/supabase.ts';
 
 const RESEND_SECONDS = 60;
@@ -54,6 +55,8 @@ export function LoginPage() {
 
   async function google() {
     setError(null);
+    // Google torna all'indirizzo senza la pagina (#/entra/CODICE di un invito): la si ricorda per dopo
+    rememberPage();
     const { error } = await supabase.auth.signInWithOAuth({
       provider: 'google',
       options: { redirectTo: window.location.origin + window.location.pathname },
@@ -79,7 +82,7 @@ export function LoginPage() {
             <Button variant="secondary" className="w-full" onClick={google}>
               <GoogleIcon /> Continua con Google
             </Button>
-            <div className="flex items-center gap-3 text-xs text-slate-400">
+            <div className="flex items-center gap-3 text-xs text-slate-500 dark:text-slate-400">
               <span className="h-px flex-1 bg-slate-200 dark:bg-slate-700" /> oppure{' '}
               <span className="h-px flex-1 bg-slate-200 dark:bg-slate-700" />
             </div>

@@ -42,8 +42,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     void refreshProfile();
   }, [refreshProfile]);
 
+  // Solo su questo dispositivo: di default Supabase chiude le sessioni ovunque (uscire dal computer faceva
+  // uscire anche l'app installata sul telefono)
   const signOut = useCallback(async () => {
-    await supabase.auth.signOut();
+    await supabase.auth.signOut({ scope: 'local' });
   }, []);
 
   return (

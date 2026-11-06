@@ -12,11 +12,12 @@ export function Layout() {
   const navigate = useNavigate();
   const match = useMatch('/lega/:id/*');
   const current = match?.params.id ?? '';
-  const { data: leagues } = useAsync(() => myLeagues(userId), [userId, current]);
+  // Si rilegge a ogni cambio di lega (per esempio dopo esserne entrati), tenendo l'elenco intanto
+  const { data: leagues } = useAsync(() => myLeagues(userId), [userId, current], { keep: true });
 
   return (
     <div className="min-h-dvh bg-slate-50 text-slate-900 dark:bg-slate-900 dark:text-slate-100">
-      <header className="sticky top-0 z-10 border-b border-slate-200 bg-white/95 backdrop-blur dark:border-slate-700 dark:bg-slate-900/95">
+      <header className="sticky top-0 z-10 border-b border-slate-200 bg-white/95 pt-[env(safe-area-inset-top)] pr-[env(safe-area-inset-right)] pl-[env(safe-area-inset-left)] backdrop-blur dark:border-slate-700 dark:bg-slate-900/95">
         <div className="mx-auto flex max-w-4xl items-center gap-3 px-4 py-2">
           <Link to="/" className="text-lg font-bold text-orange-600">
             NBBGM
@@ -24,7 +25,7 @@ export function Layout() {
           {leagues && leagues.length > 0 && (
             <select
               aria-label="Lega"
-              className="min-h-10 min-w-0 flex-1 truncate rounded-lg border border-slate-300 bg-white px-2 text-sm sm:max-w-xs sm:flex-none dark:border-slate-600 dark:bg-slate-800"
+              className="min-h-11 min-w-0 flex-1 truncate rounded-lg border border-slate-300 bg-white px-2 text-sm sm:max-w-xs sm:flex-none dark:border-slate-600 dark:bg-slate-800"
               value={current}
               onChange={(e) => {
                 const id = e.target.value;
@@ -54,7 +55,7 @@ export function Layout() {
         </div>
         {current && <LeagueNav id={current} />}
       </header>
-      <main className="mx-auto max-w-4xl px-4 py-6">
+      <main className="mx-auto max-w-4xl pt-6 pr-[max(1rem,env(safe-area-inset-right))] pb-[max(1.5rem,env(safe-area-inset-bottom))] pl-[max(1rem,env(safe-area-inset-left))]">
         <Outlet />
       </main>
     </div>
@@ -81,7 +82,7 @@ function LeagueNav({ id }: { id: string }) {
               to={l.to ? `/lega/${id}/${l.to}` : `/lega/${id}`}
               end={l.to === ''}
               className={({ isActive }) =>
-                `inline-flex min-h-10 items-center border-b-2 px-3 whitespace-nowrap ${
+                `inline-flex min-h-11 items-center border-b-2 px-3 whitespace-nowrap ${
                   isActive
                     ? 'border-orange-600 font-semibold text-orange-700 dark:text-orange-300'
                     : 'border-transparent text-slate-600 hover:text-slate-900 dark:text-slate-300 dark:hover:text-white'

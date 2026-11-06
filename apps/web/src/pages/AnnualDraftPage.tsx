@@ -3,11 +3,12 @@
 // scelte le fa il server alla chiusura del turno: per le squadre umane il primo disponibile della lista, senza
 // lista il migliore per i ruoli scoperti.
 import { overall } from '@nbbgm/engine';
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Link, useParams } from 'react-router';
 import { Button, Card, ErrorText, PageTitle, Spinner, TeamCode } from '../components/ui.tsx';
 import { useUserId } from '../lib/auth.tsx';
 import { friendlyError } from '../lib/errors.ts';
+import { latestSaver } from '../lib/latestSaver.ts';
 import { leagueDetail } from '../lib/leagues.ts';
 import { draftProspects, leaguePlayersLite } from '../lib/roster.ts';
 import { supabase } from '../lib/supabase.ts';
@@ -69,7 +70,7 @@ async function saveDraftList(teamId: string, leagueId: string, ids: string[]): P
 export function AnnualDraftPage() {
   const { id = '' } = useParams();
   const userId = useUserId();
-  const { data, error, loading, reload } = useAsync(async () => {
+  const { data, error, loading } = useAsync(async () => {
     const league = await leagueDetail(id);
     if (!league?.seasonYear) return null;
     const draftYear = league.seasonYear + 1;
@@ -84,6 +85,23 @@ export function AnnualDraftPage() {
   }, [id, userId]);
   const [list, setList] = useState<string[] | null>(null);
   const [saveError, setSaveError] = useState<string | null>(null);
+  // Un'altra lega: si riparte dalla lista salvata
+  useEffect(() => {
+    setList(null);
+    setSaveError(null);
+  }, [id]);
+  // La lista si riscrive intera a ogni tocco: un salvataggio alla volta, l'ultimo vince
+  const mineId = data?.mine?.id;
+  const saver = useMemo(
+    () =>
+      mineId
+        ? latestSaver(
+            (ids: string[]) => saveDraftList(mineId, id, ids),
+            (e) => setSaveError(friendlyError(e)),
+          )
+        : null,
+    [mineId, id],
+  );
 
   const current = list ?? data?.list ?? [];
   const prospects = useMemo(
@@ -104,16 +122,11 @@ export function AnnualDraftPage() {
     league.roundKind === 'offseason' && league.roundStage === 'draft' && league.roundState === 'open';
   const byId = new Map(prospects.map((p) => [p.id, p]));
 
-  async function update(next: string[]) {
-    if (!mine) return;
+  function update(next: string[]) {
+    if (!saver) return;
     setList(next);
     setSaveError(null);
-    try {
-      await saveDraftList(mine.id, league.id, next);
-    } catch (e) {
-      setSaveError(friendlyError(e));
-      reload();
-    }
+    void saver.save(next);
   }
   const move = (i: number, d: number) => {
     const next = [...current];
@@ -149,7 +162,7 @@ export function AnnualDraftPage() {
         <Card className="space-y-2 !p-4">
           <h2 className="font-semibold">La tua lista</h2>
           {current.length === 0 && (
-            <p className="text-sm text-slate-500">
+            <p className="text-sm text-slate-500 dark:text-slate-400">
               Vuota: sceglierà il server il migliore per i ruoli scoperti. Aggiungi i prospetti dall’elenco
               qui sotto.
             </p>
@@ -159,11 +172,11 @@ export function AnnualDraftPage() {
               const p = byId.get(pid);
               return (
                 <li key={pid} className="flex items-center gap-2">
-                  <span className="w-6 text-right text-xs text-slate-500">{i + 1}</span>
+                  <span className="w-6 text-right text-xs text-slate-500 dark:text-slate-400">{i + 1}</span>
                   <span className="min-w-0 flex-1 truncate">
                     {p ? `${p.firstName} ${p.lastName}` : 'Non più disponibile'}
                     {p && (
-                      <span className="ml-1 text-xs text-slate-500">
+                      <span className="ml-1 text-xs text-slate-500 dark:text-slate-400">
                         {p.role} · {p.age} anni · pot. {p.scoutedPotential}
                       </span>
                     )}
@@ -206,21 +219,24 @@ export function AnnualDraftPage() {
                   key={s.pickNo}
                   className={`flex items-center gap-2 py-1 ${s.teamId === mine?.id ? 'font-semibold' : ''}`}
                 >
-                  <span className="w-10 text-right font-mono text-xs text-slate-500">
+                  <span className="w-10 text-right font-mono text-xs text-slate-500 dark:text-slate-400">
                     {s.round}.{String(s.number).padStart(2, '0')}
                   </span>
                   <TeamCode code={owner?.code ?? '?'} strong={s.teamId === mine?.id} />
                   <span className="min-w-0 flex-1 truncate">
                     {picked ? (
                       <Link to={`/lega/${league.id}/giocatore/${s.playerId}`} className="hover:underline">
-                        {picked.name} <span className="text-xs text-slate-500">{picked.role}</span>
+                        {picked.name}{' '}
+                        <span className="text-xs text-slate-500 dark:text-slate-400">{picked.role}</span>
                       </Link>
                     ) : (
-                      <span className="text-slate-400">da scegliere</span>
+                      <span className="text-slate-500 dark:text-slate-400">da scegliere</span>
                     )}
                   </span>
                   {s.originalTeamId !== s.teamId && (
-                    <span className="text-xs text-slate-500">da {team.get(s.originalTeamId)?.code}</span>
+                    <span className="text-xs text-slate-500 dark:text-slate-400">
+                      da {team.get(s.originalTeamId)?.code}
+                    </span>
                   )}
                 </li>
               );
@@ -245,7 +261,7 @@ export function AnnualDraftPage() {
                       className="min-w-0 flex-1 truncate hover:underline"
                     >
                       {p.firstName} {p.lastName}
-                      <span className="ml-1 text-xs text-slate-500">
+                      <span className="ml-1 text-xs text-slate-500 dark:text-slate-400">
                         {p.role} · {p.age} anni · pot. {p.scoutedPotential} · {p.archetype}
                       </span>
                     </Link>
