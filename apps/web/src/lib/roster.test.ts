@@ -3,11 +3,12 @@ import {
   autoSetup,
   DEFAULT_TACTICS,
   generateLeague,
+  overall,
   Rng,
   setupFromSettings,
 } from '@nbbgm/engine';
 import { describe, expect, it } from 'vitest';
-import { settingsForRoster, settingsProblems } from './roster.ts';
+import { chunks, IDS_PER_REQUEST, liteOf, settingsForRoster, settingsProblems } from './roster.ts';
 
 const roster = ['a', 'b', 'c', 'd', 'e', 'f', 'g'];
 
@@ -89,5 +90,30 @@ describe('impostazioni dopo che qualcuno lascia la squadra', () => {
     const fixed = settingsForRoster(saved, left)!;
     expect(fixed.starters[4]).toBe('');
     expect(settingsProblems(fixed, ids(left)).join(' ')).toMatch(/Manca un titolare/);
+  });
+});
+
+describe('giocatori in breve', () => {
+  it('liteOf: nome, ruolo, età e overall del motore', () => {
+    const p = generateLeague(new Rng('lite'), ARCHETYPE_PROFILES).players[0]!;
+    expect(liteOf(p)).toEqual({
+      id: p.id,
+      teamId: p.teamId,
+      name: `${p.firstName} ${p.lastName}`,
+      role: p.role,
+      age: p.age,
+      overall: overall(p),
+    });
+    expect(liteOf({ ...p, teamId: undefined }).teamId).toBeNull();
+  });
+
+  it('gli id si chiedono a pezzi, per non superare la lunghezza di un indirizzo', () => {
+    const ids = Array.from({ length: 274 }, (_, i) => `id-${i}`);
+    const parts = chunks(ids, IDS_PER_REQUEST);
+    expect(parts.map((x) => x.length)).toEqual([100, 100, 74]);
+    expect(parts.flat()).toEqual(ids);
+    // 100 uuid nell'indirizzo (36 caratteri più la virgola codificata) stanno sotto i 4 KB
+    expect(IDS_PER_REQUEST * (36 + 3)).toBeLessThan(4096);
+    expect(chunks([], IDS_PER_REQUEST)).toEqual([]);
   });
 });

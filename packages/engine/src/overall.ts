@@ -103,15 +103,23 @@ const WEIGHTS: Record<Role, Partial<Record<RatingKey, number>>> = {
   },
 };
 
+// Pesi di ogni ruolo come elenco, con il totale: calcolati una volta sola, nello stesso ordine di WEIGHTS (le
+// somme danno gli stessi numeri, bit per bit)
+const WEIGHT_LIST = Object.fromEntries(
+  (Object.keys(WEIGHTS) as Role[]).map((role) => {
+    const entries = Object.entries(WEIGHTS[role]) as [RatingKey, number][];
+    let total = 0;
+    for (const [, w] of entries) total += w;
+    return [role, { keys: entries.map(([k]) => k), weights: entries.map(([, w]) => w), total }];
+  }),
+) as Record<Role, { keys: RatingKey[]; weights: number[]; total: number }>;
+
 /** Media pesata delle abilità per il ruolo, sulla scala grezza 0-100. */
 export function overallRaw(ratings: Ratings, role: Role): number {
+  const { keys, weights, total } = WEIGHT_LIST[role];
   let sum = 0;
-  let weight = 0;
-  for (const [key, w] of Object.entries(WEIGHTS[role]) as [RatingKey, number][]) {
-    sum += ratings[key] * w;
-    weight += w;
-  }
-  return sum / weight;
+  for (let i = 0; i < keys.length; i++) sum += ratings[keys[i] as RatingKey] * (weights[i] as number);
+  return sum / total;
 }
 
 /**

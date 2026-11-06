@@ -10,6 +10,7 @@ import {
   type StandingsLine,
   type Team,
 } from '@nbbgm/engine';
+import { allPages } from './cache.ts';
 import type { LeagueDetail, LeagueTeam } from './leagues.ts';
 import { supabase } from './supabase.ts';
 
@@ -73,7 +74,8 @@ export interface GameDetail extends SeasonGame {
   box: BoxLine[];
 }
 
-const GAME_COLUMNS =
+/** Colonne delle partite per gli elenchi: niente cronaca (play_by_play), che si legge solo nella pagina della partita. */
+export const GAME_COLUMNS =
   'id, round_number, kind, home_team_id, away_team_id, series_id, home_score, away_score, overtimes';
 
 type GameRow = {
@@ -100,22 +102,22 @@ const toGame = (g: GameRow): SeasonGame => ({
   overtimes: g.overtimes ?? 0,
 });
 
-/** Tutte le partite della stagione, giocate e in calendario (1.230 di regular season più la post-season). */
+/**
+ * Tutte le partite della stagione, giocate e in calendario (1.230 di regular season più la post-season), senza la
+ * cronaca: due pagine alla volta, in parallelo.
+ */
 export async function seasonGames(seasonId: string): Promise<SeasonGame[]> {
-  const out: SeasonGame[] = [];
-  // PostgREST restituisce al massimo 1.000 righe per richiesta
-  for (let from = 0; ; from += 1000) {
+  return allPages(async (from, to) => {
     const { data, error } = await supabase
       .from('games')
       .select(GAME_COLUMNS)
       .eq('season_id', seasonId)
       .order('round_number')
       .order('id')
-      .range(from, from + 999);
+      .range(from, to);
     if (error) throw error;
-    out.push(...((data ?? []) as GameRow[]).map(toGame));
-    if (!data || data.length < 1000) return out;
-  }
+    return ((data ?? []) as GameRow[]).map(toGame);
+  });
 }
 
 export async function playoffSeries(seasonId: string): Promise<Series[]> {

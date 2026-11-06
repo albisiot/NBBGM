@@ -1,8 +1,10 @@
 // Intestazione con il selettore delle leghe e il profilo, il menu della lega aperta, poi la pagina.
+import { Suspense } from 'react';
 import { Link, NavLink, Outlet, useMatch, useNavigate } from 'react-router';
 import { useAuth, useUserId } from '../lib/auth.tsx';
 import { myLeagues } from '../lib/leagues.ts';
 import { useAsync } from '../lib/useAsync.ts';
+import { Spinner } from './ui.tsx';
 
 export const LAST_LEAGUE_KEY = 'nbbgm:ultima-lega';
 
@@ -56,7 +58,10 @@ export function Layout() {
         {current && <LeagueNav id={current} />}
       </header>
       <main className="mx-auto max-w-4xl pt-6 pr-[max(1rem,env(safe-area-inset-right))] pb-[max(1.5rem,env(safe-area-inset-bottom))] pl-[max(1rem,env(safe-area-inset-left))]">
-        <Outlet />
+        {/* Le pagine arrivano a pezzi (lib/lazyPage.ts): intanto l'intestazione resta e sotto si vede il caricamento */}
+        <Suspense fallback={<Spinner />}>
+          <Outlet />
+        </Suspense>
       </main>
     </div>
   );

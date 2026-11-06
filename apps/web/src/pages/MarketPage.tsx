@@ -30,6 +30,7 @@ import {
   LEDGER_LABEL,
   marketAction,
   millions,
+  missingPlayerIds,
   myBids,
   offerInput,
   offerSalary,
@@ -47,8 +48,10 @@ import {
 } from '../lib/market.ts';
 import {
   freeAgentPlayers,
-  leaguePlayersLite,
+  liteOf,
+  playersLite,
   teamRoster,
+  type FreeAgent,
   type PlayerLite,
   type RosterPlayer,
 } from '../lib/roster.ts';
@@ -57,20 +60,47 @@ import { useRoundChange } from '../lib/useRoundChange.ts';
 
 type Tab = 'svincolati' | 'scambi' | 'rinnovi' | 'bilancio';
 
-interface MarketData {
+/** Dati del turno: rosa, svincolati, scelte, bilancio cambiano solo alla chiusura del turno. */
+interface MarketBase {
   league: LeagueDetail;
   me: LeagueTeam;
   config: SeasonConfig;
   finance: Finance;
   roster: RosterPlayer[];
-  freeAgents: RosterPlayer[];
-  bids: Bid[];
-  offers: TradeOffer[];
+  freeAgents: FreeAgent[];
   picks: PickInfo[];
-  players: Map<string, PlayerLite>;
-  requests: RosterRequest[];
   /** Turno di free agency dell'offseason (0-3), o null. */
   faRound: number | null;
+}
+
+/** Quello che cambia con le azioni del manager nel turno, con i giocatori che vi compaiono. */
+interface MarketLive {
+  bids: Bid[];
+  offers: TradeOffer[];
+  requests: RosterRequest[];
+  players: Map<string, PlayerLite>;
+}
+
+type MarketData = MarketBase & MarketLive;
+
+/**
+ * Offerte, proposte di scambio e richieste; dei giocatori citati si scaricano solo quelli che la pagina non
+ * conosce già (known: rosa, svincolati e quelli letti prima).
+ */
+async function loadLive(
+  league: LeagueDetail,
+  me: LeagueTeam,
+  known: ReadonlyMap<string, PlayerLite>,
+): Promise<MarketLive> {
+  const [bids, offers, requests] = await Promise.all([
+    myBids(me.id),
+    tradeOffers(league.id),
+    myRequests(me.id),
+  ]);
+  const players = new Map(known);
+  const missing = missingPlayerIds(offers, bids, known);
+  if (missing.length > 0) for (const [pid, p] of await playersLite(missing)) players.set(pid, p);
+  return { bids, offers, requests, players };
 }
 
 export function MarketPage() {
@@ -78,39 +108,35 @@ export function MarketPage() {
   const userId = useUserId();
   const [search, setSearch] = useSearchParams();
   const tab = (search.get('tab') as Tab | null) ?? 'svincolati';
-  const { data, error, loading, reload } = useAsync(async (): Promise<MarketData | null> => {
+  const {
+    data: loaded,
+    error,
+    loading,
+    reload,
+  } = useAsync(async (): Promise<MarketData | null> => {
     const league = await leagueDetail(id);
     const me = league?.teams.find((t) => t.ownerId === userId);
     if (!league || !me || !league.seasonId) return null;
-    const [config, finance, roster, freeAgents, bids, offers, picks, players, requests] = await Promise.all([
+    const [config, finance, roster, freeAgents, picks] = await Promise.all([
       seasonConfig(league.seasonId).then((c) => effectiveConfig(c, league.roundKind, league.roundStage)),
       teamFinance(me.id),
       teamRoster(me.id),
       freeAgentPlayers(league.id),
-      myBids(me.id),
-      tradeOffers(league.id),
       leaguePicks(league.id),
-      leaguePlayersLite(league.id),
-      myRequests(me.id),
     ]);
+    const known = new Map([...roster, ...freeAgents].map((p) => [p.id, liteOf(p)]));
+    const live = await loadLive(league, me, known);
     const faRound = league.roundKind === 'offseason' ? faRoundOf(league.roundStage) : null;
-    return {
-      league,
-      me,
-      config,
-      finance,
-      roster,
-      freeAgents,
-      bids,
-      offers,
-      picks,
-      players,
-      requests,
-      faRound,
-    };
+    return { league, me, config, finance, roster, freeAgents, picks, faRound, ...live };
   }, [id, userId]);
-  // Turno nuovo: richieste, offerte e scambi cambiano
+  // Turno nuovo: si rilegge tutto (rosa, svincolati, bilancio, offerte e scambi cambiano)
   useRoundChange(id, reload);
+  // Dopo un'azione si rileggono solo offerte, scambi e richieste: valgono per i dati del turno con cui sono letti
+  const [live, setLive] = useState<{ of: MarketData; value: MarketLive } | null>(null);
+  const data = useMemo(
+    () => (loaded && live?.of === loaded ? { ...loaded, ...live.value } : loaded),
+    [loaded, live],
+  );
   const [busy, setBusy] = useState(false);
   // L'esito delle azioni compare in basso, vicino a dove si è toccato anche in fondo a una lista lunga
   const [message, setMessage] = useState<ToastMessage | null>(null);
@@ -121,15 +147,22 @@ export function MarketPage() {
     setMessage(null);
     try {
       await marketAction(id, action);
-      setMessage({ ok: true, text: ok });
-      reload();
-      return true;
     } catch (e) {
       setMessage({ ok: false, text: friendlyError(e) });
-      return false;
-    } finally {
       setBusy(false);
+      return false;
     }
+    setMessage({ ok: true, text: ok });
+    if (loaded && data) {
+      try {
+        setLive({ of: loaded, value: await loadLive(data.league, data.me, data.players) });
+      } catch {
+        // Rilettura breve non riuscita: si rilegge tutto
+        reload();
+      }
+    }
+    setBusy(false);
+    return true;
   }
 
   if (loading && !data) return <Spinner />;
@@ -230,14 +263,15 @@ type Run = (action: MarketAction, ok: string) => Promise<boolean>;
 function FreeAgents({ data, busy, run }: { data: MarketData; busy: boolean; run: Run }) {
   const [role, setRole] = useState<string>('all');
   const [open, setOpen] = useState<string | null>(null);
+  const { freeAgents, config, faRound } = data;
   const list = useMemo(
     () =>
-      data.freeAgents
+      freeAgents
         .filter((p) => role === 'all' || p.role === role || p.secondaryRole === role)
-        .map((p) => ({ p, ovr: overall(p), ask: freeAgentAsk(data.config, p, data.faRound) }))
+        .map((p) => ({ p, ovr: overall(p), ask: freeAgentAsk(config, p, faRound) }))
         .sort((a, b) => b.ovr - a.ovr)
         .slice(0, 60),
-    [data, role],
+    [freeAgents, config, faRound, role],
   );
   const pending = data.bids.filter((b) => b.status === 'pending');
   const recent = data.bids.filter((b) => b.status !== 'pending' && b.status !== 'withdrawn').slice(0, 8);

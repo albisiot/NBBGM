@@ -5,6 +5,7 @@ import {
   effectiveConfig,
   faRoundOf,
   millions,
+  missingPlayerIds,
   offerInput,
   offerSalary,
   projectedTax,
@@ -54,5 +55,26 @@ describe('offseason nell’app', () => {
     expect(effectiveConfig(CONFIG_2026_27, 'offseason', 'draft')).toBe(CONFIG_2026_27);
     expect(effectiveConfig(CONFIG_2026_27, 'offseason', 'fa2')).toEqual(nextConfig(CONFIG_2026_27));
     expect(effectiveConfig(CONFIG_2026_27, 'regular', null)).toBe(CONFIG_2026_27);
+  });
+});
+
+describe('giocatori da descrivere nel mercato', () => {
+  const offer = (playersFrom: string[], playersTo: string[]) => ({ playersFrom, playersTo });
+  it('solo quelli citati e non ancora caricati, una volta sola', () => {
+    const known = new Map([
+      ['mio', 1],
+      ['svincolato', 1],
+    ]);
+    expect(
+      missingPlayerIds(
+        [offer(['mio'], ['loro1', 'loro2']), offer(['loro2'], [])],
+        [{ playerId: 'svincolato' }, { playerId: 'firmato-altrove' }],
+        known,
+      ),
+    ).toEqual(['loro1', 'loro2', 'firmato-altrove']);
+  });
+
+  it('niente offerte e niente scambi: nessuna richiesta in più', () => {
+    expect(missingPlayerIds([], [], new Map())).toEqual([]);
   });
 });

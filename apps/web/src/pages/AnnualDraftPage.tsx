@@ -10,7 +10,7 @@ import { useUserId } from '../lib/auth.tsx';
 import { friendlyError } from '../lib/errors.ts';
 import { latestSaver } from '../lib/latestSaver.ts';
 import { leagueDetail } from '../lib/leagues.ts';
-import { draftProspects, leaguePlayersLite } from '../lib/roster.ts';
+import { draftProspects, liteOf, playersLite } from '../lib/roster.ts';
 import { supabase } from '../lib/supabase.ts';
 import { useAsync } from '../lib/useAsync.ts';
 
@@ -75,12 +75,15 @@ export function AnnualDraftPage() {
     if (!league?.seasonYear) return null;
     const draftYear = league.seasonYear + 1;
     const mine = league.teams.find((t) => t.ownerId === userId) ?? null;
-    const [order, prospects, players, list] = await Promise.all([
+    const [order, prospects, list] = await Promise.all([
       draftOrder(id, draftYear),
       draftProspects(id, draftYear),
-      leaguePlayersLite(id),
       mine ? myDraftList(mine.id) : Promise.resolve([] as string[]),
     ]);
+    // Chi è già stato scelto: dai prospetti, oppure (non più prospetto) solo quei giocatori, non tutta la lega
+    const players = new Map(prospects.map((p) => [p.id, liteOf(p)]));
+    const picked = order.flatMap((s) => (s.playerId && !players.has(s.playerId) ? [s.playerId] : []));
+    if (picked.length > 0) for (const [pid, p] of await playersLite(picked)) players.set(pid, p);
     return { league, draftYear, mine, order, prospects, players, list };
   }, [id, userId]);
   const [list, setList] = useState<string[] | null>(null);

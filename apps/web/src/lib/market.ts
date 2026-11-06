@@ -92,8 +92,27 @@ export async function seasonConfig(seasonId: string): Promise<SeasonConfig> {
  * Richiesta di uno svincolato, come la calcola il server: in stagione quella di fine free agency, nei turni di
  * free agency dell'offseason quella del turno (scende di turno in turno).
  */
-export function freeAgentAsk(config: SeasonConfig, p: RosterPlayer, faRound: number | null = null): number {
+export function freeAgentAsk(
+  config: SeasonConfig,
+  p: Pick<RosterPlayer, 'ratings' | 'role' | 'age' | 'yearsInLeague' | 'scoutedPotential' | 'morale'>,
+  faRound: number | null = null,
+): number {
   return askingSalaryFor(config, p, faRound ?? IN_SEASON_ASK_ROUND);
+}
+
+/**
+ * Giocatori citati da offerte agli svincolati e proposte di scambio che la pagina non conosce ancora (non sono
+ * nella propria rosa né tra gli svincolati): solo questi si scaricano, per scriverne nome, ruolo e overall.
+ */
+export function missingPlayerIds(
+  offers: readonly Pick<TradeOffer, 'playersFrom' | 'playersTo'>[],
+  bids: readonly Pick<Bid, 'playerId'>[],
+  known: ReadonlyMap<string, unknown>,
+): string[] {
+  const ids = new Set<string>();
+  for (const o of offers) for (const id of [...o.playersFrom, ...o.playersTo]) ids.add(id);
+  for (const b of bids) ids.add(b.playerId);
+  return [...ids].filter((id) => !known.has(id));
 }
 
 /** Turno di free agency (0-3) dello stage di offseason, o null. */

@@ -35,6 +35,8 @@ export interface LeagueDetail {
   seasonId: string | null;
   seasonYear: number | null;
   seasonPhase: string | null;
+  /** Turno corrente: cambia quando la lega avanza (chiave delle cache dei dati del turno). */
+  roundId: string | null;
   roundNumber: number | null;
   roundKind: string | null;
   roundState: string | null;
@@ -112,7 +114,7 @@ export async function leagueDetail(id: string): Promise<LeagueDetail | null> {
   const { data, error } = await supabase
     .from('leagues')
     .select(
-      `id, name, invite_code, commissioner_id, deadline_minutes, max_pace_seconds, roster_mode, draft_mode, rookie_source, ${LEAGUE_STATUS}, draft:initial_drafts(state)`,
+      `id, name, invite_code, commissioner_id, deadline_minutes, max_pace_seconds, roster_mode, draft_mode, rookie_source, current_round_id, ${LEAGUE_STATUS}, draft:initial_drafts(state)`,
     )
     .eq('id', id)
     .maybeSingle();
@@ -128,6 +130,7 @@ export async function leagueDetail(id: string): Promise<LeagueDetail | null> {
     roster_mode: 'real' | 'draft';
     draft_mode: 'list' | 'live';
     rookie_source: 'generated' | 'real';
+    current_round_id: string | null;
     draft: { state: 'waiting' | 'running' | 'done' } | { state: 'waiting' | 'running' | 'done' }[] | null;
   } & StatusRow;
   const teams = await supabase
@@ -157,6 +160,7 @@ export async function leagueDetail(id: string): Promise<LeagueDetail | null> {
     seasonId: l.season?.id ?? null,
     seasonYear: l.season?.year ?? null,
     seasonPhase: l.season?.phase ?? null,
+    roundId: l.current_round_id ?? null,
     roundNumber: l.round?.number ?? null,
     roundKind: l.round?.kind ?? null,
     roundState: l.round?.state ?? null,

@@ -4,9 +4,12 @@ import { DEFAULT_TACTICS, type Tactics, type TeamSetup } from './types.ts';
 
 export const SLOT_ROLES: readonly Role[] = ROLES;
 
+// Posizione di ogni ruolo nella fila, senza cercarla ogni volta (roleFit si chiama a ogni lettura di un'abilità)
+const ROLE_INDEX: Readonly<Record<string, number>> = Object.fromEntries(ROLES.map((r, i) => [r, i]));
+
 /** Distanza tra due ruoli nella fila PG, SG, SF, PF, C. */
 export function roleDistance(a: Role, b: Role): number {
-  return Math.abs(ROLES.indexOf(a) - ROLES.indexOf(b));
+  return Math.abs((ROLE_INDEX[a] ?? -1) - (ROLE_INDEX[b] ?? -1));
 }
 
 /** Efficacia di un giocatore in uno slot: ruolo principale e secondario pieni, poi -3%, -8%, -15%. */
@@ -42,6 +45,12 @@ export function autoSetup(
   // Quintetto: miglior assegnazione dei 5 slot tra i primi 8 (valori per slot calcolati una volta)
   const pool = active.slice(0, 8);
   const fit = pool.map((p) => SLOT_ROLES.map((r) => (ovr.get(p) as number) * roleFit(p, r)));
+  // Tetto di quello che possono ancora dare gli slot da `slot` in poi (il migliore di ogni slot, anche ripetuto):
+  // un ramo che non può arrivare al quintetto migliore trovato finora si salta. Con il margine di 1e-6 si saltano
+  // solo rami che non potrebbero comunque superarlo: il quintetto scelto è lo stesso della ricerca completa.
+  const rest = new Array<number>(6).fill(0);
+  for (let slot = 4; slot >= 0; slot--)
+    rest[slot] = (rest[slot + 1] as number) + Math.max(...fit.map((f) => f[slot] as number));
   let best: number[] = [];
   let bestScore = -1;
   const chosen: number[] = [];
@@ -54,6 +63,7 @@ export function autoSetup(
       }
       return;
     }
+    if (score + (rest[slot] as number) < bestScore - 1e-6) return;
     for (let i = 0; i < pool.length; i++) {
       if (used[i]) continue;
       used[i] = true;

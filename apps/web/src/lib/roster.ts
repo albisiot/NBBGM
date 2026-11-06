@@ -115,17 +115,64 @@ export async function teamRoster(teamId: string): Promise<RosterPlayer[]> {
   return withContractsAndInjuries((data ?? []) as unknown as PlayerRow[]);
 }
 
-/** Svincolati della lega (non ritirati), con le stesse informazioni dei giocatori in rosa. */
-export async function freeAgentPlayers(leagueId: string): Promise<RosterPlayer[]> {
+/**
+ * Svincolato nell'elenco del mercato: quanto serve per overall e richiesta. Niente tendenze e statistiche, e
+ * niente contratto (uno svincolato non ne ha: contracts.team_id è obbligatorio).
+ */
+export type FreeAgent = Pick<
+  RosterPlayer,
+  | 'id'
+  | 'firstName'
+  | 'lastName'
+  | 'role'
+  | 'secondaryRole'
+  | 'age'
+  | 'yearsInLeague'
+  | 'ratings'
+  | 'morale'
+  | 'scoutedPotential'
+>;
+
+/**
+ * Svincolati della lega (non ritirati, non prospetti del draft). Una lettura sola, filtrata per lega: crescono di
+ * stagione in stagione (con le rose reali circa 270 dopo sei stagioni) e un elenco di id nell'indirizzo
+ * (.in('player_id', ids)) supererebbe la lunghezza massima di una richiesta.
+ */
+export async function freeAgentPlayers(leagueId: string): Promise<FreeAgent[]> {
   const { data, error } = await supabase
     .from('players')
-    .select(PLAYER_COLUMNS)
+    .select(
+      'id, first_name, last_name, role, secondary_role, age, years_in_league, ratings, morale, scouted_potential',
+    )
     .eq('league_id', leagueId)
     .is('team_id', null)
     .is('draft_prospect', null)
     .eq('retired', false);
   if (error) throw error;
-  return withContractsAndInjuries((data ?? []) as unknown as PlayerRow[]);
+  type Row = {
+    id: string;
+    first_name: string;
+    last_name: string;
+    role: Role;
+    secondary_role: Role | null;
+    age: number;
+    years_in_league: number | null;
+    ratings: Ratings;
+    morale: number | string;
+    scouted_potential: number;
+  };
+  return ((data ?? []) as Row[]).map((r) => ({
+    id: r.id,
+    firstName: r.first_name,
+    lastName: r.last_name,
+    role: r.role,
+    secondaryRole: r.secondary_role,
+    age: r.age,
+    yearsInLeague: r.years_in_league,
+    ratings: r.ratings,
+    morale: Number(r.morale),
+    scoutedPotential: r.scouted_potential,
+  }));
 }
 
 /** Prospetti del draft annuale in attesa di essere scelti. */
@@ -148,35 +195,68 @@ export interface PlayerLite {
   overall: number;
 }
 
-/** Tutti i giocatori della lega in breve (nome, ruolo, età, overall), per descrivere scambi e offerte. */
-export async function leaguePlayersLite(leagueId: string): Promise<Map<string, PlayerLite>> {
-  const { data, error } = await supabase
-    .from('players')
-    .select('id, team_id, first_name, last_name, role, secondary_role, age, ratings')
-    .eq('league_id', leagueId)
-    .eq('retired', false);
-  if (error) throw error;
-  type Row = {
-    id: string;
-    team_id: string | null;
-    first_name: string;
-    last_name: string;
-    role: Role;
-    secondary_role: Role | null;
-    age: number;
-    ratings: Ratings;
+/** Un giocatore già caricato (della rosa o tra gli svincolati) in breve. */
+export function liteOf(
+  p: Pick<RosterPlayer, 'id' | 'firstName' | 'lastName' | 'role' | 'age' | 'ratings'> & {
+    teamId?: string | null;
+  },
+): PlayerLite {
+  return {
+    id: p.id,
+    teamId: p.teamId ?? null,
+    name: `${p.firstName} ${p.lastName}`,
+    role: p.role,
+    age: p.age,
+    overall: overall({ ratings: p.ratings, role: p.role }),
   };
+}
+
+/** Id per richiesta: 100 uuid fanno circa 4 KB di indirizzo, lontano dal limite di una richiesta. */
+export const IDS_PER_REQUEST = 100;
+
+/** Divide un elenco in pezzi di al massimo `size` elementi. */
+export function chunks<T>(items: readonly T[], size: number): T[][] {
+  const out: T[][] = [];
+  for (let i = 0; i < items.length; i += size) out.push(items.slice(i, i + size));
+  return out;
+}
+
+/**
+ * Solo i giocatori indicati in breve (nome, ruolo, età, overall), per descrivere scambi, offerte e scelte del draft:
+ * prima l'app scaricava tutti i giocatori della lega con le abilità (circa 550, più di mezzo megabyte).
+ */
+export async function playersLite(ids: readonly string[]): Promise<Map<string, PlayerLite>> {
+  const unique = [...new Set(ids)];
+  const pages = await Promise.all(
+    chunks(unique, IDS_PER_REQUEST).map(async (part) => {
+      const { data, error } = await supabase
+        .from('players')
+        .select('id, team_id, first_name, last_name, role, age, ratings')
+        .in('id', part);
+      if (error) throw error;
+      return (data ?? []) as {
+        id: string;
+        team_id: string | null;
+        first_name: string;
+        last_name: string;
+        role: Role;
+        age: number;
+        ratings: Ratings;
+      }[];
+    }),
+  );
   return new Map(
-    ((data ?? []) as Row[]).map((p) => [
+    pages.flat().map((p) => [
       p.id,
-      {
+      liteOf({
         id: p.id,
         teamId: p.team_id,
-        name: `${p.first_name} ${p.last_name}`,
+        firstName: p.first_name,
+        lastName: p.last_name,
         role: p.role,
         age: p.age,
-        overall: overall({ ratings: p.ratings, role: p.role }),
-      },
+        ratings: p.ratings,
+      }),
     ]),
   );
 }

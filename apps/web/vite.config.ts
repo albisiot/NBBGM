@@ -2,6 +2,7 @@ import tailwindcss from '@tailwindcss/vite';
 import react from '@vitejs/plugin-react';
 import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
 import { defineConfig, type Plugin } from 'vite';
 import { serviceWorkerSource } from './src/pwa/serviceWorker.ts';
 
@@ -47,4 +48,9 @@ function serviceWorker(): Plugin {
 export default defineConfig({
   base: './',
   plugins: [react(), tailwindcss(), serviceWorker()],
+  resolve: {
+    // L'app non usa lo Storage di Supabase: al posto del pacchetto (con iceberg-js) un modulo vuoto con gli stessi
+    // nomi (src/lib/noStorage.ts)
+    alias: { '@supabase/storage-js': fileURLToPath(new URL('./src/lib/noStorage.ts', import.meta.url)) },
+  },
 });

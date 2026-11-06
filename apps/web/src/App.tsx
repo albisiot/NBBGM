@@ -5,23 +5,26 @@ import { Layout } from './components/Layout.tsx';
 import { ErrorText, Spinner } from './components/ui.tsx';
 import { UpdateBanner } from './components/UpdateBanner.tsx';
 import { AuthProvider, useAuth } from './lib/auth.tsx';
+import { lazyPage } from './lib/lazyPage.ts';
 import { configured } from './lib/supabase.ts';
-import { AnnualDraftPage } from './pages/AnnualDraftPage.tsx';
-import { CreateLeaguePage } from './pages/CreateLeaguePage.tsx';
-import { DraftPage } from './pages/DraftPage.tsx';
-import { GamePage } from './pages/GamePage.tsx';
-import { JoinLeaguePage } from './pages/JoinLeaguePage.tsx';
-import { LeaguePage } from './pages/LeaguePage.tsx';
-import { LeaguesPage } from './pages/LeaguesPage.tsx';
 import { LoginPage } from './pages/LoginPage.tsx';
-import { MarketPage } from './pages/MarketPage.tsx';
-import { PlayerPage } from './pages/PlayerPage.tsx';
-import { PlayoffPage } from './pages/PlayoffPage.tsx';
-import { ProfilePage } from './pages/ProfilePage.tsx';
-import { ResultsPage } from './pages/ResultsPage.tsx';
-import { RosterPage } from './pages/RosterPage.tsx';
-import { StandingsPage } from './pages/StandingsPage.tsx';
-import { StatsPage } from './pages/StatsPage.tsx';
+
+// Le pagine arrivano a pezzi quando si aprono (lib/lazyPage.ts); l'accesso no, perché è la prima cosa che si vede
+const AnnualDraftPage = lazyPage(() => import('./pages/AnnualDraftPage.tsx'), 'AnnualDraftPage');
+const CreateLeaguePage = lazyPage(() => import('./pages/CreateLeaguePage.tsx'), 'CreateLeaguePage');
+const DraftPage = lazyPage(() => import('./pages/DraftPage.tsx'), 'DraftPage');
+const GamePage = lazyPage(() => import('./pages/GamePage.tsx'), 'GamePage');
+const JoinLeaguePage = lazyPage(() => import('./pages/JoinLeaguePage.tsx'), 'JoinLeaguePage');
+const LeaguePage = lazyPage(() => import('./pages/LeaguePage.tsx'), 'LeaguePage');
+const LeaguesPage = lazyPage(() => import('./pages/LeaguesPage.tsx'), 'LeaguesPage');
+const MarketPage = lazyPage(() => import('./pages/MarketPage.tsx'), 'MarketPage');
+const PlayerPage = lazyPage(() => import('./pages/PlayerPage.tsx'), 'PlayerPage');
+const PlayoffPage = lazyPage(() => import('./pages/PlayoffPage.tsx'), 'PlayoffPage');
+const ProfilePage = lazyPage(() => import('./pages/ProfilePage.tsx'), 'ProfilePage');
+const ResultsPage = lazyPage(() => import('./pages/ResultsPage.tsx'), 'ResultsPage');
+const RosterPage = lazyPage(() => import('./pages/RosterPage.tsx'), 'RosterPage');
+const StandingsPage = lazyPage(() => import('./pages/StandingsPage.tsx'), 'StandingsPage');
+const StatsPage = lazyPage(() => import('./pages/StatsPage.tsx'), 'StatsPage');
 
 function Routed() {
   const { session, loading } = useAuth();

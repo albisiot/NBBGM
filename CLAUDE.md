@@ -13,7 +13,7 @@ Riassunto del documento di design (versione 2.4, 4 novembre 2026). È la fonte d
 
 ## Stato del lavoro
 
-- Fasi 1-13 completate: l'app è pubblicata e installata dal telefono, e in produzione una lega ha giocato i suoi turni (con il Pronto e con l'allenatore). Dopo la Fase 13 sono stati corretti sette bug trovati analizzando l'app e rinforzati server e app: turni bloccati, spazio del database, strumenti del commissario, service worker, pubblicazione dopo i controlli; poi sistemati motore e regole di gioco: finali, rimonte, tiri da vicino, regola Stepien, stipendi massimi, rose corte; poi i dettagli dell'app: esito del mercato, invito con Google, uscita solo dal dispositivo, stato delle squadre nel turno dal server, uso da telefono (vedi "Scelte prese dopo la Fase 13"). Si lavora su `main`; `fasi-1-3` è il ramo storico delle fasi. La logica di stagione sta in `packages/engine/src/season/`; database e sicurezza in `supabase/migrations/` (vedi `supabase/README.md`).
+- Fasi 1-13 completate: l'app è pubblicata e installata dal telefono, e in produzione una lega ha giocato i suoi turni (con il Pronto e con l'allenatore). Dopo la Fase 13 sono stati corretti sette bug trovati analizzando l'app e rinforzati server e app: turni bloccati, spazio del database, strumenti del commissario, service worker, pubblicazione dopo i controlli; poi sistemati motore e regole di gioco: finali, rimonte, tiri da vicino, regola Stepien, stipendi massimi, rose corte; poi i dettagli dell'app: esito del mercato, invito con Google, uscita solo dal dispositivo, stato delle squadre nel turno dal server, uso da telefono; infine le prestazioni: pagine a pezzi, partite in memoria per turno, mercato più leggero, motore più veloce con gli stessi risultati (vedi "Scelte prese dopo la Fase 13"). Si lavora su `main`; `fasi-1-3` è il ramo storico delle fasi. La logica di stagione sta in `packages/engine/src/season/`; database e sicurezza in `supabase/migrations/` (vedi `supabase/README.md`).
 - App: `pnpm dev` (o `pnpm dev:lan` per provarla dal telefono sulla stessa Wi-Fi). Legge URL e chiave publishable da `apps/web/.env.local` (modello in `.env.example`).
 - Pubblicata su **GitHub Pages**: `https://albisiot.github.io/NBBGM/` (repository pubblico `albisiot/NBBGM`, ramo `main`). Workflow in `.github/workflows/`: `ci.yml` (controlli), e dopo i controlli riusciti su `main` `pages.yml` (app, con le variabili `SUPABASE_URL` e `SUPABASE_PUBLISHABLE_KEY`) e `supabase.yml` (migrazioni e funzioni, con il segreto `SUPABASE_ACCESS_TOKEN`). Icone della PWA con `pnpm icons`.
 - Edge Functions `create-league`, `draft`, `advance-turn` e `market` in `supabase/functions/`; il codice comune a Edge Function e script sta in `supabase/functions/_shared/`: `league.ts` (dati di partenza <-> motore, righe per `insert_league`), `draft.ts` (draft iniziale), `state.ts` (stato della lega dal database al motore, con `league_state`) `turn.ts` (un turno: dal motore alle sezioni di `apply_turn`) e `market.ts` (controllo delle azioni di mercato). Si pubblicano con `npx.cmd --yes supabase@3.0.0 functions deploy create-league draft advance-turn market --use-api`.
@@ -230,6 +230,32 @@ Dettagli dell'app.
   - bersagli di tocco di almeno 44 px (± dei minuti, intestazioni ordinabili, `Segmented`, pulsanti del draft, menu e selettori);
   - grigi del testo almeno `slate-500` su fondo chiaro e `slate-400` su fondo scuro;
   - la colonna delle partite nelle statistiche si chiama "G" (PG era anche il ruolo).
+
+Prestazioni.
+
+- **Pagine a pezzi:**
+  - tutte le pagine tranne l'accesso si caricano con `React.lazy` (`lib/lazyPage.ts`); nel `Layout` un `Suspense` mostra "Caricamento…" sotto l'intestazione;
+  - all'avvio 474 KB di JavaScript, 141 KB compressi (prima un file unico da 650 KB, 185 KB compressi);
+  - il service worker mette in cache tutti i file della build, pezzi compresi: l'app si apre anche senza rete, su qualunque pagina;
+  - se un pezzo manca perché nel frattempo è uscita una versione nuova (il service worker nuovo toglie i file della vecchia), la pagina si ricarica una volta da sola; se manca ancora entro un minuto, decide il manager con Ricarica (`ErrorBoundary`).
+- **Niente Storage di Supabase nella build:** l'app non lo usa. Un alias in `vite.config.ts` mette al posto di `@supabase/storage-js` (con iceberg-js) un modulo vuoto con gli stessi nomi (`lib/noStorage.ts`): 28 KB in meno. Se una versione nuova di supabase-js chiedesse un altro nome a storage-js, la build si ferma (export mancante).
+- **Partite in memoria per lega e turno** (`useSeason`, `KeyedCache` in `lib/cache.ts`):
+  - Risultati, Classifica e Playoff riusano le partite e le serie lette con la stessa stagione e lo stesso turno (`leagueDetail` dà ora anche `roundId`);
+  - al cambio di turno la chiave cambia e si rileggono; i dettagli della lega si leggono a ogni visita;
+  - le pagine di `games` (1.000 righe l'una) si chiedono due alla volta, in parallelo (`allPages`), e mai con la cronaca;
+  - in memoria al massimo 3 leghe; una lettura fallita non resta in cache.
+- **Mercato:**
+  - dopo un'azione si rileggono solo offerte agli svincolati, proposte di scambio e richieste. Rosa, svincolati, scelte e bilancio cambiano solo alla chiusura del turno, e si rileggono al cambio di turno;
+  - non scarica più tutti i giocatori della lega con le abilità (con la lega di prova 342 KB, 59 KB compressi). Dei giocatori citati da offerte e scambi si chiedono solo quelli che non sono nella propria rosa o tra gli svincolati (`missingPlayerIds`, `playersLite`), a pezzi di 100 id;
+  - degli svincolati solo le colonne per overall e richiesta (`FreeAgent`), senza tendenze, statistiche, contratti (uno svincolato non ne ha) e infortuni. Prima i contratti e gli infortuni si chiedevano con `.in('player_id', ids)` su tutti gli svincolati: con le rose reali crescono da 5 a circa 270 in sei stagioni, e oltre circa 200 id l'indirizzo supera gli 8 KB, oltre i quali molti server rifiutano la richiesta (414);
+  - il draft annuale chiede solo i giocatori già scelti che non sono più tra i prospetti.
+- **Motore più veloce, stessi risultati bit per bit:**
+  - in partita i valori fissi di ogni giocatore si calcolano una volta: adattamento ai 5 slot, morale, forma del giorno, resistenza, rischi di infortunio per distretto ed età;
+  - efficacia (fatica, morale, ruolo, forma) e peso nella scelta di chi gioca la palla restano in cache finché energia e slot non cambiano;
+  - `roleDistance` usa una tabella invece di `indexOf`; `overallRaw` i pesi già in elenco, nello stesso ordine;
+  - `autoSetup` salta i rami del quintetto che non possono superare il migliore trovato (margine di 1e-6, quindi lo stesso quintetto della ricerca completa);
+  - con i giocatori reali (`tsx`, mediana di 3 prove): partita calda da 7,6 a 3,9 ms, fredda da 37 a 29 ms, `strengthRanking` da 14 a 4,7 ms, turno di regular season da 183 a 102 ms; `pnpm sim:calibrate 1000` da 8,6 a 4,6 ms a partita, con le medie identiche;
+  - il test golden (`packages/engine/test/golden.test.ts`) tiene le impronte sha-256 di 36 partite, 5 finali, impostazioni automatiche, valutazioni e scambi dei bot, 4 turni veri e una stagione con l'offseason. Un'impronta cambia solo con un cambio di regole o di calibrazione voluto: allora si aggiorna, sapendo che cambiano le partite delle leghe in corso.
 
 ## Visione
 

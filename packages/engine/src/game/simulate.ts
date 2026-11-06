@@ -1,6 +1,6 @@
 import { BODY_PARTS, BODY_PART_LABEL, DURABILITY_KEY, type BodyPart, type RatingKey } from '../fields.ts';
 import { Rng } from '../rng.ts';
-import type { InjurySeverity, Player, Role } from '../types.ts';
+import type { InjurySeverity, Player } from '../types.ts';
 import { DEFAULT_PARAMS, type EngineParams } from './params.ts';
 import { SLOT_ROLES, roleFit } from './setup.ts';
 import type { GameEvent, GameInjury, GameResult, PlayerLine, TeamSetup, TeamTotals } from './types.ts';
@@ -25,6 +25,28 @@ interface SimPlayer {
   sizeF: number;
   /** Slot in campo (0-4) o -1 in panchina. */
   slot: number;
+  // Valori fissi per tutta la partita, calcolati una volta con le stesse formule (stessi numeri, bit per bit)
+  /** Adattamento al ruolo in ognuno dei 5 slot (roleFit). */
+  fits: number[];
+  /** Effetto del morale sulle abilità. */
+  moraleF: number;
+  /** 1 + forma del giorno, in attacco e in difesa. */
+  formOffF: number;
+  formDefF: number;
+  /** Consumo di energia per la Resistenza. */
+  staminaF: number;
+  /** Rischio di infortunio di ogni distretto (dalle durabilità), la loro media e l'effetto dell'età. */
+  risks: number[];
+  durability: number;
+  ageF: number;
+  // Efficacia in attacco e in difesa e peso nella scelta di chi gioca la palla: valgono finché energia e slot
+  // restano quelli con cui sono stati calcolati
+  effEnergy: number;
+  effSlot: number;
+  effOff: number;
+  effDef: number;
+  usage: number;
+  usageReady: boolean;
 }
 
 interface Side {
@@ -170,6 +192,9 @@ class GameSim {
     const players = available.map((p): SimPlayer => {
       const slot = setup.starters.indexOf(p.id);
       const spread = (c: number) => this.P.formBase + (this.P.formRange * (100 - c)) / 100;
+      const formOff = this.rng.normal(0, spread(p.hidden.offensiveConsistency));
+      const formDef = this.rng.normal(0, spread(p.hidden.defensiveConsistency));
+      const risks = BODY_PARTS.map((part) => ((100 - p.hidden[DURABILITY_KEY[part]]) / 20) ** 1.5);
       return {
         p,
         line: emptyLine(p, slot >= 0),
@@ -177,10 +202,24 @@ class GameSim {
         fouls: 0,
         target: (setup.minutes[p.id] ?? 0) * scale * 60,
         injured: false,
-        formOff: this.rng.normal(0, spread(p.hidden.offensiveConsistency)),
-        formDef: this.rng.normal(0, spread(p.hidden.defensiveConsistency)),
+        formOff,
+        formDef,
         sizeF: ((p.heightCm + 0.5 * (p.wingspanCm - p.heightCm)) / 203) ** 4,
         slot,
+        fits: SLOT_ROLES.map((role) => roleFit(p, role)),
+        moraleF: 1 + (0.06 * (p.morale - 50)) / 100,
+        formOffF: 1 + formOff,
+        formDefF: 1 + formDef,
+        staminaF: 1.25 - p.ratings.stamina / 200,
+        risks,
+        durability: risks.reduce((a, b) => a + b, 0) / risks.length,
+        ageF: 1 + 0.06 * Math.max(0, p.age - 30),
+        effEnergy: NaN,
+        effSlot: -2,
+        effOff: 1,
+        effDef: 1,
+        usage: 0,
+        usageReady: false,
       };
     });
     const court = setup.starters.map((id) => players.find((sp) => sp.p.id === id) as SimPlayer);
@@ -267,16 +306,26 @@ class GameSim {
   }
 
   // ------------------------------------------------------------ efficacia e abilità
-  private eff(sp: SimPlayer, kind: 'off' | 'def'): number {
+  /**
+   * Efficacia del giocatore: fatica, morale, ruolo dello slot e forma del giorno moltiplicano le abilità. Si
+   * ricalcola solo quando cambiano energia o slot; altrimenti resta quella già calcolata (stessi numeri).
+   */
+  private fresh(sp: SimPlayer): void {
+    if (sp.effEnergy === sp.energy && sp.effSlot === sp.slot) return;
     const P = this.P;
     const fatigue = 1 - P.fatigueMaxPenalty * clamp((P.fatigueThreshold - sp.energy) / 40, 0, 1);
-    const morale = 1 + (0.06 * (sp.p.morale - 50)) / 100;
-    const fit = sp.slot >= 0 ? roleFit(sp.p, SLOT_ROLES[sp.slot] as Role) : 1;
-    return fatigue * morale * fit * (1 + (kind === 'off' ? sp.formOff : sp.formDef));
+    const fit = sp.slot >= 0 ? (sp.fits[sp.slot] as number) : 1;
+    const base = fatigue * sp.moraleF * fit;
+    sp.effOff = base * sp.formOffF;
+    sp.effDef = base * sp.formDefF;
+    sp.effEnergy = sp.energy;
+    sp.effSlot = sp.slot;
+    sp.usageReady = false;
   }
 
   private r(sp: SimPlayer, key: RatingKey, kind: 'off' | 'def' = 'off'): number {
-    return sp.p.ratings[key] * this.eff(sp, kind);
+    this.fresh(sp);
+    return sp.p.ratings[key] * (kind === 'off' ? sp.effOff : sp.effDef);
   }
 
   private intensity(side: Side, low: number, high: number): number {
@@ -305,10 +354,7 @@ class GameSim {
       for (const sp of side.players) {
         if (sp.slot >= 0) {
           sp.line.seconds += dt;
-          sp.energy = Math.max(
-            0,
-            sp.energy - (P.energyDrain * (1.25 - sp.p.ratings.stamina / 200) * drainF * dt) / 60,
-          );
+          sp.energy = Math.max(0, sp.energy - (P.energyDrain * sp.staminaF * drainF * dt) / 60);
           this.rollInjury(sp, side, dt);
         } else if (!sp.injured) {
           sp.energy = Math.min(100, sp.energy + (P.benchRecovery * dt) / 60);
@@ -319,26 +365,21 @@ class GameSim {
     this.elapsed += dt;
   }
 
-  private partRisk(p: Player, part: BodyPart): number {
-    return ((100 - p.hidden[DURABILITY_KEY[part]]) / 20) ** 1.5;
-  }
-
   private rollInjury(sp: SimPlayer, side: Side, dt: number): void {
     if (sp.injured || this.pendingInjuries.some((x) => x.sp === sp)) return;
-    const risks = BODY_PARTS.map((part) => this.partRisk(sp.p, part));
-    const durability = risks.reduce((a, b) => a + b, 0) / risks.length;
     const fatigue = sp.energy < 40 ? 2.2 : sp.energy < 60 ? 1.5 : 1;
-    const age = 1 + 0.06 * Math.max(0, sp.p.age - 30);
     const p =
-      (this.P.injuryPerMinute * dt * durability * fatigue * age * this.intensity(side, 0.95, 1.1)) / 60;
+      (this.P.injuryPerMinute * dt * sp.durability * fatigue * sp.ageF * this.intensity(side, 0.95, 1.1)) /
+      60;
     if (this.rng.chance(p)) this.pendingInjuries.push({ sp, side });
   }
 
   private applyInjuries(): void {
     for (const { sp, side } of this.pendingInjuries) {
-      const parts = BODY_PARTS.map((part) => this.partRisk(sp.p, part));
-      const part = BODY_PARTS[this.rng.weightedIndex(parts)] as BodyPart;
-      const fragile = (parts[BODY_PARTS.indexOf(part)] as number) > 1.5;
+      // Il distretto: più è fragile (durabilità bassa), più è probabile
+      const k = this.rng.weightedIndex(sp.risks);
+      const part = BODY_PARTS[k] as BodyPart;
+      const fragile = (sp.risks[k] as number) > 1.5;
       const s = this.P.injurySeverity;
       const severity: InjurySeverity = (['light', 'medium', 'severe'] as const)[
         this.rng.weightedIndex([s.light, s.medium * (fragile ? 1.3 : 1), s.severe * (fragile ? 1.6 : 1)])
@@ -389,11 +430,10 @@ class GameSim {
     for (let slot = 0; slot < 5; slot++) {
       const cur = side.court[slot] as SimPlayer;
       const forced = cur.injured || cur.fouls >= P.foulOut;
-      const role = SLOT_ROLES[slot] as Role;
       const value = (c: SimPlayer) =>
         (this.expected(c) - c.line.seconds) / 60 +
         (c.energy - 75) / 8 +
-        25 * (roleFit(c.p, role) - 1) +
+        25 * ((c.fits[slot] as number) - 1) +
         (late && side.closers.has(c) ? 20 : 0);
       // Chi deve uscire per forza (infortunio, sesto fallo) può essere sostituito anche da chi ha falli
       const bench = side.players.filter(
@@ -599,7 +639,17 @@ class GameSim {
     return base * (pace === 'fast' ? 1.35 : pace === 'slow' ? 0.7 : 1) * (0.7 + (0.6 * speed) / 100);
   }
 
+  /** Peso del giocatore nella scelta di chi gioca la palla (come le abilità, vale finché energia e slot restano). */
   private usage(sp: SimPlayer): number {
+    this.fresh(sp);
+    if (!sp.usageReady) {
+      sp.usage = this.computeUsage(sp);
+      sp.usageReady = true;
+    }
+    return sp.usage;
+  }
+
+  private computeUsage(sp: SimPlayer): number {
     const skill =
       0.3 * Math.max(this.r(sp, 'threePoint'), this.r(sp, 'midRange')) +
       0.25 * Math.max(this.r(sp, 'layup'), this.r(sp, 'closeShot'), this.r(sp, 'drivingDunk')) +
