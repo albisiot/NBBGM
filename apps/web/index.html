@@ -8,6 +8,14 @@
     <meta name="theme-color" content="#1b1716" media="(prefers-color-scheme: dark)" />
     <!-- Campi, barre di scorrimento e fondo del browser seguono il tema del sistema, come le pagine -->
     <meta name="color-scheme" content="light dark" />
+    <!-- Tema scelto nel profilo (lib/theme.ts) prima del primo disegno, così non si vede l'altro; senza scelta il
+         tema del sistema. Il resto (controlli del browser, barra di sistema) lo fa l'app all'avvio -->
+    <script>
+      try {
+        var tema = localStorage.getItem('nbbgm:tema');
+        if (tema === 'chiaro' || tema === 'scuro') document.documentElement.setAttribute('data-tema', tema);
+      } catch (e) {}
+    </script>
     <meta name="description" content="Il manageriale di basket a turni da giocare con gli amici." />
     <!-- PWA: installabile dalla home del telefono -->
     <link rel="manifest" href="./manifest.webmanifest" />

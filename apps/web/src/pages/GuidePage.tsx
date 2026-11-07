@@ -66,7 +66,7 @@ const SECTIONS: { title: string; text: string[] }[] = [
     title: 'Sul telefono',
     text: [
       'Installa l’app dalla schermata Home: su iPhone da Safari con Condividi → Aggiungi alla schermata Home, su Android dal menu del browser o con il pulsante Installa. Nell’app installata su iPhone conviene entrare con il codice via email.',
-      'Nel profilo puoi attivare le notifiche: turno nuovo, decisione da prendere, il tuo turno nel draft dal vivo.',
+      'Nel profilo puoi attivare le notifiche (turno nuovo, decisione da prendere, il tuo turno nel draft dal vivo) e scegliere il tema: automatico come il telefono, chiaro o scuro.',
     ],
   },
 ];

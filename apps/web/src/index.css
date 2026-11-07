@@ -1,6 +1,23 @@
 @import 'tailwindcss';
 
 /*
+ * Tema scuro: segue il sistema, salvo una scelta nel profilo (lib/theme.ts), che mette data-tema="chiaro" o "scuro"
+ * su <html> (uno script in index.html lo fa prima del primo disegno). La variante dark: di Tailwind vale con
+ * data-tema="scuro", oppure con il sistema scuro quando non c'è data-tema="chiaro". :where() non aggiunge
+ * specificità: le classi dark: pesano come prima.
+ */
+@custom-variant dark {
+  &:where([data-tema='scuro'], [data-tema='scuro'] *) {
+    @slot;
+  }
+  @media (prefers-color-scheme: dark) {
+    &:where(:not([data-tema='chiaro'], [data-tema='chiaro'] *)) {
+      @slot;
+    }
+  }
+}
+
+/*
  * Stile Edicola: carta rosa e inchiostro come un giornale sportivo, il rosso per gli avvisi e per l'azione
  * principale della pagina. Una sola scala "stampa" va dalla carta (25 i riquadri, 50 il fondo) all'inchiostro
  * (900): nel tema chiaro i fondi stanno in alto e il testo in basso, nello scuro il contrario. Le scale slate e
