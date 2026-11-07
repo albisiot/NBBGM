@@ -1,21 +1,16 @@
-// Pagina della lega: turno corrente con chi è pronto (in tempo reale), avvisi, codice invito, squadre con i
-// loro manager (o il bot) e impostazioni. Risultati, classifiche e mercato arrivano con le fasi successive.
-import { Suspense, useEffect, useState } from 'react';
+// Pagina della lega: prima quello che c'è da fare nel turno. Primi passi e cerimonia quando servono, poi le
+// decisioni aperte (riquadro "Da fare"), il turno con chi è pronto (in tempo reale) e il Pronto, gli avvisi da
+// leggere, le ultime notizie e il draft iniziale finché non è finito. Codice invito, squadre, impostazioni e
+// gestione stanno in Info lega (pages/LeagueInfoPage.tsx).
+import { Suspense, useEffect } from 'react';
 import { Link, useParams, useSearchParams } from 'react-router';
 import { LatestNews } from '../components/ChronicleText.tsx';
-import { LeagueAdmin } from '../components/LeagueAdmin.tsx';
+import { InviteCard } from '../components/InviteCard.tsx';
 import { WelcomeCard } from '../components/Onboarding.tsx';
-import { TurnCard } from '../components/TurnCard.tsx';
-import { Button, Card, ErrorText, PageTitle, Spinner } from '../components/ui.tsx';
+import { TurnAlerts, TurnCard } from '../components/TurnCard.tsx';
+import { Card, ErrorText, PageTitle, Spinner } from '../components/ui.tsx';
 import { useUserId } from '../lib/auth.tsx';
-import {
-  deadlineLabel,
-  LAST_LEAGUE_KEY,
-  leagueDetail,
-  paceLabel,
-  statusLabel,
-  type LeagueTeam,
-} from '../lib/leagues.ts';
+import { LAST_LEAGUE_KEY, leagueDetail, statusLabel } from '../lib/leagues.ts';
 import { lazyPart } from '../lib/lazyPage.ts';
 import { useAsync } from '../lib/useAsync.ts';
 
@@ -41,7 +36,6 @@ export function LeaguePage() {
   if (!league) return <ErrorText>Lega non trovata, oppure non ne fai parte.</ErrorText>;
 
   const mine = league.teams.find((t) => t.ownerId === userId);
-  const humans = league.teams.filter((t) => t.ownerId !== null).length;
   const isCommissioner = league.commissionerId === userId;
 
   return (
@@ -50,25 +44,16 @@ export function LeaguePage() {
         {league.name}
       </PageTitle>
 
+      {/* Subito dopo la creazione il codice invito si vede qui; poi sta in Info lega */}
       {search.get('nuova') && (
-        <p className="rounded-lg bg-green-50 px-3 py-2 text-sm text-green-800 dark:bg-green-950 dark:text-green-100">
-          Lega creata. Manda il codice invito agli amici: ognuno sceglierà una squadra libera.
-        </p>
+        <>
+          <p className="rounded-lg bg-green-50 px-3 py-2 text-sm text-green-800 dark:bg-green-950 dark:text-green-100">
+            Lega creata. Manda il codice invito agli amici: ognuno sceglierà una squadra libera. Lo ritrovi
+            sempre in Info lega.
+          </p>
+          <InviteCard league={league} />
+        </>
       )}
-
-      <Card className="space-y-2">
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <div>
-            <p className="text-sm text-slate-500 dark:text-slate-400">Codice invito</p>
-            <p className="font-mono text-2xl font-bold tracking-widest">{league.inviteCode}</p>
-          </div>
-          <InviteButtons code={league.inviteCode} name={league.name} />
-        </div>
-        <p className="text-xs text-slate-500 dark:text-slate-400">
-          {humans === 1 ? '1 manager umano' : `${humans} manager umani`} · {30 - humans} squadre guidate dai
-          bot
-        </p>
-      </Card>
 
       {mine && <WelcomeCard leagueId={league.id} teamName={mine.fullName} />}
 
@@ -88,153 +73,41 @@ export function LeaguePage() {
         </Suspense>
       )}
 
+      {/* Prima le decisioni da prendere, poi il turno con il Pronto, poi le notizie */}
+      <TurnAlerts league={league} userId={userId} group="todo" />
       <TurnCard league={league} userId={userId} onRoundChange={reload} />
+      <TurnAlerts league={league} userId={userId} group="read" />
 
       <LatestNews key={league.roundId ?? ''} leagueId={league.id} codes={league.teams.map((t) => t.code)} />
 
-      {league.draftState && (
+      {/* Il draft iniziale finché non è finito; dopo si rivede da Info lega */}
+      {league.draftState && league.draftState !== 'done' && (
         <Card className="space-y-2">
           <p className="text-sm text-slate-500 dark:text-slate-400">
             Draft iniziale · {league.draftMode === 'live' ? 'dal vivo' : 'modalità lista'}
           </p>
           <p className="text-lg font-semibold">
-            {league.draftState === 'waiting'
-              ? 'In attesa di partire'
-              : league.draftState === 'running'
-                ? 'In corso'
-                : 'Concluso'}
+            {league.draftState === 'waiting' ? 'In attesa di partire' : 'In corso'}
           </p>
           <Link
             to={`/lega/${league.id}/draft`}
             className="inline-flex min-h-11 items-center rounded-lg bg-orange-600 px-4 text-sm font-semibold text-white hover:bg-orange-700"
           >
-            {league.draftState === 'done' ? 'Vedi le rose' : 'Vai al draft'}
+            Vai al draft
           </Link>
         </Card>
       )}
 
-      {mine && (
-        <Card>
-          <p className="text-sm text-slate-500 dark:text-slate-400">La tua squadra</p>
-          <p className="text-xl font-semibold">{mine.fullName}</p>
-          <Link
-            to={`/lega/${league.id}/squadra`}
-            className="mt-3 inline-flex min-h-11 items-center rounded-lg bg-orange-600 px-4 text-sm font-semibold text-white hover:bg-orange-700"
-          >
-            Gestisci la squadra
-          </Link>
-        </Card>
-      )}
-
-      <Card>
-        <h2 className="mb-3 font-semibold">Squadre</h2>
-        <div className="grid gap-4 md:grid-cols-2">
-          {(['East', 'West'] as const).map((conf) => (
-            <TeamList
-              key={conf}
-              title={conf === 'East' ? 'Eastern Conference' : 'Western Conference'}
-              teams={league.teams.filter((t) => t.conference === conf)}
-              userId={userId}
-              leagueId={league.id}
-            />
-          ))}
-        </div>
-      </Card>
-
-      <Card>
-        <h2 className="mb-2 font-semibold">Impostazioni</h2>
-        <dl className="grid gap-1 text-sm sm:grid-cols-[auto_1fr] sm:gap-x-4">
-          <dt className="text-slate-500 dark:text-slate-400">Rose iniziali</dt>
-          <dd>{league.rosterMode === 'real' ? 'Rose reali' : 'Draft di tutti i giocatori'}</dd>
-          <dt className="text-slate-500 dark:text-slate-400">Scadenza dei turni</dt>
-          <dd>{deadlineLabel(league.deadlineMinutes)}</dd>
-          <dt className="text-slate-500 dark:text-slate-400">Ritmo con gli allenatori</dt>
-          <dd>{paceLabel(league.maxPaceSeconds)}</dd>
-          <dt className="text-slate-500 dark:text-slate-400">Rookie</dt>
-          <dd>{league.rookieSource === 'generated' ? 'Generati' : 'Reali, da file'}</dd>
-        </dl>
-        {isCommissioner && (
-          <p className="mt-3 text-xs text-slate-500 dark:text-slate-400">
-            Sei il commissario di questa lega.
-          </p>
-        )}
-      </Card>
-
-      <LeagueAdmin league={league} userId={userId} onChange={reload} />
-    </div>
-  );
-}
-
-function TeamList({
-  title,
-  teams,
-  userId,
-  leagueId,
-}: {
-  title: string;
-  teams: LeagueTeam[];
-  userId: string;
-  leagueId: string;
-}) {
-  return (
-    <div>
-      <h3 className="mb-1 text-xs font-semibold tracking-wide text-slate-500 uppercase dark:text-slate-400">
-        {title}
-      </h3>
-      <ul className="divide-y divide-slate-100 dark:divide-slate-700">
-        {teams.map((t) => (
-          <li
-            key={t.id}
-            className={`flex items-center justify-between gap-2 py-1.5 text-sm ${t.ownerId === userId ? 'font-semibold' : ''}`}
-          >
-            <span className="flex min-w-0 items-center gap-2">
-              <span className="w-10 shrink-0 rounded bg-slate-100 px-1 text-center text-xs font-bold text-slate-700 dark:bg-slate-700 dark:text-slate-200">
-                {t.code}
-              </span>
-              <Link to={`/lega/${leagueId}/squadre/${t.code}`} className="truncate hover:underline">
-                {t.fullName}
-              </Link>
-            </span>
-            <span
-              className={`shrink-0 text-xs ${t.ownerId ? 'text-orange-700 dark:text-orange-300' : 'text-slate-500'}`}
-            >
-              {t.ownerId === userId ? 'Tu' : (t.ownerName ?? 'Bot')}
-            </span>
-          </li>
-        ))}
-      </ul>
-    </div>
-  );
-}
-
-function InviteButtons({ code, name }: { code: string; name: string }) {
-  const [copied, setCopied] = useState(false);
-  const link = `${window.location.origin}${window.location.pathname}#/entra/${code}`;
-  const text = `Entra nella mia lega di NBBGM "${name}" con il codice ${code}: ${link}`;
-
-  async function copy() {
-    try {
-      await navigator.clipboard.writeText(text);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
-    } catch {
-      setCopied(false);
-    }
-  }
-
-  return (
-    <div className="flex gap-2">
-      {typeof navigator.share === 'function' && (
-        <Button
-          variant="secondary"
-          onClick={() => void navigator.share({ title: 'NBBGM', text }).catch(() => {})}
+      <p className="text-sm text-slate-600 dark:text-slate-300">
+        <Link
+          to={`/lega/${league.id}/info`}
+          className="font-semibold text-orange-700 hover:underline dark:text-orange-300"
         >
-          Condividi
-        </Button>
-      )}
-      <Button variant="secondary" onClick={() => void copy()}>
-        {copied ? 'Copiato' : 'Copia invito'}
-      </Button>
+          Info lega
+        </Link>
+        : codice invito per gli amici, squadre e impostazioni
+        {isCommissioner ? ', gestione della lega' : ''}.
+      </p>
     </div>
   );
 }

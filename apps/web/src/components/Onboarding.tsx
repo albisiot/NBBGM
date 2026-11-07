@@ -96,8 +96,8 @@ export function WelcomeCard({ leagueId, teamName }: { leagueId: string; teamName
           pronto a ogni turno, ma si ferma quando c’è una decisione da prendere.
         </li>
         <li>
-          Le decisioni (proposte di scambio, rinnovi, draft) arrivano come <strong>avvisi</strong> qui sotto.
-          In{' '}
+          Le decisioni (proposte di scambio, rinnovi, draft) arrivano nel riquadro <strong>Da fare</strong>,
+          in cima a questa pagina. In{' '}
           <Link to={`/lega/${leagueId}/mercato`} className={LINK}>
             Mercato
           </Link>{' '}

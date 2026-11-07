@@ -1,8 +1,9 @@
 // Intestazione con il selettore delle leghe e il profilo, il menu della lega aperta, poi la pagina.
 import { Suspense, useEffect, useRef } from 'react';
-import { Link, NavLink, Outlet, useLocation, useMatch, useNavigate } from 'react-router';
+import { Link, Outlet, useLocation, useMatch, useNavigate } from 'react-router';
 import { useAuth, useUserId } from '../lib/auth.tsx';
 import { refreshAppBadge } from '../lib/appBadge.ts';
+import { activeLink, LEAGUE_LINKS, leagueHref } from '../lib/leagueNav.ts';
 import { LAST_LEAGUE_KEY, myLeagues } from '../lib/leagues.ts';
 import { lazyPart } from '../lib/lazyPage.ts';
 import { navScrollDelta } from '../lib/navScroll.ts';
@@ -89,32 +90,22 @@ export function Layout() {
         </Suspense>
       </main>
       {/* Su telefono il menu della lega sta in basso (quattro voci e Altro); da sm in su in alto */}
-      {current && <BottomNav id={current} links={LEAGUE_LINKS} />}
+      {current && <BottomNav id={current} />}
     </div>
   );
 }
 
-const LEAGUE_LINKS: { to: string; label: string }[] = [
-  { to: '', label: 'Lega' },
-  { to: 'squadra', label: 'Squadra' },
-  { to: 'mercato', label: 'Mercato' },
-  { to: 'risultati', label: 'Risultati' },
-  { to: 'classifica', label: 'Classifica' },
-  { to: 'playoff', label: 'Playoff' },
-  { to: 'statistiche', label: 'Statistiche' },
-  { to: 'cronaca', label: 'Cronaca' },
-  { to: 'storico', label: 'Storico' },
-];
-
 function LeagueNav({ id }: { id: string }) {
   const nav = useRef<HTMLElement>(null);
   const { pathname } = useLocation();
+  // Voce attiva anche per le pagine sotto una voce (Campionato: risultati, classifica, playoff, partite)
+  const active = activeLink(pathname, id);
   // La voce della pagina aperta in vista (su telefono il menu scorre): solo il menu, non la pagina
   useEffect(() => {
     const el = nav.current;
-    const active = el?.querySelector('[aria-current="page"]');
-    if (!el || !active) return;
-    const delta = navScrollDelta(el.getBoundingClientRect(), active.getBoundingClientRect());
+    const current = el?.querySelector('[aria-current="page"]');
+    if (!el || !current) return;
+    const delta = navScrollDelta(el.getBoundingClientRect(), current.getBoundingClientRect());
     if (delta !== 0) el.scrollLeft += delta;
   }, [pathname, id]);
   return (
@@ -125,20 +116,18 @@ function LeagueNav({ id }: { id: string }) {
     >
       <ul className="flex gap-1 text-sm">
         {LEAGUE_LINKS.map((l) => (
-          <li key={l.to}>
-            <NavLink
-              to={l.to ? `/lega/${id}/${l.to}` : `/lega/${id}`}
-              end={l.to === ''}
-              className={({ isActive }) =>
-                `inline-flex min-h-11 items-center border-b-2 px-3 whitespace-nowrap ${
-                  isActive
-                    ? 'border-orange-600 font-semibold text-orange-700 dark:text-orange-300'
-                    : 'border-transparent text-slate-600 hover:text-slate-900 dark:text-slate-300 dark:hover:text-white'
-                }`
-              }
+          <li key={l.key}>
+            <Link
+              to={leagueHref(id, l.to)}
+              aria-current={active === l.key ? 'page' : undefined}
+              className={`inline-flex min-h-11 items-center border-b-2 px-3 whitespace-nowrap ${
+                active === l.key
+                  ? 'border-orange-600 font-semibold text-orange-700 dark:text-orange-300'
+                  : 'border-transparent text-slate-600 hover:text-slate-900 dark:text-slate-300 dark:hover:text-white'
+              }`}
             >
               {l.label}
-            </NavLink>
+            </Link>
           </li>
         ))}
       </ul>

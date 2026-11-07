@@ -1,4 +1,4 @@
-// Gestione della lega nella sua pagina: il commissario cambia scadenza dei turni e ritmo con gli allenatori,
+// Gestione della lega nella pagina Info lega: il commissario cambia scadenza dei turni e ritmo con gli allenatori,
 // libera le squadre dei manager, li espelle, passa il ruolo a un altro manager o elimina la lega; cambia il codice
 // invito, invita gli amici per email e toglie i bandi. Gli altri possono lasciare la lega. Le azioni distruttive
 // chiedono conferma con un secondo tocco entro 5 secondi (ConfirmButton).

@@ -411,6 +411,35 @@ export function alertText(a: Pick<AlertItem, 'kind' | 'payload'>): {
   }
 }
 
+// Ordine delle decisioni nel riquadro "Da fare": prima quelle che senza risposta costano di più (la proposta di
+// scambio è rifiutata, il giocatore in scadenza se ne va), poi le altre; i tipi nuovi in fondo
+const DECISION_ORDER = [
+  'trade_offer',
+  'renewals',
+  'roster_minimum',
+  'draft_pick',
+  'free_agency',
+  'preparation',
+];
+
+/**
+ * Avvisi aperti della propria squadra nella pagina della lega: le decisioni (bloccanti) da prendere, per tipo e
+ * dalla più vecchia, e le notizie (informative) da leggere, dalla più recente.
+ */
+export function alertGroups<T extends Pick<AlertItem, 'id' | 'kind' | 'blocking' | 'createdAt'>>(
+  alerts: readonly T[],
+): { todo: T[]; read: T[] } {
+  const rank = (kind: string) => {
+    const i = DECISION_ORDER.indexOf(kind);
+    return i < 0 ? DECISION_ORDER.length : i;
+  };
+  const byTime = (a: T, b: T) => a.createdAt.localeCompare(b.createdAt) || a.id.localeCompare(b.id);
+  return {
+    todo: alerts.filter((a) => a.blocking).sort((a, b) => rank(a.kind) - rank(b.kind) || byTime(a, b)),
+    read: alerts.filter((a) => !a.blocking).sort((a, b) => byTime(b, a)),
+  };
+}
+
 /**
  * Che cosa succede, se il turno si chiude adesso, alle decisioni ancora aperte e alle modifiche non salvate: lo si
  * dice prima di segnarsi pronti. coach: allenatore attivo (decide lui i rinnovi lasciati aperti). Vuoto se non

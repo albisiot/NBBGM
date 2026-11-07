@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  alertGroups,
   alertText,
   barFor,
   barFromTurn,
@@ -475,5 +476,50 @@ describe('stato del turno in una lettura (seconda analisi, prestazioni)', () => 
     expect(barView(bar, NOW)).toMatchObject({ badge: { label: 'Da decidere' }, decisions: 1 });
     // Senza squadra non c'è la barra
     expect(barView(barFromTurn(turnFromServer('L', row({ my_team_id: null })), NOW), NOW)).toBeNull();
+  });
+});
+
+describe('avvisi nella pagina della lega: Da fare e Da leggere', () => {
+  const alert = (id: string, kind: string, blocking: boolean, createdAt: string) => ({
+    id,
+    kind,
+    blocking,
+    createdAt,
+    payload: {},
+  });
+  // Come le manda il server: dalla più recente
+  const alerts = [
+    alert('a', 'injury', false, '2026-11-07T10:05:00Z'),
+    alert('b', 'draft_pick', true, '2026-11-07T10:04:00Z'),
+    alert('c', 'trade_offer', true, '2026-11-07T10:03:00Z'),
+    alert('d', 'market', false, '2026-11-07T10:02:00Z'),
+    alert('e', 'trade_offer', true, '2026-11-07T10:01:00Z'),
+    alert('f', 'tipo_nuovo', true, '2026-11-07T10:00:00Z'),
+    alert('g', 'renewals', true, '2026-11-07T10:06:00Z'),
+  ];
+
+  it('le decisioni sono solo gli avvisi bloccanti, gli altri si leggono', () => {
+    const { todo, read } = alertGroups(alerts);
+    expect(todo.every((a) => a.blocking)).toBe(true);
+    expect(read.every((a) => !a.blocking)).toBe(true);
+    expect(todo.length + read.length).toBe(alerts.length);
+  });
+
+  it('prima le decisioni che senza risposta costano di più, a parità dalla più vecchia; i tipi nuovi in fondo', () => {
+    expect(alertGroups(alerts).todo.map((a) => a.id)).toEqual(['e', 'c', 'g', 'b', 'f']);
+  });
+
+  it('gli avvisi da leggere dal più recente', () => {
+    expect(alertGroups(alerts).read.map((a) => a.id)).toEqual(['a', 'd']);
+  });
+
+  it('a parità di ora decide l’id, e la lista di partenza non cambia', () => {
+    const same = [
+      alert('y', 'injury', false, '2026-11-07T10:00:00Z'),
+      alert('x', 'injury', false, '2026-11-07T10:00:00Z'),
+    ];
+    expect(alertGroups(same).read.map((a) => a.id)).toEqual(['y', 'x']);
+    expect(same.map((a) => a.id)).toEqual(['y', 'x']);
+    expect(alertGroups([])).toEqual({ todo: [], read: [] });
   });
 });

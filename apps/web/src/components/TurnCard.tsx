@@ -1,5 +1,6 @@
-// Turno corrente nella pagina della lega: stato, scadenza, chi è pronto (in tempo reale), il proprio Pronto,
-// gli avvisi della propria squadra e, per il commissario, forza l'avanzamento e pausa.
+// Turno corrente nella pagina della lega: stato, scadenza, chi è pronto (in tempo reale), il proprio Pronto e, per
+// il commissario, forza l'avanzamento e pausa. Gli avvisi della propria squadra stanno in TurnAlerts: le decisioni
+// in cima alla pagina, prima del Pronto, le notizie da leggere dopo la scheda.
 import { useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router';
 import { refreshAppBadge } from '../lib/appBadge.ts';
@@ -7,6 +8,7 @@ import { friendlyError } from '../lib/errors.ts';
 import type { LeagueDetail } from '../lib/leagues.ts';
 import { readSpoilerFree } from '../lib/replay.ts';
 import {
+  alertGroups,
   alertText,
   answerAlert,
   countsAsReady,
@@ -233,29 +235,14 @@ export function TurnCard({
             {STAGE_HINT[league.roundStage ?? ''] ?? ''}
           </p>
         )}
-        <p className="flex flex-wrap gap-x-4 gap-y-1 text-sm">
-          <Link to={`/lega/${league.id}/risultati`} className={LINK}>
-            Risultati
-          </Link>
-          <Link to={`/lega/${league.id}/classifica`} className={LINK}>
-            Classifica
-          </Link>
-          {round.kind !== 'regular' && (
-            <Link to={`/lega/${league.id}/playoff`} className={LINK}>
-              Tabellone
-            </Link>
-          )}
-          {round.kind === 'offseason' && (
+        {/* Risultati, classifica e mercato stanno nel menu; il draft annuale no: il suo link resta qui */}
+        {round.kind === 'offseason' && (
+          <p className="text-sm">
             <Link to={`/lega/${league.id}/draft-annuale`} className={LINK}>
               Draft
             </Link>
-          )}
-          {round.kind === 'offseason' && league.roundStage !== 'draft' && (
-            <Link to={`/lega/${league.id}/mercato`} className={LINK}>
-              Mercato
-            </Link>
-          )}
-        </p>
+          </p>
+        )}
         {/* Riepilogo per il gruppo della lega: dopo la prima partita della squadra */}
         {mine && status.lastGame && <ShareTurn league={league} me={mine} lastGame={status.lastGame} />}
         {open && round.deadline && !status.paused && (
@@ -324,7 +311,7 @@ export function TurnCard({
             {(myState === 'coach' || myState === 'blocked') && (
               <p className="text-sm text-sky-800 dark:text-sky-200">
                 {blocked || myState === 'blocked'
-                  ? 'La squadra è affidata all’allenatore, ma è fermo finché non rispondi agli avvisi qui sotto.'
+                  ? 'La squadra è affidata all’allenatore, ma è fermo finché non rispondi alle decisioni in cima alla pagina.'
                   : 'La squadra è affidata all’allenatore: risulti pronto a ogni turno.'}
               </p>
             )}
@@ -386,27 +373,68 @@ export function TurnCard({
         )}
         {actionError && <ErrorText>{actionError}</ErrorText>}
       </Card>
-
-      {status.alerts.length > 0 && (
-        <Card className="space-y-3">
-          <h2 className="font-semibold">Avvisi</h2>
-          {status.alerts.map((a) => (
-            <AlertRow
-              key={a.id}
-              alert={a}
-              leagueId={league.id}
-              disabled={busy || !open}
-              onAnswer={() =>
-                void run(async () => {
-                  await answerAlert(a.id);
-                  refreshAppBadge();
-                })
-              }
-            />
-          ))}
-        </Card>
-      )}
     </>
+  );
+}
+
+/**
+ * Avvisi aperti della propria squadra nella pagina della lega. group 'todo': il riquadro "Da fare" in cima, con le
+ * decisioni (avvisi bloccanti) e i loro pulsanti, da prendere prima del Pronto. group 'read': le notizie da leggere
+ * (infortuni, esiti del mercato), dopo la scheda del turno. Niente se non ce ne sono.
+ */
+export function TurnAlerts({
+  league,
+  userId,
+  group,
+}: {
+  league: LeagueDetail;
+  userId: string;
+  group: 'todo' | 'read';
+}) {
+  // Lo stesso stato del turno della scheda e della barra: nessuna lettura in più
+  const { data: status, reload } = useTurn(league.id, userId);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  if (!status?.round || status.leagueId !== league.id) return null;
+  const alerts = alertGroups(status.alerts)[group];
+  if (alerts.length === 0) return null;
+  const open = status.round.state === 'open';
+
+  async function answer(id: string) {
+    setBusy(true);
+    setError(null);
+    try {
+      await answerAlert(id);
+      refreshAppBadge();
+    } catch (e) {
+      setError(friendlyError(e));
+    } finally {
+      setBusy(false);
+      reload();
+    }
+  }
+
+  return (
+    <Card className={`space-y-3 ${group === 'todo' ? 'border-orange-300 dark:border-orange-700' : ''}`}>
+      <div>
+        <h2 className="font-semibold">{group === 'todo' ? `Da fare (${alerts.length})` : 'Da leggere'}</h2>
+        {group === 'todo' && (
+          <p className="text-sm text-slate-600 dark:text-slate-300">
+            Decidi prima di premere Sono pronto: finché ci sono decisioni aperte l’allenatore è fermo.
+          </p>
+        )}
+      </div>
+      {alerts.map((a) => (
+        <AlertRow
+          key={a.id}
+          alert={a}
+          leagueId={league.id}
+          disabled={busy || !open}
+          onAnswer={() => void answer(a.id)}
+        />
+      ))}
+      {error && <ErrorText>{error}</ErrorText>}
+    </Card>
   );
 }
 

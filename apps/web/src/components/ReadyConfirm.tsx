@@ -43,7 +43,7 @@ export function ReadyConfirm({
       {alertsLink && !unsaved && (
         <p>
           <Link to={`/lega/${leagueId}`} className="font-semibold underline" onClick={onCancel}>
-            Vedi gli avvisi
+            Vedi le decisioni
           </Link>
         </p>
       )}
