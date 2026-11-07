@@ -545,6 +545,7 @@ Organizzazione delle pagine dopo la terza analisi.
   - Playoff si vede fuori dalla regular season (play-in, playoff e offseason, con il tabellone della stagione finita), come prima il "Tabellone" della scheda del turno, o quando è la pagina aperta (`championshipTabs`): in regular season la classifica dice già chi va ai playoff e al play-in. Il tipo del turno viene dallo stato condiviso con la barra del turno.
 - Guida (sezione "Le pagine"), primi passi e conferma del Pronto ("Vedi le decisioni") parlano delle pagine nuove.
 - Nessuna lettura nuova dal server, nessuna migrazione: cambiano solo l'app e i test (`lib/leagueNav.test.ts`, `alertGroups` in `lib/turns.test.ts`).
+- **Non provato:** le pagine nel browser (serve il login sul progetto vero; l'utente ha scelto di saltare la prova). Controllati test, tipi, lint, formattazione e build.
 
 ## Visione
 
