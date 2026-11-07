@@ -1,12 +1,142 @@
 @import 'tailwindcss';
 
+/*
+ * Stile Edicola: carta rosa e inchiostro come un giornale sportivo, il rosso per gli avvisi e per l'azione
+ * principale della pagina. Una sola scala "stampa" va dalla carta (25 i riquadri, 50 il fondo) all'inchiostro
+ * (900): nel tema chiaro i fondi stanno in alto e il testo in basso, nello scuro il contrario. Le scale slate e
+ * orange di Tailwind non ci sono più: al loro posto stampa e rosso.
+ */
+@theme {
+  --color-slate-*: initial;
+  --color-orange-*: initial;
+
+  --color-stampa-25: #fbefea; /* riquadri */
+  --color-stampa-50: #f4dcd3; /* carta rosa, fondo delle pagine */
+  --color-stampa-100: #ecd0c6;
+  --color-stampa-200: #e0bfb5;
+  --color-stampa-300: #c9afa7; /* filetti */
+  --color-stampa-400: #a68a82; /* testo secondario sullo scuro: almeno 4,5:1 anche sui riquadri (800) */
+  --color-stampa-500: #6e5650; /* testo secondario sul chiaro: almeno 4,5:1 anche sulla carta (50) */
+  --color-stampa-600: #5e4b47; /* piombo */
+  --color-stampa-700: #3a2e2b;
+  --color-stampa-800: #26201e; /* riquadri nel tema scuro */
+  --color-stampa-900: #1b1716; /* inchiostro */
+  --color-stampa-950: #120f0e;
+
+  --color-rosso-50: #fbe9eb;
+  --color-rosso-100: #f7d3d9;
+  --color-rosso-200: #efb0ba;
+  --color-rosso-300: #e3808f; /* testo rosso sullo scuro */
+  --color-rosso-400: #d64e62;
+  --color-rosso-500: #c2273f; /* pulsanti rossi nel tema scuro */
+  --color-rosso-600: #b3122a; /* rosso titolo: pulsante principale, avvisi */
+  --color-rosso-700: #8e0e21; /* testo rosso sul chiaro */
+  --color-rosso-800: #6e0b1a;
+  --color-rosso-900: #4e0812;
+  --color-rosso-950: #33050c;
+
+  /* Testo con le grazie, titoli stretti: i caratteri stanno nella build (assets/fonts), non su Google Fonts */
+  --font-serif: 'Source Serif 4 Variable', Georgia, 'Times New Roman', serif;
+  --font-titolo: 'Oswald Variable', 'Arial Narrow', 'Roboto Condensed', sans-serif;
+  --default-font-family: var(--font-serif);
+
+  /* Angoli vivi, come la carta stampata; le pillole (rounded-full) restano tonde */
+  --radius-sm: 1px;
+  --radius-md: 2px;
+  --radius-lg: 2px;
+  --radius-xl: 3px;
+  --radius-2xl: 4px;
+  /* Niente ombre leggere sotto i riquadri: li separano i bordi */
+  --shadow-sm: 0 0 #0000;
+}
+
+/*
+ * Caratteri (licenza SIL OFL 1.1, testi in assets/fonts): solo alfabeto latino ed esteso (Dončić, Jokić). Il browser
+ * scarica un file solo quando la pagina usa i suoi caratteri; il service worker li tiene in cache con la build.
+ */
+@font-face {
+  font-family: 'Oswald Variable';
+  font-style: normal;
+  font-display: swap;
+  font-weight: 200 700;
+  src: url('./assets/fonts/oswald-latin-ext-wght-normal.woff2') format('woff2-variations');
+  unicode-range:
+    U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF,
+    U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF;
+}
+@font-face {
+  font-family: 'Oswald Variable';
+  font-style: normal;
+  font-display: swap;
+  font-weight: 200 700;
+  src: url('./assets/fonts/oswald-latin-wght-normal.woff2') format('woff2-variations');
+  unicode-range:
+    U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329,
+    U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+@font-face {
+  font-family: 'Source Serif 4 Variable';
+  font-style: normal;
+  font-display: swap;
+  font-weight: 200 900;
+  src: url('./assets/fonts/source-serif-4-latin-ext-wght-normal.woff2') format('woff2-variations');
+  unicode-range:
+    U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF,
+    U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C4, U+2113, U+2C60-2C7F, U+A720-A7FF;
+}
+@font-face {
+  font-family: 'Source Serif 4 Variable';
+  font-style: normal;
+  font-display: swap;
+  font-weight: 200 900;
+  src: url('./assets/fonts/source-serif-4-latin-wght-normal.woff2') format('woff2-variations');
+  unicode-range:
+    U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329,
+    U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+@font-face {
+  font-family: 'Source Serif 4 Variable';
+  font-style: italic;
+  font-display: swap;
+  font-weight: 200 900;
+  src: url('./assets/fonts/source-serif-4-latin-ext-wght-italic.woff2') format('woff2-variations');
+  unicode-range:
+    U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF,
+    U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C4, U+2113, U+2C60-2C7F, U+A720-A7FF;
+}
+@font-face {
+  font-family: 'Source Serif 4 Variable';
+  font-style: italic;
+  font-display: swap;
+  font-weight: 200 900;
+  src: url('./assets/fonts/source-serif-4-latin-wght-italic.woff2') format('woff2-variations');
+  unicode-range:
+    U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329,
+    U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+
 /* Colori di base per le pagine senza intestazione (accesso); il tema segue quello del sistema */
 @layer base {
   html {
     -webkit-text-size-adjust: 100%;
   }
   body {
-    @apply bg-slate-50 text-slate-900 antialiased dark:bg-slate-900 dark:text-slate-100;
+    @apply bg-stampa-50 text-stampa-900 antialiased dark:bg-stampa-900 dark:text-stampa-50;
+  }
+  /* Titoli come sul giornale: stretti, e quelli di pagina e di sezione in maiuscolo. Le classi li cambiano */
+  h1,
+  h2,
+  h3 {
+    font-family: var(--font-titolo);
+  }
+  h1,
+  h2 {
+    text-transform: uppercase;
+    letter-spacing: 0.02em;
+  }
+  /* Numeri incolonnati nelle tabelle (classifiche, box score, statistiche) */
+  table {
+    font-variant-numeric: tabular-nums;
   }
 }
 
@@ -24,17 +154,17 @@
 }
 
 /*
- * Menu della lega in basso su telefono (BottomNav, sotto sm): alto 3,5rem più l'area sicura in basso. Nelle pagine
- * della lega (has-bottom-nav) la pagina lascia spazio sotto, e quello che sta fisso in basso (barra Salva di
- * Squadra, messaggi) si appoggia sopra la barra invece di coprirla: l'area sicura la tiene già la barra. Fuori dai
- * layer di Tailwind, quindi vale sopra le utility bottom-0 e pb-[...] dei componenti.
+ * Menu della lega in basso su telefono (BottomNav, sotto sm): una barra staccata dai bordi, alta 4,25rem e 0,625rem
+ * sopra il fondo, più l'area sicura in basso. Nelle pagine della lega (has-bottom-nav) la pagina lascia spazio
+ * sotto, e quello che sta fisso in basso (barra Salva di Squadra, messaggi) si appoggia sopra la barra invece di
+ * coprirla. Fuori dai layer di Tailwind, quindi vale sopra le utility bottom-0 e pb-[...] dei componenti.
  */
 @media (max-width: 39.99rem) {
   .has-bottom-nav .main-above-nav {
-    padding-bottom: calc(3.5rem + env(safe-area-inset-bottom) + 1.5rem);
+    padding-bottom: calc(4.875rem + env(safe-area-inset-bottom) + 1.5rem);
   }
   .has-bottom-nav .dock-above-nav {
-    bottom: calc(3.5rem + env(safe-area-inset-bottom));
+    bottom: calc(4.875rem + env(safe-area-inset-bottom));
     padding-bottom: 0.75rem;
   }
 }

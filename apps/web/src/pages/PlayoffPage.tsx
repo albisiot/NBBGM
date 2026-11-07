@@ -33,7 +33,7 @@ export function PlayoffPage() {
     return (
       <div className="space-y-4">
         <PageTitle sub="Il tabellone si forma alla fine della regular season.">Playoff</PageTitle>
-        <p className="text-sm text-slate-600 dark:text-slate-300">Se la stagione finisse oggi:</p>
+        <p className="text-sm text-stampa-600 dark:text-stampa-300">Se la stagione finisse oggi:</p>
         <div className="grid gap-4 md:grid-cols-2">
           {CONFERENCES.map((c) => (
             <Card key={c} className="space-y-3 !p-4">
@@ -41,7 +41,7 @@ export function PlayoffPage() {
               <ol className="space-y-1 text-sm">
                 {standings[c].slice(0, 10).map((l) => (
                   <li key={l.teamId} className="flex items-center gap-2">
-                    <span className="w-5 text-right text-xs text-slate-500 dark:text-slate-400">
+                    <span className="w-5 text-right text-xs text-stampa-500 dark:text-stampa-400">
                       {l.confRank}
                     </span>
                     <TeamCode code={team.get(l.teamId)?.code ?? '?'} strong={l.teamId === mine} />
@@ -50,7 +50,7 @@ export function PlayoffPage() {
                       {l.w}-{l.l}
                     </span>
                     {l.confRank === 7 && (
-                      <span className="text-xs text-orange-700 dark:text-orange-300">play-in</span>
+                      <span className="text-xs text-rosso-700 dark:text-rosso-300">play-in</span>
                     )}
                   </li>
                 ))}
@@ -68,8 +68,8 @@ export function PlayoffPage() {
       </PageTitle>
 
       {champion && (
-        <Card className="border-orange-300 bg-orange-50 text-center dark:border-orange-700 dark:bg-orange-950">
-          <p className="text-sm text-slate-600 dark:text-slate-300">Campioni NBA</p>
+        <Card className="border-rosso-300 bg-rosso-50 text-center dark:border-rosso-700 dark:bg-rosso-950">
+          <p className="text-sm text-stampa-600 dark:text-stampa-300">Campioni NBA</p>
           <p className="text-2xl font-bold">{champion.fullName}</p>
         </Card>
       )}
@@ -91,7 +91,7 @@ export function PlayoffPage() {
               if (!list.length) return null;
               return (
                 <section key={round} className="space-y-2">
-                  <h3 className="text-xs font-semibold tracking-wide text-slate-500 uppercase dark:text-slate-400">
+                  <h3 className="text-xs font-semibold tracking-wide text-stampa-500 uppercase dark:text-stampa-400">
                     {SERIES_ROUND_LABEL[round as Series['round']]}
                   </h3>
                   <div className="grid gap-2 sm:grid-cols-2">
@@ -137,7 +137,7 @@ function SeriesCard({
         : `Serie in parità ${s.winsHigh}-${s.winsLow}`
       : `${code(s.winsHigh > s.winsLow ? s.highTeamId : s.lowTeamId)} conduce ${Math.max(s.winsHigh, s.winsLow)}-${Math.min(s.winsHigh, s.winsLow)}`;
   return (
-    <div className="rounded-lg border border-slate-200 p-2 text-sm dark:border-slate-700">
+    <div className="rounded-lg border border-stampa-200 p-2 text-sm dark:border-stampa-700">
       {[
         { id: s.highTeamId, seed: s.highSeed, wins: s.winsHigh },
         { id: s.lowTeamId, seed: s.lowSeed, wins: s.winsLow },
@@ -145,16 +145,16 @@ function SeriesCard({
         <div
           key={x.id}
           className={`flex items-center gap-2 py-0.5 ${s.winnerTeamId === x.id ? 'font-semibold' : ''} ${
-            s.winnerTeamId && s.winnerTeamId !== x.id ? 'text-slate-500 dark:text-slate-400' : ''
+            s.winnerTeamId && s.winnerTeamId !== x.id ? 'text-stampa-500 dark:text-stampa-400' : ''
           }`}
         >
-          <span className="w-4 text-right text-xs text-slate-500 dark:text-slate-400">{x.seed || ''}</span>
+          <span className="w-4 text-right text-xs text-stampa-500 dark:text-stampa-400">{x.seed || ''}</span>
           <TeamCode code={code(x.id)} strong={x.id === mine} />
           <span className="min-w-0 flex-1 truncate">{team.get(x.id)?.fullName}</span>
           <span className="w-5 text-right font-mono text-base">{x.wins}</span>
         </div>
       ))}
-      <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">{status}</p>
+      <p className="mt-1 text-xs text-stampa-500 dark:text-stampa-400">{status}</p>
     </div>
   );
 }
@@ -189,13 +189,13 @@ function PlayIn({
   const seedOf = (id: string) => seeds.indexOf(id) + 1;
   return (
     <section className="space-y-2">
-      <h3 className="text-xs font-semibold tracking-wide text-slate-500 uppercase dark:text-slate-400">
+      <h3 className="text-xs font-semibold tracking-wide text-stampa-500 uppercase dark:text-stampa-400">
         Play-in
       </h3>
       <div className="grid gap-2 sm:grid-cols-3">
         {rows.map(({ label, game }) => (
-          <div key={label} className="rounded-lg border border-slate-200 p-2 text-sm dark:border-slate-700">
-            <p className="mb-1 text-xs text-slate-500 dark:text-slate-400">{label}</p>
+          <div key={label} className="rounded-lg border border-stampa-200 p-2 text-sm dark:border-stampa-700">
+            <p className="mb-1 text-xs text-stampa-500 dark:text-stampa-400">{label}</p>
             {game ? (
               [game.homeTeamId, game.awayTeamId].map((tid) => {
                 const score = tid === game.homeTeamId ? game.homeScore : game.awayScore;
@@ -203,7 +203,7 @@ function PlayIn({
                 const won = score !== null && other !== null && score > other;
                 return (
                   <div key={tid} className={`flex items-center gap-2 py-0.5 ${won ? 'font-semibold' : ''}`}>
-                    <span className="w-4 text-right text-xs text-slate-500 dark:text-slate-400">
+                    <span className="w-4 text-right text-xs text-stampa-500 dark:text-stampa-400">
                       {seedOf(tid) || ''}
                     </span>
                     <TeamCode code={team.get(tid)?.code ?? '?'} strong={tid === mine} />
@@ -213,7 +213,7 @@ function PlayIn({
                 );
               })
             ) : (
-              <p className="text-xs text-slate-500 dark:text-slate-400">Dopo le prime due partite</p>
+              <p className="text-xs text-stampa-500 dark:text-stampa-400">Dopo le prime due partite</p>
             )}
           </div>
         ))}

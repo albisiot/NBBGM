@@ -146,7 +146,7 @@ export function RosterPage() {
         <p className="text-sm">
           La rosa è vuota.{' '}
           {league.draftState && league.draftState !== 'done' && (
-            <Link className="font-semibold text-orange-600 underline" to={`/lega/${league.id}/draft`}>
+            <Link className="font-semibold text-rosso-600 underline" to={`/lega/${league.id}/draft`}>
               Il draft iniziale non è ancora finito.
             </Link>
           )}
@@ -253,11 +253,11 @@ export function RosterPage() {
           const fit = p ? roleFit(p, slot) : 1;
           return (
             <label key={slot} className="flex items-center gap-3">
-              <span className="w-8 shrink-0 text-sm font-bold text-slate-500 dark:text-slate-400">
+              <span className="w-8 shrink-0 text-sm font-bold text-stampa-500 dark:text-stampa-400">
                 {slot}
               </span>
               <select
-                className="min-h-11 min-w-0 flex-1 rounded-lg border border-slate-300 bg-white px-2 text-sm dark:border-slate-600 dark:bg-slate-900"
+                className="min-h-11 min-w-0 flex-1 rounded-lg border border-stampa-300 bg-stampa-25 px-2 text-sm dark:border-stampa-600 dark:bg-stampa-900"
                 value={settings.starters[i] ?? ''}
                 onChange={(e) => setStarter(i, e.target.value)}
               >
@@ -291,7 +291,7 @@ export function RosterPage() {
             {total}/240
           </span>
         </div>
-        <ul className="divide-y divide-slate-100 dark:divide-slate-700">
+        <ul className="divide-y divide-stampa-100 dark:divide-stampa-700">
           {rotation.map((p) => {
             const m = settings.minutes[p.id] ?? 0;
             const starter = settings.starters.includes(p.id);
@@ -301,7 +301,7 @@ export function RosterPage() {
                   <span className={`block truncate text-sm ${starter ? 'font-semibold' : ''}`}>
                     {p.firstName} {p.lastName}
                   </span>
-                  <span className="flex items-center gap-2 text-xs text-slate-500 dark:text-slate-400">
+                  <span className="flex items-center gap-2 text-xs text-stampa-500 dark:text-stampa-400">
                     {p.role}
                     {p.secondaryRole ? `/${p.secondaryRole}` : ''} · {ovr.get(p.id)} · energia{' '}
                     <EnergyBar value={p.energy} />
@@ -329,7 +329,7 @@ export function RosterPage() {
                   aria-label={`Minuti di ${p.lastName}`}
                   value={m}
                   onChange={(e) => setMinutes(p.id, Number(e.target.value))}
-                  className="h-11 w-14 rounded-lg border border-slate-300 bg-white text-center text-sm dark:border-slate-600 dark:bg-slate-900"
+                  className="h-11 w-14 rounded-lg border border-stampa-300 bg-stampa-25 text-center text-sm dark:border-stampa-600 dark:bg-stampa-900"
                 />
                 <Button
                   variant="ghost"
@@ -349,7 +349,7 @@ export function RosterPage() {
         <h2 className="font-semibold">Tattiche</h2>
         {TACTIC_OPTIONS.map((t) => (
           <div key={t.key}>
-            <p className="mb-1 text-sm text-slate-600 dark:text-slate-300">{t.label}</p>
+            <p className="mb-1 text-sm text-stampa-600 dark:text-stampa-300">{t.label}</p>
             <div className="flex flex-wrap gap-1" role="radiogroup" aria-label={t.label}>
               {t.options.map((o) => (
                 <button
@@ -361,8 +361,8 @@ export function RosterPage() {
                   }
                   className={`min-h-11 rounded-lg border px-3 text-sm ${
                     settings.tactics[t.key] === o.value
-                      ? 'border-orange-500 bg-orange-50 font-semibold dark:bg-orange-950'
-                      : 'border-slate-200 dark:border-slate-700'
+                      ? 'border-rosso-500 bg-rosso-50 font-semibold dark:bg-rosso-950'
+                      : 'border-stampa-200 dark:border-stampa-700'
                   }`}
                 >
                   {o.label}
@@ -387,7 +387,7 @@ export function RosterPage() {
         }}
       />
 
-      <div className="dock-above-nav fixed inset-x-0 bottom-0 z-10 border-t border-slate-200 bg-white/95 pt-3 pr-[max(0.75rem,env(safe-area-inset-right))] pb-[max(0.75rem,env(safe-area-inset-bottom))] pl-[max(0.75rem,env(safe-area-inset-left))] backdrop-blur dark:border-slate-700 dark:bg-slate-900/95">
+      <div className="dock-above-nav fixed inset-x-0 bottom-0 z-10 border-t border-stampa-200 bg-stampa-25/95 pt-3 pr-[max(0.75rem,env(safe-area-inset-right))] pb-[max(0.75rem,env(safe-area-inset-bottom))] pl-[max(0.75rem,env(safe-area-inset-left))] backdrop-blur dark:border-stampa-700 dark:bg-stampa-900/95">
         <div className="mx-auto flex max-w-4xl items-center justify-between gap-3">
           <div className="min-w-0 text-sm">
             {problems.length > 0 ? (
@@ -395,9 +395,9 @@ export function RosterPage() {
             ) : saved ? (
               <span className="text-green-700">Salvato: vale dalla prossima partita.</span>
             ) : dirty ? (
-              <span className="text-slate-600 dark:text-slate-300">Modifiche non salvate.</span>
+              <span className="text-stampa-600 dark:text-stampa-300">Modifiche non salvate.</span>
             ) : (
-              <span className="text-slate-500 dark:text-slate-400">Nessuna modifica.</span>
+              <span className="text-stampa-500 dark:text-stampa-400">Nessuna modifica.</span>
             )}
             {error && <span className="block text-red-600">{error}</span>}
           </div>
@@ -426,22 +426,22 @@ function LeaveDialog({
   onSaveAndLeave: () => void;
 }) {
   return (
-    <div className="fixed inset-0 z-30 flex items-end justify-center bg-slate-900/40 pr-[env(safe-area-inset-right)] pb-[env(safe-area-inset-bottom)] pl-[env(safe-area-inset-left)] sm:items-center">
+    <div className="fixed inset-0 z-30 flex items-end justify-center bg-stampa-900/40 pr-[env(safe-area-inset-right)] pb-[env(safe-area-inset-bottom)] pl-[env(safe-area-inset-left)] sm:items-center">
       <div
         role="alertdialog"
         aria-modal="true"
         aria-labelledby="uscita-titolo"
-        className="m-3 w-full max-w-md space-y-3 rounded-xl bg-white p-4 shadow-lg dark:bg-slate-800"
+        className="m-3 w-full max-w-md space-y-3 rounded-xl bg-stampa-25 p-4 shadow-lg dark:bg-stampa-800"
       >
         <h2 id="uscita-titolo" className="font-semibold">
           Modifiche non salvate
         </h2>
-        <p className="text-sm text-slate-600 dark:text-slate-300">
+        <p className="text-sm text-stampa-600 dark:text-stampa-300">
           Quintetto, minuti o tattiche sono cambiati ma non li hai salvati: se esci si perdono e alla prossima
           partita si gioca con le impostazioni di prima.
         </p>
         {!canSave && (
-          <p className="text-sm text-slate-600 dark:text-slate-300">
+          <p className="text-sm text-stampa-600 dark:text-stampa-300">
             Per salvarle servono il quintetto completo e 240 minuti: resta e sistemale.
           </p>
         )}
@@ -473,7 +473,7 @@ function EnergyBar({ value }: { value: number }) {
   const color = value >= 85 ? 'bg-green-500' : value >= 70 ? 'bg-amber-500' : 'bg-red-500';
   return (
     <span className="inline-flex items-center gap-1" title={`Energia ${Math.round(value)}`}>
-      <span className="inline-block h-1.5 w-10 overflow-hidden rounded bg-slate-200 dark:bg-slate-700">
+      <span className="inline-block h-1.5 w-10 overflow-hidden rounded bg-stampa-200 dark:bg-stampa-700">
         <span
           className={`block h-full ${color}`}
           style={{ width: `${Math.max(0, Math.min(100, value))}%` }}
@@ -515,7 +515,7 @@ function CoachCard({
   return (
     <Card className="space-y-3">
       <h2 className="font-semibold">Allenatore</h2>
-      <p className="text-sm text-slate-600 dark:text-slate-300">
+      <p className="text-sm text-stampa-600 dark:text-stampa-300">
         L'allenatore gestisce quintetto e minuti come il pulsante Auto, partendo dalle tue tattiche, e la
         squadra risulta pronta da sola a ogni turno. Non fa mercato e si ferma quando arriva una decisione da
         prendere.
@@ -533,7 +533,7 @@ function CoachCard({
             aria-label="Durata della delega"
             value={until}
             onChange={(e) => setUntil(e.target.value as CoachUntil)}
-            className="min-h-11 w-full rounded-lg border border-slate-300 bg-white px-2 text-sm sm:w-auto dark:border-slate-600 dark:bg-slate-900"
+            className="min-h-11 w-full rounded-lg border border-stampa-300 bg-stampa-25 px-2 text-sm sm:w-auto dark:border-stampa-600 dark:bg-stampa-900"
           >
             <option value="forever">Finché non la riprendo</option>
             <option value="round">Fino al prossimo turno</option>
@@ -546,7 +546,7 @@ function CoachCard({
               aria-label="Data di fine della delega"
               value={date}
               onChange={(e) => setDate(e.target.value)}
-              className="min-h-11 w-full rounded-lg border border-slate-300 bg-white px-2 text-sm sm:ml-2 sm:w-auto dark:border-slate-600 dark:bg-slate-900"
+              className="min-h-11 w-full rounded-lg border border-stampa-300 bg-stampa-25 px-2 text-sm sm:ml-2 sm:w-auto dark:border-stampa-600 dark:bg-stampa-900"
             />
           )}
           <div>

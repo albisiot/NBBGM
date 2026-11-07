@@ -24,19 +24,19 @@ export function PushSettings({ userId }: { userId: string }) {
     <Card className="space-y-3">
       <h2 className="font-semibold">Notifiche</h2>
       {availability === 'install' && (
-        <p className="text-sm text-slate-600 dark:text-slate-300">
+        <p className="text-sm text-stampa-600 dark:text-stampa-300">
           Su iPhone e iPad le notifiche arrivano solo con l’app installata: in Safari tocca{' '}
           <strong>Condividi</strong> → <strong>Aggiungi alla schermata Home</strong>, poi apri NBBGM
           dall’icona e attivale qui (serve iOS 16.4 o successivo).
         </p>
       )}
       {availability === 'unsupported' && (
-        <p className="text-sm text-slate-600 dark:text-slate-300">
+        <p className="text-sm text-stampa-600 dark:text-stampa-300">
           Questo browser non supporta le notifiche.
         </p>
       )}
       {availability === 'denied' && (
-        <p className="text-sm text-slate-600 dark:text-slate-300">
+        <p className="text-sm text-stampa-600 dark:text-stampa-300">
           Le notifiche di NBBGM sono bloccate nelle impostazioni del browser (o del telefono): sbloccale lì e
           torna qui.
         </p>
@@ -89,7 +89,7 @@ function PushControls({ userId }: { userId: string }) {
 
   return (
     <div className="space-y-3">
-      <p className="text-sm text-slate-600 dark:text-slate-300">
+      <p className="text-sm text-stampa-600 dark:text-stampa-300">
         {subscribed
           ? 'Le notifiche sono attive su questo dispositivo.'
           : 'Ricevi una notifica quando serve una tua decisione o quando la lega passa al turno successivo.'}
@@ -115,7 +115,7 @@ function PushControls({ userId }: { userId: string }) {
             <label key={k.key} className="flex min-h-11 cursor-pointer items-start gap-3 py-1 text-sm">
               <input
                 type="checkbox"
-                className="mt-1 size-4 accent-orange-600"
+                className="mt-1 size-4 accent-rosso-600"
                 checked={settings[k.key]}
                 disabled={busy}
                 onChange={(e) => {
@@ -128,7 +128,7 @@ function PushControls({ userId }: { userId: string }) {
               />
               <span>
                 {k.label}
-                <span className="block text-xs text-slate-500 dark:text-slate-400">{k.note}</span>
+                <span className="block text-xs text-stampa-500 dark:text-stampa-400">{k.note}</span>
               </span>
             </label>
           ))}

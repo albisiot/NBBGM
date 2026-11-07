@@ -94,8 +94,8 @@ export function ChroniclePage() {
                 onClick={() => toggleType(t.value)}
                 className={`min-h-11 rounded-full border px-3 text-sm ${
                   on
-                    ? 'border-orange-500 bg-orange-50 font-semibold text-orange-800 dark:bg-orange-950 dark:text-orange-200'
-                    : 'border-slate-300 text-slate-600 dark:border-slate-600 dark:text-slate-300'
+                    ? 'border-rosso-500 bg-rosso-50 font-semibold text-rosso-800 dark:bg-rosso-950 dark:text-rosso-200'
+                    : 'border-stampa-300 text-stampa-600 dark:border-stampa-600 dark:text-stampa-300'
                 }`}
               >
                 {t.label}
@@ -106,7 +106,7 @@ export function ChroniclePage() {
         <div className="flex flex-wrap items-center gap-2">
           <select
             aria-label="Squadra"
-            className="min-h-11 min-w-0 flex-1 rounded-lg border border-slate-300 bg-white px-2 text-sm sm:flex-none dark:border-slate-600 dark:bg-slate-800"
+            className="min-h-11 min-w-0 flex-1 rounded-lg border border-stampa-300 bg-stampa-25 px-2 text-sm sm:flex-none dark:border-stampa-600 dark:bg-stampa-800"
             value={team ?? ''}
             onChange={(e) => set('squadra', e.target.value || null)}
           >
@@ -128,18 +128,18 @@ export function ChroniclePage() {
       {loading && !data && <Spinner />}
       <ErrorText>{error}</ErrorText>
       {data && entries.length === 0 && (
-        <p className="text-sm text-slate-500 dark:text-slate-400">Nessun movimento con questi filtri.</p>
+        <p className="text-sm text-stampa-500 dark:text-stampa-400">Nessun movimento con questi filtri.</p>
       )}
       {groupChronicle(entries).map((g, i) => (
         <section key={`${g.when}:${i}`} className="space-y-1">
-          <h2 className="text-xs font-semibold tracking-wide text-slate-500 uppercase dark:text-slate-400">
+          <h2 className="text-xs font-semibold tracking-wide text-stampa-500 uppercase dark:text-stampa-400">
             {g.when}
           </h2>
           <Card className="!p-0">
-            <ul className="divide-y divide-slate-100 dark:divide-slate-700">
+            <ul className="divide-y divide-stampa-100 dark:divide-stampa-700">
               {g.entries.map((e) => (
                 <li key={e.id} className="px-4 py-2 text-sm">
-                  <span className="mr-2 text-xs font-semibold text-slate-500 dark:text-slate-400">
+                  <span className="mr-2 text-xs font-semibold text-stampa-500 dark:text-stampa-400">
                     {TYPE_LABEL[e.type] ?? e.type}
                   </span>
                   <ChronicleText

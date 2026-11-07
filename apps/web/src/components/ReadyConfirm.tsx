@@ -29,7 +29,7 @@ export function ReadyConfirm({
     <div
       role="alertdialog"
       aria-labelledby="pronto-titolo"
-      className="mt-2 space-y-2 rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm text-amber-950 dark:border-amber-700 dark:bg-amber-950 dark:text-amber-100"
+      className="mt-2 space-y-2 border border-stampa-900 bg-stampa-25 p-3 text-sm text-stampa-900 dark:border-stampa-300 dark:bg-stampa-800 dark:text-stampa-50"
     >
       <p id="pronto-titolo" className="font-semibold">
         Prima di segnarti pronto

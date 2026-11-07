@@ -19,7 +19,7 @@ export function ChampionshipLayout() {
 
   return (
     <>
-      <nav aria-label="Campionato" className="mb-4 border-b border-slate-200 dark:border-slate-700">
+      <nav aria-label="Campionato" className="mb-4 border-b border-stampa-200 dark:border-stampa-700">
         <ul className="flex gap-1 overflow-x-auto text-sm">
           {championshipTabs(kind, current).map((t) => (
             <li key={t.to}>
@@ -28,8 +28,8 @@ export function ChampionshipLayout() {
                 aria-current={current === t.to ? 'page' : undefined}
                 className={`-mb-px inline-flex min-h-11 items-center border-b-2 px-4 whitespace-nowrap ${
                   current === t.to
-                    ? 'border-orange-600 font-semibold text-orange-700 dark:text-orange-300'
-                    : 'border-transparent text-slate-600 hover:text-slate-900 dark:text-slate-300 dark:hover:text-white'
+                    ? 'border-rosso-600 font-semibold text-rosso-700 dark:text-rosso-300'
+                    : 'border-transparent text-stampa-600 hover:text-stampa-900 dark:text-stampa-300 dark:hover:text-white'
                 }`}
               >
                 {t.label}

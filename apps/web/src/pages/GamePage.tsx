@@ -66,7 +66,7 @@ export function GamePage() {
         <PageTitle>
           {away?.fullName} – {home?.fullName}
         </PageTitle>
-        <p className="text-sm text-slate-500 dark:text-slate-400">La partita non è ancora stata giocata.</p>
+        <p className="text-sm text-stampa-500 dark:text-stampa-400">La partita non è ancora stata giocata.</p>
       </div>
     );
 
@@ -122,7 +122,7 @@ export function GamePage() {
 
 function NoPlays() {
   return (
-    <p className="rounded-lg bg-slate-100 px-3 py-2 text-sm text-slate-600 dark:bg-slate-800 dark:text-slate-300">
+    <p className="rounded-lg bg-stampa-100 px-3 py-2 text-sm text-stampa-600 dark:bg-stampa-800 dark:text-stampa-300">
       Cronaca non disponibile: si conserva solo per la stagione in corso, quindi questa partita non si può
       rivedere dal vivo. Punteggio, parziali e box score restano.
     </p>
@@ -146,7 +146,7 @@ function Quarters({
   return (
     <table className="w-full min-w-72 text-sm">
       <thead>
-        <tr className="text-xs text-slate-500 dark:text-slate-400">
+        <tr className="text-xs text-stampa-500 dark:text-stampa-400">
           <th className="text-left font-medium">Squadra</th>
           {head.map((h) => (
             <th key={h} className="w-10 text-right font-medium">
@@ -181,7 +181,7 @@ function Quarters({
 const shot = (m: number, a: number) => `${m}-${a}`;
 
 // Colonna del nome fissa a sinistra quando la tabella scorre (su telefono): fondo della scheda sotto
-const STICKY = 'sticky left-0 bg-white pl-1 dark:bg-slate-800';
+const STICKY = 'sticky left-0 bg-stampa-25 pl-1 dark:bg-stampa-800';
 
 function BoxTable({ leagueId, lines }: { leagueId: string; lines: BoxLine[] }) {
   const total = lines.reduce(
@@ -208,7 +208,7 @@ function BoxTable({ leagueId, lines }: { leagueId: string; lines: BoxLine[] }) {
     <div className="overflow-x-auto">
       <table className="w-full min-w-[42rem] text-sm">
         <thead>
-          <tr className="border-b border-slate-200 text-xs text-slate-500 dark:border-slate-700 dark:text-slate-400">
+          <tr className="border-b border-stampa-200 text-xs text-stampa-500 dark:border-stampa-700 dark:text-stampa-400">
             <th className={`${STICKY} py-1 pr-2 text-left font-medium`}>Giocatore</th>
             <th className={th}>MIN</th>
             <th className={th}>PT</th>
@@ -228,13 +228,13 @@ function BoxTable({ leagueId, lines }: { leagueId: string; lines: BoxLine[] }) {
           {lines.map((l) => (
             <tr
               key={l.playerId}
-              className={`border-b border-slate-100 dark:border-slate-700/60 ${l.seconds === 0 ? 'text-slate-500 dark:text-slate-400' : ''}`}
+              className={`border-b border-stampa-100 dark:border-stampa-700/60 ${l.seconds === 0 ? 'text-stampa-500 dark:text-stampa-400' : ''}`}
             >
               <td className={`${STICKY} max-w-[10rem] truncate py-1 pr-2 sm:max-w-52`}>
                 <Link to={`/lega/${leagueId}/giocatore/${l.playerId}`} className="hover:underline">
                   {l.name}
                 </Link>
-                <span className="ml-1 text-xs text-slate-500 dark:text-slate-400">
+                <span className="ml-1 text-xs text-stampa-500 dark:text-stampa-400">
                   {l.role}
                   {l.starter ? ' · Q' : ''}
                 </span>
@@ -278,7 +278,7 @@ function BoxTable({ leagueId, lines }: { leagueId: string; lines: BoxLine[] }) {
           </tr>
         </tbody>
       </table>
-      <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+      <p className="mt-1 text-xs text-stampa-500 dark:text-stampa-400">
         Q = in quintetto. TIRI, DA 3 e TL: segnati-tentati.
       </p>
     </div>
@@ -297,25 +297,25 @@ function Plays({ plays, away, home }: { plays: Play[]; away: LeagueTeam; home: L
         options={periods.map((p) => ({ label: p <= 4 ? `${p}° q` : `S${p - 4}`, value: p }))}
       />
       <h2 className="font-semibold">{periodLabel(period)}</h2>
-      <ol className="divide-y divide-slate-100 text-sm dark:divide-slate-700">
+      <ol className="divide-y divide-stampa-100 text-sm dark:divide-stampa-700">
         {plays
           .filter((p) => p[0] === period)
           .map((p, i) => (
             <li key={i} className="flex items-start gap-2 py-1.5">
-              <span className="w-10 shrink-0 font-mono text-xs text-slate-500 dark:text-slate-400">
+              <span className="w-10 shrink-0 font-mono text-xs text-stampa-500 dark:text-stampa-400">
                 {clock(p[1])}
               </span>
               <span className="w-11 shrink-0">
                 {p[2] && <TeamCode code={p[2] === 'h' ? home.code : away.code} />}
               </span>
               <span className="min-w-0 flex-1">{p[3]}</span>
-              <span className="shrink-0 font-mono text-xs text-slate-600 dark:text-slate-300">
+              <span className="shrink-0 font-mono text-xs text-stampa-600 dark:text-stampa-300">
                 {p[5]}-{p[4]}
               </span>
             </li>
           ))}
       </ol>
-      <p className="text-xs text-slate-500 dark:text-slate-400">
+      <p className="text-xs text-stampa-500 dark:text-stampa-400">
         Punteggio: {away.code}-{home.code}.
       </p>
     </Card>

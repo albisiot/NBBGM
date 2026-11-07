@@ -173,7 +173,7 @@ export function DraftPage() {
                 Avvia il draft
               </Button>
             ) : (
-              <p className="text-sm text-slate-500 dark:text-slate-400">
+              <p className="text-sm text-stampa-500 dark:text-stampa-400">
                 Aspetta che il commissario lo avvii.
               </p>
             )}
@@ -182,13 +182,13 @@ export function DraftPage() {
         {draft.state === 'running' && (
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div>
-              <p className="text-sm text-slate-500 dark:text-slate-400">
+              <p className="text-sm text-stampa-500 dark:text-stampa-400">
                 Chiamata {draft.next + 1} di {draft.order.length} · {pickLabel(draft.next)}
               </p>
-              <p className={`text-lg font-semibold ${myTurn ? 'text-orange-600' : ''}`}>
+              <p className={`text-lg font-semibold ${myTurn ? 'text-rosso-600' : ''}`}>
                 {myTurn ? 'Tocca a te!' : `Tocca a ${onClockTeam?.fullName ?? '…'}`}
                 {!myTurn && onClockTeam && (
-                  <span className="ml-2 text-sm font-normal text-slate-500 dark:text-slate-400">
+                  <span className="ml-2 text-sm font-normal text-stampa-500 dark:text-stampa-400">
                     {onClockTeam.ownerName ?? 'Bot'}
                   </span>
                 )}
@@ -235,8 +235,8 @@ export function DraftPage() {
             onClick={() => setTab(t)}
             className={`min-h-11 shrink-0 rounded-lg px-3 text-sm font-medium ${
               tab === t
-                ? 'bg-orange-600 text-white'
-                : 'bg-white text-slate-700 dark:bg-slate-800 dark:text-slate-200'
+                ? 'bg-rosso-600 text-white'
+                : 'bg-stampa-25 text-stampa-700 dark:bg-stampa-800 dark:text-stampa-200'
             }`}
           >
             {label}
@@ -268,29 +268,29 @@ export function DraftPage() {
       )}
       {tab === 'picks' && (
         <Card>
-          <ol className="divide-y divide-slate-100 text-sm dark:divide-slate-700">
+          <ol className="divide-y divide-stampa-100 text-sm dark:divide-stampa-700">
             {[...picks].reverse().map((k) => {
               const p = byId.get(k.playerId);
               const team = teamById.get(k.teamId);
               return (
                 <li key={k.pick} className="flex items-center justify-between gap-2 py-1.5">
                   <span className="min-w-0 truncate">
-                    <span className="mr-2 font-mono text-xs text-slate-500 dark:text-slate-400">
+                    <span className="mr-2 font-mono text-xs text-stampa-500 dark:text-stampa-400">
                       #{k.pick + 1}
                     </span>
                     <strong>{team?.code}</strong> {p?.name}{' '}
-                    <span className="text-slate-500 dark:text-slate-400">
+                    <span className="text-stampa-500 dark:text-stampa-400">
                       {p?.role} · {p ? Math.round(p.overall) : ''}
                     </span>
                   </span>
                   {k.auto && (
-                    <span className="shrink-0 text-xs text-slate-500 dark:text-slate-400">auto</span>
+                    <span className="shrink-0 text-xs text-stampa-500 dark:text-stampa-400">auto</span>
                   )}
                 </li>
               );
             })}
             {picks.length === 0 && (
-              <li className="py-2 text-slate-500 dark:text-slate-400">Nessuna scelta ancora.</li>
+              <li className="py-2 text-stampa-500 dark:text-stampa-400">Nessuna scelta ancora.</li>
             )}
           </ol>
         </Card>
@@ -315,7 +315,7 @@ function PlayerRow({
     <li className={`flex items-center justify-between gap-2 py-2 ${className}`}>
       <span className="min-w-0">
         <span className="block truncate font-medium">{p.name}</span>
-        <span className="text-xs text-slate-500 dark:text-slate-400">
+        <span className="text-xs text-stampa-500 dark:text-stampa-400">
           {p.role}
           {p.secondaryRole ? `/${p.secondaryRole}` : ''} · {p.age} anni · {formatSalary(p.salary)}
         </span>
@@ -354,13 +354,13 @@ function PlayersTab(props: {
           placeholder="Cerca per nome"
           value={query}
           onChange={(e) => setQuery(e.target.value)}
-          className="min-h-11 min-w-0 flex-1 rounded-lg border border-slate-300 bg-white px-3 text-base dark:border-slate-600 dark:bg-slate-900"
+          className="min-h-11 min-w-0 flex-1 rounded-lg border border-stampa-300 bg-stampa-25 px-3 text-base dark:border-stampa-600 dark:bg-stampa-900"
         />
         <select
           aria-label="Ruolo"
           value={role}
           onChange={(e) => setRole(e.target.value)}
-          className="min-h-11 rounded-lg border border-slate-300 bg-white px-2 text-sm dark:border-slate-600 dark:bg-slate-900"
+          className="min-h-11 rounded-lg border border-stampa-300 bg-stampa-25 px-2 text-sm dark:border-stampa-600 dark:bg-stampa-900"
         >
           <option value="">Tutti</option>
           {ROLES.map((r) => (
@@ -370,10 +370,10 @@ function PlayersTab(props: {
           ))}
         </select>
       </div>
-      <p className="mb-1 text-xs text-slate-500 dark:text-slate-400">
+      <p className="mb-1 text-xs text-stampa-500 dark:text-stampa-400">
         Disponibili in ordine di overall (al massimo 100 alla volta).
       </p>
-      <ul className="divide-y divide-slate-100 dark:divide-slate-700">
+      <ul className="divide-y divide-stampa-100 dark:divide-stampa-700">
         {shown.map((p) => (
           <PlayerRow key={p.id} p={p}>
             {props.myTurn && (
@@ -386,7 +386,7 @@ function PlayersTab(props: {
                 + Lista
               </Button>
             )}
-            {props.list.includes(p.id) && <span className="text-xs text-orange-600">in lista</span>}
+            {props.list.includes(p.id) && <span className="text-xs text-rosso-600">in lista</span>}
           </PlayerRow>
         ))}
       </ul>
@@ -412,16 +412,16 @@ function ListTab(props: {
   };
   return (
     <Card>
-      <p className="mb-2 text-xs text-slate-500 dark:text-slate-400">
+      <p className="mb-2 text-xs text-stampa-500 dark:text-stampa-400">
         In modalità lista, o allo scadere del tempo, il server prende il primo disponibile di questa lista.
         Senza lista sceglie il migliore per il ruolo più scoperto.
       </p>
       {props.list.length === 0 && (
-        <p className="text-sm text-slate-500 dark:text-slate-400">
+        <p className="text-sm text-stampa-500 dark:text-stampa-400">
           La lista è vuota: aggiungi giocatori dalla scheda Giocatori.
         </p>
       )}
-      <ol className="divide-y divide-slate-100 dark:divide-slate-700">
+      <ol className="divide-y divide-stampa-100 dark:divide-stampa-700">
         {props.list.map((pid, i) => {
           const p = props.byId.get(pid);
           if (!p) return null;
@@ -488,7 +488,7 @@ function RostersTab(props: {
         aria-label="Squadra"
         value={teamId}
         onChange={(e) => setTeamId(e.target.value)}
-        className="mb-2 min-h-11 w-full rounded-lg border border-slate-300 bg-white px-2 text-sm sm:w-auto dark:border-slate-600 dark:bg-slate-900"
+        className="mb-2 min-h-11 w-full rounded-lg border border-stampa-300 bg-stampa-25 px-2 text-sm sm:w-auto dark:border-stampa-600 dark:bg-stampa-900"
       >
         {props.league.teams.map((t) => (
           <option key={t.id} value={t.id}>
@@ -496,10 +496,10 @@ function RostersTab(props: {
           </option>
         ))}
       </select>
-      <p className="mb-1 text-xs text-slate-500 dark:text-slate-400">
+      <p className="mb-1 text-xs text-stampa-500 dark:text-stampa-400">
         {players.length} di 13 giocatori · monte stipendi {formatSalary(payroll)}
       </p>
-      <ul className="divide-y divide-slate-100 dark:divide-slate-700">
+      <ul className="divide-y divide-stampa-100 dark:divide-stampa-700">
         {players.map((p) => (
           <PlayerRow key={p.id} p={p} />
         ))}

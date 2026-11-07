@@ -80,7 +80,7 @@ export function PlayerPage() {
       </PageTitle>
       <Link
         to={compareWith(id, p.id)}
-        className="inline-flex min-h-11 items-center rounded-lg border border-slate-300 px-4 text-sm font-semibold hover:bg-slate-50 dark:border-slate-600 dark:hover:bg-slate-800"
+        className="inline-flex min-h-11 items-center rounded-lg border border-stampa-300 px-4 text-sm font-semibold hover:bg-stampa-50 dark:border-stampa-600 dark:hover:bg-stampa-800"
       >
         Confronta con altri giocatori
       </Link>
@@ -89,28 +89,28 @@ export function PlayerPage() {
         <Card>
           <div className="flex items-end gap-4">
             <div>
-              <p className="text-xs text-slate-500 dark:text-slate-400">Overall</p>
+              <p className="text-xs text-stampa-500 dark:text-stampa-400">Overall</p>
               <p className="text-4xl font-bold">{Math.round(overall(p))}</p>
             </div>
             <div>
-              <p className="text-xs text-slate-500 dark:text-slate-400">Potenziale (stima)</p>
+              <p className="text-xs text-stampa-500 dark:text-stampa-400">Potenziale (stima)</p>
               <p className="text-2xl font-semibold">{s.potential}</p>
             </div>
           </div>
           <dl className="mt-3 grid grid-cols-2 gap-x-4 gap-y-1 text-sm">
-            <dt className="text-slate-500 dark:text-slate-400">Età</dt>
+            <dt className="text-stampa-500 dark:text-stampa-400">Età</dt>
             <dd>{p.age} anni</dd>
-            <dt className="text-slate-500 dark:text-slate-400">Altezza</dt>
+            <dt className="text-stampa-500 dark:text-stampa-400">Altezza</dt>
             <dd>{p.heightCm} cm</dd>
-            <dt className="text-slate-500 dark:text-slate-400">Apertura alare</dt>
+            <dt className="text-stampa-500 dark:text-stampa-400">Apertura alare</dt>
             <dd>{p.wingspanCm} cm</dd>
-            <dt className="text-slate-500 dark:text-slate-400">Peso</dt>
+            <dt className="text-stampa-500 dark:text-stampa-400">Peso</dt>
             <dd>{p.weightKg} kg</dd>
-            <dt className="text-slate-500 dark:text-slate-400">Mano</dt>
+            <dt className="text-stampa-500 dark:text-stampa-400">Mano</dt>
             <dd>{p.hand === 'L' ? 'sinistra' : 'destra'}</dd>
-            <dt className="text-slate-500 dark:text-slate-400">Nazionalità</dt>
+            <dt className="text-stampa-500 dark:text-stampa-400">Nazionalità</dt>
             <dd>{p.nationality || '—'}</dd>
-            <dt className="text-slate-500 dark:text-slate-400">Anni nella lega</dt>
+            <dt className="text-stampa-500 dark:text-stampa-400">Anni nella lega</dt>
             <dd>{p.yearsInLeague ?? '—'}</dd>
           </dl>
         </Card>
@@ -128,13 +128,13 @@ export function PlayerPage() {
           )}
           <h3 className="pt-2 font-semibold">Stime {s.own ? '(della tua squadra: più precise)' : ''}</h3>
           <dl className="grid grid-cols-2 gap-x-4 gap-y-1">
-            <dt className="text-slate-500 dark:text-slate-400">Costanza in attacco</dt>
+            <dt className="text-stampa-500 dark:text-stampa-400">Costanza in attacco</dt>
             <dd>{s.offensive_consistency ?? '—'}</dd>
-            <dt className="text-slate-500 dark:text-slate-400">Costanza in difesa</dt>
+            <dt className="text-stampa-500 dark:text-stampa-400">Costanza in difesa</dt>
             <dd>{s.defensive_consistency ?? '—'}</dd>
-            <dt className="text-slate-500 dark:text-slate-400">Etica del lavoro</dt>
+            <dt className="text-stampa-500 dark:text-stampa-400">Etica del lavoro</dt>
             <dd>{s.work_ethic ?? '—'}</dd>
-            <dt className="text-slate-500 dark:text-slate-400">A rischio</dt>
+            <dt className="text-stampa-500 dark:text-stampa-400">A rischio</dt>
             <dd>{s.risks.length ? s.risks.join(', ') : 'nessun punto debole noto'}</dd>
           </dl>
         </Card>
@@ -145,7 +145,7 @@ export function PlayerPage() {
           Contratto {p.contractType ? CONTRACT_LABEL[p.contractType] : ''}
         </h2>
         {p.salaries.length === 0 ? (
-          <p className="text-sm text-slate-500 dark:text-slate-400">
+          <p className="text-sm text-stampa-500 dark:text-stampa-400">
             {p.contractType === 'two-way'
               ? 'Stipendio fisso da two-way.'
               : p.contractType
@@ -156,10 +156,10 @@ export function PlayerPage() {
           <ul className="grid grid-cols-2 gap-1 text-sm sm:grid-cols-3">
             {p.salaries.map((sal, i) => (
               <li key={i}>
-                <span className="text-slate-500 dark:text-slate-400">{seasonLabel(year + i)}</span>{' '}
+                <span className="text-stampa-500 dark:text-stampa-400">{seasonLabel(year + i)}</span>{' '}
                 {formatSalary(sal)}
                 {p.options[i] && (
-                  <span className="ml-1 text-xs text-orange-700">
+                  <span className="ml-1 text-xs text-rosso-700">
                     opzione {p.options[i] === 'player' ? 'giocatore' : 'squadra'}
                   </span>
                 )}
@@ -184,7 +184,7 @@ export function PlayerPage() {
       <Card>
         <h2 className="mb-2 font-semibold">Statistiche della stagione</h2>
         {games === 0 ? (
-          <p className="text-sm text-slate-500 dark:text-slate-400">Nessuna partita giocata.</p>
+          <p className="text-sm text-stampa-500 dark:text-stampa-400">Nessuna partita giocata.</p>
         ) : (
           <dl className="grid grid-cols-3 gap-2 text-center text-sm sm:grid-cols-6">
             <Stat label="Partite" value={String(games)} />
@@ -224,16 +224,16 @@ export function PlayerPage() {
 
 function Rating({ label, value, muted = false }: { label: string; value: number; muted?: boolean }) {
   const color = muted
-    ? 'bg-slate-400'
+    ? 'bg-stampa-400'
     : value >= 80
       ? 'bg-green-500'
       : value >= 60
-        ? 'bg-orange-500'
-        : 'bg-slate-400';
+        ? 'bg-rosso-500'
+        : 'bg-stampa-400';
   return (
     <div className="flex items-center gap-2 py-0.5 text-sm">
       <span className="min-w-0 flex-1 truncate">{label}</span>
-      <span className="h-1.5 w-24 shrink-0 overflow-hidden rounded bg-slate-200 dark:bg-slate-700">
+      <span className="h-1.5 w-24 shrink-0 overflow-hidden rounded bg-stampa-200 dark:bg-stampa-700">
         <span className={`block h-full ${color}`} style={{ width: `${value}%` }} />
       </span>
       <span className="w-7 text-right font-mono">{Math.round(value)}</span>
@@ -248,7 +248,7 @@ function Meter({ label, value }: { label: string; value: number }) {
 function Stat({ label, value }: { label: string; value: string }) {
   return (
     <div>
-      <dt className="text-xs text-slate-500 dark:text-slate-400">{label}</dt>
+      <dt className="text-xs text-stampa-500 dark:text-stampa-400">{label}</dt>
       <dd className="text-lg font-semibold">{value}</dd>
     </div>
   );
@@ -297,12 +297,12 @@ function OwnPlayerMarket({
     <Card className="space-y-3 text-sm">
       <h2 className="font-semibold">Contratto e rosa</h2>
       {!marketOpen && (
-        <p className="text-slate-500 dark:text-slate-400">
+        <p className="text-stampa-500 dark:text-stampa-400">
           Durante play-in e playoff non si taglia e non si rinnova.
         </p>
       )}
       {release ? (
-        <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg bg-orange-50 p-3 dark:bg-orange-950">
+        <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg bg-rosso-50 p-3 dark:bg-rosso-950">
           <span>Taglio chiesto: si esegue alla chiusura del turno.</span>
           <Button
             variant="ghost"
@@ -323,7 +323,7 @@ function OwnPlayerMarket({
             >
               Taglia
             </ConfirmButton>
-            <p className="text-xs text-slate-500 dark:text-slate-400">
+            <p className="text-xs text-stampa-500 dark:text-stampa-400">
               {residual
                 ? `Lo stipendio residuo (${millions(residual)} in tutto) resta a tuo carico, sul cap e sul bilancio, fino alla scadenza.`
                 : 'Senza stipendi residui.'}

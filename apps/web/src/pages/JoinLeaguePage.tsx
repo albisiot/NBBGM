@@ -85,7 +85,7 @@ export function JoinLeaguePage() {
         <Card>
           <p className="text-sm">
             Sei già in <strong>{preview.name}</strong>.{' '}
-            <Link className="font-semibold text-orange-600 underline" to={`/lega/${preview.league_id}`}>
+            <Link className="font-semibold text-rosso-600 underline" to={`/lega/${preview.league_id}`}>
               Vai alla lega
             </Link>
           </p>
@@ -96,11 +96,11 @@ export function JoinLeaguePage() {
         <form onSubmit={join} className="space-y-4">
           <Card>
             <h2 className="text-lg font-semibold">{preview.name}</h2>
-            <p className="text-sm text-slate-600 dark:text-slate-300">
+            <p className="text-sm text-stampa-600 dark:text-stampa-300">
               Commissario: {preview.commissioner || '—'} · {preview.teams.filter((t) => !t.taken).length}{' '}
               squadre libere
             </p>
-            <h3 className="mt-4 mb-3 text-sm font-medium text-slate-700 dark:text-slate-200">
+            <h3 className="mt-4 mb-3 text-sm font-medium text-stampa-700 dark:text-stampa-200">
               Scegli la tua squadra
             </h3>
             <TeamPicker

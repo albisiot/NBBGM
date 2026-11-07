@@ -107,7 +107,7 @@ export function CreateLeaguePage() {
       </Card>
 
       <Card>
-        <h2 className="mb-3 text-sm font-medium text-slate-700 dark:text-slate-200">La tua squadra</h2>
+        <h2 className="mb-3 text-sm font-medium text-stampa-700 dark:text-stampa-200">La tua squadra</h2>
         <TeamPicker value={team} onChange={setTeam} />
       </Card>
 

@@ -19,12 +19,12 @@ export function TeamPicker({
     <div className="grid gap-4 md:grid-cols-2">
       {CONFERENCES.map((conf) => (
         <div key={conf.id}>
-          <h3 className="text-xs font-semibold tracking-wide text-slate-500 uppercase dark:text-slate-400">
+          <h3 className="text-xs font-semibold tracking-wide text-stampa-500 uppercase dark:text-stampa-400">
             {conf.label}
           </h3>
           {conf.divisions.map((division) => (
             <div key={division} className="mt-2">
-              <p className="text-xs text-slate-500 dark:text-slate-500">{division}</p>
+              <p className="text-xs text-stampa-500 dark:text-stampa-500">{division}</p>
               <div className="mt-1 grid grid-cols-1 gap-1 sm:grid-cols-2">
                 {TEAMS.filter((t) => t.division === division).map((t) => {
                   const isTaken = taken.includes(t.id);
@@ -38,11 +38,11 @@ export function TeamPicker({
                       aria-pressed={selected}
                       className={`flex min-h-11 items-center gap-2 rounded-lg border px-2 py-1.5 text-left text-sm ${
                         selected
-                          ? 'border-orange-500 bg-orange-50 font-semibold dark:bg-orange-950'
-                          : 'border-slate-200 hover:border-slate-400 dark:border-slate-700'
+                          ? 'border-rosso-500 bg-rosso-50 font-semibold dark:bg-rosso-950'
+                          : 'border-stampa-200 hover:border-stampa-400 dark:border-stampa-700'
                       } ${isTaken ? 'cursor-not-allowed opacity-40' : ''}`}
                     >
-                      <span className="w-10 shrink-0 rounded bg-slate-100 px-1 text-center text-xs font-bold text-slate-700 dark:bg-slate-700 dark:text-slate-200">
+                      <span className="w-10 shrink-0 rounded bg-stampa-100 px-1 text-center text-xs font-bold text-stampa-700 dark:bg-stampa-700 dark:text-stampa-200">
                         {t.id}
                       </span>
                       <span className="truncate">

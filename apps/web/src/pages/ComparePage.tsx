@@ -131,7 +131,7 @@ export function ComparePage() {
       {loading && !data && <Spinner />}
       <ErrorText>{error}</ErrorText>
       {data && list.length === 0 && (
-        <p className="text-sm text-slate-500 dark:text-slate-400">
+        <p className="text-sm text-stampa-500 dark:text-stampa-400">
           Cerca un giocatore qui sopra, oppure tocca “Confronta” nella scheda di un giocatore o tra gli
           svincolati del mercato.
         </p>
@@ -140,8 +140,8 @@ export function ComparePage() {
         <Card className="overflow-x-auto !p-0">
           <table className="w-full min-w-[20rem] text-sm">
             <thead>
-              <tr className="border-b border-slate-200 dark:border-slate-700">
-                <th className="sticky left-0 bg-white p-2 text-left text-xs font-medium text-slate-500 dark:bg-slate-800 dark:text-slate-400">
+              <tr className="border-b border-stampa-200 dark:border-stampa-700">
+                <th className="sticky left-0 bg-stampa-25 p-2 text-left text-xs font-medium text-stampa-500 dark:bg-stampa-800 dark:text-stampa-400">
                   <span className="sr-only">Voce</span>
                 </th>
                 {list.map((c) => (
@@ -158,7 +158,7 @@ export function ComparePage() {
                         type="button"
                         aria-label={`Togli ${c.player.firstName} ${c.player.lastName} dal confronto`}
                         onClick={() => setIds(ids.filter((x) => x !== c.player.id))}
-                        className="inline-flex size-11 items-center justify-center rounded-lg text-slate-500 hover:bg-slate-100 dark:text-slate-400 dark:hover:bg-slate-700"
+                        className="inline-flex size-11 items-center justify-center rounded-lg text-stampa-500 hover:bg-stampa-100 dark:text-stampa-400 dark:hover:bg-stampa-700"
                       >
                         ✕
                       </button>
@@ -172,7 +172,7 @@ export function ComparePage() {
                 <tr>
                   <th
                     colSpan={list.length + 1}
-                    className="bg-slate-50 px-2 py-1 text-left text-xs font-semibold tracking-wide text-slate-500 uppercase dark:bg-slate-900 dark:text-slate-400"
+                    className="bg-stampa-50 px-2 py-1 text-left text-xs font-semibold tracking-wide text-stampa-500 uppercase dark:bg-stampa-900 dark:text-stampa-400"
                   >
                     {section.title}
                   </th>
@@ -180,10 +180,10 @@ export function ComparePage() {
                 {section.rows.map((line) => {
                   const best = bestOf(line);
                   return (
-                    <tr key={line.label} className="border-b border-slate-100 dark:border-slate-700/60">
+                    <tr key={line.label} className="border-b border-stampa-100 dark:border-stampa-700/60">
                       <th
                         scope="row"
-                        className="sticky left-0 max-w-[9rem] bg-white px-2 py-1 text-left text-xs font-normal text-slate-600 dark:bg-slate-800 dark:text-slate-300"
+                        className="sticky left-0 max-w-[9rem] bg-stampa-25 px-2 py-1 text-left text-xs font-normal text-stampa-600 dark:bg-stampa-800 dark:text-stampa-300"
                       >
                         {line.label}
                       </th>
@@ -205,7 +205,7 @@ export function ComparePage() {
         </Card>
       )}
       {list.length > 0 && (
-        <p className="text-xs text-slate-500 dark:text-slate-400">
+        <p className="text-xs text-stampa-500 dark:text-stampa-400">
           Potenziale, costanza, etica del lavoro e rischi sono stime: più precise per i giocatori della tua
           squadra, i valori veri restano nascosti.
         </p>
@@ -248,14 +248,14 @@ function AddPlayer({
         type="search"
         aria-label="Aggiungi un giocatore al confronto"
         placeholder="Aggiungi un giocatore: scrivi il nome"
-        className="min-h-11 w-full rounded-lg border border-slate-300 bg-white px-3 text-base sm:text-sm dark:border-slate-600 dark:bg-slate-800"
+        className="min-h-11 w-full rounded-lg border border-stampa-300 bg-stampa-25 px-3 text-base sm:text-sm dark:border-stampa-600 dark:bg-stampa-800"
         value={text}
         onChange={(e) => setText(e.target.value)}
       />
       {found && (
-        <ul className="divide-y divide-slate-100 rounded-lg border border-slate-200 bg-white text-sm dark:divide-slate-700 dark:border-slate-700 dark:bg-slate-800">
+        <ul className="divide-y divide-stampa-100 rounded-lg border border-stampa-200 bg-stampa-25 text-sm dark:divide-stampa-700 dark:border-stampa-700 dark:bg-stampa-800">
           {found.length === 0 && (
-            <li className="px-3 py-2 text-slate-500 dark:text-slate-400">Nessun giocatore.</li>
+            <li className="px-3 py-2 text-stampa-500 dark:text-stampa-400">Nessun giocatore.</li>
           )}
           {found.map((p) => (
             <li key={p.id}>
@@ -265,10 +265,10 @@ function AddPlayer({
                   onAdd(p.id);
                   setText('');
                 }}
-                className="flex min-h-11 w-full items-center gap-2 px-3 text-left hover:bg-slate-50 dark:hover:bg-slate-700"
+                className="flex min-h-11 w-full items-center gap-2 px-3 text-left hover:bg-stampa-50 dark:hover:bg-stampa-700"
               >
                 <span className="min-w-0 flex-1 truncate">{p.name}</span>
-                <span className="text-xs text-slate-500 dark:text-slate-400">
+                <span className="text-xs text-stampa-500 dark:text-stampa-400">
                   {p.role} · {p.teamId ? (teams.get(p.teamId)?.code ?? '?') : 'svincolato'}
                 </span>
               </button>

@@ -11,7 +11,7 @@ export function UpdateBanner() {
   const [closed, setClosed] = useState(false);
   if (!ready || closed) return null;
   return (
-    <div role="status" className="bg-slate-900 text-white dark:bg-slate-700">
+    <div role="status" className="bg-stampa-900 text-white dark:bg-stampa-700">
       <div className="mx-auto flex max-w-4xl items-center gap-2 py-1 pr-1 pl-4 text-sm">
         <span className="min-w-0 flex-1">È disponibile una nuova versione di NBBGM.</span>
         <Button className="shrink-0" onClick={() => window.location.reload()}>
@@ -21,7 +21,7 @@ export function UpdateBanner() {
           type="button"
           aria-label="Chiudi l’avviso della nuova versione"
           onClick={() => setClosed(true)}
-          className="inline-flex size-11 shrink-0 items-center justify-center rounded-lg hover:bg-white/10"
+          className="inline-flex size-11 shrink-0 items-center justify-center rounded-lg hover:bg-stampa-25/10"
         >
           ✕
         </button>

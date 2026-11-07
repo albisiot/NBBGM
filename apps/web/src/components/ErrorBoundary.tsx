@@ -39,10 +39,10 @@ export function ErrorScreen({
   return (
     <main
       role="alert"
-      className="mx-auto max-w-md space-y-4 px-4 pt-[max(2rem,env(safe-area-inset-top))] pb-8 text-slate-900 dark:text-slate-100"
+      className="mx-auto max-w-md space-y-4 px-4 pt-[max(2rem,env(safe-area-inset-top))] pb-8 text-stampa-900 dark:text-stampa-100"
     >
       <h1 className="text-xl font-bold">Qualcosa è andato storto</h1>
-      <p className="text-sm text-slate-600 dark:text-slate-300">
+      <p className="text-sm text-stampa-600 dark:text-stampa-300">
         La pagina si è bloccata per un errore dell’app. Ricarica: le scelte già salvate restano.
       </p>
       <div className="flex flex-wrap gap-2">
@@ -51,7 +51,7 @@ export function ErrorScreen({
           Torna alle leghe
         </Button>
       </div>
-      <p className="font-mono text-xs break-words text-slate-500 dark:text-slate-400">{error.message}</p>
+      <p className="font-mono text-xs break-words text-stampa-500 dark:text-stampa-400">{error.message}</p>
     </main>
   );
 }

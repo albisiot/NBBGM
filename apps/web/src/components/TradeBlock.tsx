@@ -35,9 +35,9 @@ function Row({
   return (
     // Su telefono il valore va a capo sotto l'etichetta quando non ci sta accanto
     <div className="flex flex-wrap items-baseline justify-between gap-x-3 py-1">
-      <dt className="text-xs text-slate-500 dark:text-slate-400">{label}</dt>
+      <dt className="text-xs text-stampa-500 dark:text-stampa-400">{label}</dt>
       <dd
-        className={`ml-auto text-right text-xs ${bad ? 'font-semibold text-red-700 dark:text-red-300' : ''}`}
+        className={`ml-auto text-right text-xs ${bad ? 'font-semibold text-rosso-700 dark:text-rosso-300' : ''}`}
       >
         {!before || before === after ? after : `${before} → ${after}`}
       </dd>
@@ -50,12 +50,12 @@ function SideCard({ side, offseason }: { side: SidePreview; offseason: boolean }
   const rosterText = (n: SideNumbers) =>
     offseason ? `${n.total}/21 · two-way ${n.twoWay}/3` : `${n.standard}/15 · two-way ${n.twoWay}/3`;
   return (
-    <div className="rounded-lg border border-slate-200 p-3 dark:border-slate-700">
+    <div className="rounded-lg border border-stampa-200 p-3 dark:border-stampa-700">
       <h4 className="mb-1 flex items-center gap-2 text-sm font-semibold">
         <TeamCode code={side.code} />
         {a.payroll === b.payroll ? 'Monte stipendi invariato' : `Monte ${signed(a.payroll - b.payroll)}`}
       </h4>
-      <dl className="divide-y divide-slate-100 dark:divide-slate-700">
+      <dl className="divide-y divide-stampa-100 dark:divide-stampa-700">
         <Row label="Monte stipendi" before={millions(b.payroll)} after={millions(a.payroll)} />
         <Row label="Spazio" before={room(b)} after={room(a)} />
         <Row
@@ -99,7 +99,7 @@ function SideCard({ side, offseason }: { side: SidePreview; offseason: boolean }
 export function PreviewCard({ preview, offseason }: { preview: TradePreview; offseason: boolean }) {
   return (
     <section aria-label="Anteprima dello scambio" className="space-y-2">
-      <h3 className="text-xs font-semibold tracking-wide text-slate-500 uppercase dark:text-slate-400">
+      <h3 className="text-xs font-semibold tracking-wide text-stampa-500 uppercase dark:text-stampa-400">
         Anteprima
       </h3>
       <div className="grid gap-2 md:grid-cols-2">
@@ -110,7 +110,7 @@ export function PreviewCard({ preview, offseason }: { preview: TradePreview; off
       {preview.problems.length > 0 ? (
         <div
           role="status"
-          className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-800 dark:bg-red-950 dark:text-red-100"
+          className="border-2 border-rosso-600 bg-stampa-25 px-3 py-2 text-sm text-rosso-800 dark:border-rosso-300 dark:bg-stampa-800 dark:text-rosso-200"
         >
           <p className="font-semibold">Così il server la rifiuterebbe:</p>
           <ul className="list-disc pl-5">
@@ -120,7 +120,7 @@ export function PreviewCard({ preview, offseason }: { preview: TradePreview; off
           </ul>
         </div>
       ) : (
-        <p className="text-xs text-slate-500 dark:text-slate-400">
+        <p className="text-xs text-stampa-500 dark:text-stampa-400">
           Per le regole che l’app conosce la proposta è valida. Decide il server, quando la mandi e alla
           chiusura del turno: il saldo dell’altra squadra è riservato e lo controlla solo lui.
         </p>
@@ -168,17 +168,17 @@ export function MyBlock({
   return (
     <Card className="space-y-2 !p-4">
       <h2 className="font-semibold">I tuoi giocatori sul mercato</h2>
-      <p className="text-xs text-slate-500 dark:text-slate-400">
+      <p className="text-xs text-stampa-500 dark:text-stampa-400">
         Chi segni qui lo vedono gli altri manager nella pagina della tua squadra e nel mercato. È solo
         un’indicazione: gli scambi passano sempre da una proposta. Si cambia a turno aperto.
       </p>
       <ul className="max-h-72 space-y-1 overflow-y-auto text-sm">
         {sorted.map((p) => (
           <li key={p.id}>
-            <label className="flex min-h-11 cursor-pointer items-center gap-2 rounded px-1 hover:bg-slate-50 dark:hover:bg-slate-900">
+            <label className="flex min-h-11 cursor-pointer items-center gap-2 rounded px-1 hover:bg-stampa-50 dark:hover:bg-stampa-900">
               <input
                 type="checkbox"
-                className="size-4 accent-orange-600"
+                className="size-4 accent-rosso-600"
                 checked={mine.has(p.id)}
                 disabled={busy !== null || block === null}
                 onChange={(e) => void toggle(p, e.target.checked)}
@@ -186,7 +186,7 @@ export function MyBlock({
               <span className="w-7 text-center font-mono text-xs">{overall(p)}</span>
               <span className="min-w-0 flex-1 truncate">
                 {p.firstName} {p.lastName}
-                <span className="ml-1 text-xs text-slate-500 dark:text-slate-400">
+                <span className="ml-1 text-xs text-stampa-500 dark:text-stampa-400">
                   {p.role} · {p.age}
                 </span>
               </span>
@@ -224,7 +224,7 @@ export function LeagueBlock({
     <Card className="space-y-2 !p-4">
       <h2 className="font-semibold">Sul mercato nella lega</h2>
       {others.length === 0 ? (
-        <p className="text-sm text-slate-500 dark:text-slate-400">
+        <p className="text-sm text-stampa-500 dark:text-stampa-400">
           Nessun manager ha messo giocatori sul mercato. Quelli dei bot, secondo la loro strategia, si vedono
           scegliendo la squadra nella nuova proposta e nella pagina di ogni squadra.
         </p>
@@ -253,14 +253,14 @@ export function LeagueBlock({
                           '…'
                         )}
                         {p && (
-                          <span className="ml-1 text-xs text-slate-500 dark:text-slate-400">
+                          <span className="ml-1 text-xs text-stampa-500 dark:text-stampa-400">
                             {p.role} · {p.age}
                           </span>
                         )}
                       </span>
                       <Link
                         to={`/lega/${leagueId}/mercato?tab=scambi&con=${t.id}&prendi=${pid}`}
-                        className="inline-flex min-h-11 items-center rounded-lg px-2 text-xs font-semibold text-orange-700 hover:bg-orange-50 dark:text-orange-300 dark:hover:bg-orange-950"
+                        className="inline-flex min-h-11 items-center rounded-lg px-2 text-xs font-semibold text-rosso-700 hover:bg-rosso-50 dark:text-rosso-300 dark:hover:bg-rosso-950"
                       >
                         Proponi
                       </Link>

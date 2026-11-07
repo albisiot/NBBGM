@@ -22,7 +22,7 @@ import { useAsync } from '../lib/useAsync.ts';
 import { useRoundChange } from '../lib/useRoundChange.ts';
 import { currentStandings } from '../lib/useSeason.ts';
 
-const LINK = 'font-semibold text-orange-700 hover:underline dark:text-orange-300';
+const LINK = 'font-semibold text-rosso-700 hover:underline dark:text-rosso-300';
 
 export function HistoryPage() {
   const { id = '' } = useParams();
@@ -53,9 +53,9 @@ export function HistoryPage() {
       <Card className="space-y-2 !p-4">
         <h2 className="font-semibold">Albo d’oro</h2>
         {done.length === 0 ? (
-          <p className="text-sm text-slate-500 dark:text-slate-400">Nessuna stagione conclusa, per ora.</p>
+          <p className="text-sm text-stampa-500 dark:text-stampa-400">Nessuna stagione conclusa, per ora.</p>
         ) : (
-          <ul className="divide-y divide-slate-100 text-sm dark:divide-slate-700">
+          <ul className="divide-y divide-stampa-100 text-sm dark:divide-stampa-700">
             {done.map((f) => {
               const champion = team.get(f.championId ?? '');
               const finalist = team.get(f.finalistId ?? '');
@@ -69,7 +69,7 @@ export function HistoryPage() {
                   >
                     {champion?.fullName}
                   </Link>
-                  <span className="text-xs text-slate-500 dark:text-slate-400">
+                  <span className="text-xs text-stampa-500 dark:text-stampa-400">
                     in finale su {finalist?.code ?? '?'}
                   </span>
                 </li>
@@ -83,7 +83,7 @@ export function HistoryPage() {
         <label className="flex items-center gap-2 text-sm">
           Stagione
           <select
-            className="min-h-11 rounded-lg border border-slate-300 bg-white px-2 dark:border-slate-600 dark:bg-slate-800"
+            className="min-h-11 rounded-lg border border-stampa-300 bg-stampa-25 px-2 dark:border-stampa-600 dark:bg-stampa-800"
             value={season.year}
             onChange={(e) => setSearch({ stagione: e.target.value }, { replace: true })}
           >
@@ -168,12 +168,12 @@ function SeasonDetail({
           </Link>
         </div>
         {live && (
-          <p className="text-xs text-slate-500 dark:text-slate-400">
+          <p className="text-xs text-stampa-500 dark:text-stampa-400">
             Provvisori: si decidono con le statistiche di fine regular season.
           </p>
         )}
         {result.awards.length === 0 ? (
-          <p className="text-sm text-slate-500 dark:text-slate-400">Nessuna partita giocata.</p>
+          <p className="text-sm text-stampa-500 dark:text-stampa-400">Nessuna partita giocata.</p>
         ) : (
           <ul className="grid gap-2 sm:grid-cols-2">
             {result.awards.map((a) => {
@@ -182,9 +182,9 @@ function SeasonDetail({
               return (
                 <li
                   key={a.key}
-                  className="rounded-lg border border-slate-200 p-3 text-sm dark:border-slate-700"
+                  className="rounded-lg border border-stampa-200 p-3 text-sm dark:border-stampa-700"
                 >
-                  <p className="text-xs font-semibold tracking-wide text-orange-700 uppercase dark:text-orange-300">
+                  <p className="text-xs font-semibold tracking-wide text-rosso-700 uppercase dark:text-rosso-300">
                     {AWARD_LABEL[a.key]}
                   </p>
                   <p className="mt-1 flex items-center gap-2">
@@ -196,7 +196,7 @@ function SeasonDetail({
                       {p?.name}
                     </Link>
                   </p>
-                  <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+                  <p className="mt-1 text-xs text-stampa-500 dark:text-stampa-400">
                     {p ? statLine(p) : ''} · punteggio {a.score.toFixed(1).replace('.', ',')}
                   </p>
                 </li>
@@ -205,7 +205,7 @@ function SeasonDetail({
           </ul>
         )}
         {result.awards.length > 0 && (
-          <details className="text-xs text-slate-600 dark:text-slate-300">
+          <details className="text-xs text-stampa-600 dark:text-stampa-300">
             <summary className="min-h-11 cursor-pointer py-3 font-semibold">Come si calcolano</summary>
             <ul className="space-y-1">
               {(['mvp', 'dpoy', 'roy', 'sixth'] as const).map((k) => (
@@ -234,13 +234,13 @@ function SeasonDetail({
               ] as const
             ).map(([label, list]) => (
               <div key={label}>
-                <h3 className="text-xs font-semibold tracking-wide text-slate-500 uppercase dark:text-slate-400">
+                <h3 className="text-xs font-semibold tracking-wide text-stampa-500 uppercase dark:text-stampa-400">
                   {label} a partita
                 </h3>
                 <ol className="text-sm">
                   {list.map((l, i) => (
                     <li key={l.playerId} className="flex items-center gap-2 py-0.5">
-                      <span className="w-4 text-xs text-slate-500 dark:text-slate-400">{i + 1}</span>
+                      <span className="w-4 text-xs text-stampa-500 dark:text-stampa-400">{i + 1}</span>
                       <TeamCode code={team.get(l.teamId ?? '')?.code ?? 'SV'} strong={l.teamId === mine} />
                       <Link
                         to={`/lega/${league.id}/giocatore/${l.playerId}`}
@@ -303,7 +303,7 @@ function FinalTable({
 }) {
   return (
     <div>
-      <h3 className="text-xs font-semibold tracking-wide text-slate-500 uppercase dark:text-slate-400">
+      <h3 className="text-xs font-semibold tracking-wide text-stampa-500 uppercase dark:text-stampa-400">
         {title}
       </h3>
       <ol className="text-sm">
@@ -314,7 +314,7 @@ function FinalTable({
               key={l.teamId}
               className={`flex items-center gap-2 py-0.5 ${l.teamId === mine ? 'font-semibold' : ''}`}
             >
-              <span className="w-5 text-xs text-slate-500 dark:text-slate-400">{l.confRank}</span>
+              <span className="w-5 text-xs text-stampa-500 dark:text-stampa-400">{l.confRank}</span>
               <TeamCode code={t?.code ?? '?'} strong={l.teamId === mine} />
               <Link
                 to={`/lega/${leagueId}/squadre/${t?.code ?? ''}`}

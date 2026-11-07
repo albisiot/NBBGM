@@ -96,29 +96,29 @@ export function TeamPage() {
       <Card className="space-y-3 !p-4">
         <dl className="grid grid-cols-2 gap-3 text-sm sm:grid-cols-4">
           <div>
-            <dt className="text-xs text-slate-500 dark:text-slate-400">Record</dt>
+            <dt className="text-xs text-stampa-500 dark:text-stampa-400">Record</dt>
             <dd className="font-semibold">
               {line ? `${line.w}-${line.l}` : '–'}
               {line && line.w + line.l > 0 && (
-                <span className="ml-1 font-normal text-slate-500 dark:text-slate-400">
+                <span className="ml-1 font-normal text-stampa-500 dark:text-stampa-400">
                   {line.confRank}ª in conference
                 </span>
               )}
             </dd>
           </div>
           <div>
-            <dt className="text-xs text-slate-500 dark:text-slate-400">Rosa</dt>
+            <dt className="text-xs text-stampa-500 dark:text-stampa-400">Rosa</dt>
             <dd className="font-semibold">
               {roster.length - twoWay} + {twoWay} two-way
             </dd>
           </div>
           <div>
-            <dt className="text-xs text-slate-500 dark:text-slate-400">Monte stipendi</dt>
+            <dt className="text-xs text-stampa-500 dark:text-stampa-400">Monte stipendi</dt>
             <dd className="font-semibold">{millions(payroll)}</dd>
           </div>
           {config && (
             <div>
-              <dt className="text-xs text-slate-500 dark:text-slate-400">
+              <dt className="text-xs text-stampa-500 dark:text-stampa-400">
                 {payroll < config.salaryCap ? 'Spazio sotto il cap' : 'Rispetto alla tassa'}
               </dt>
               <dd
@@ -137,7 +137,7 @@ export function TeamPage() {
           {mine ? (
             <Link
               to={`/lega/${league.id}/squadra`}
-              className={`${LINK} bg-orange-600 text-white hover:bg-orange-700`}
+              className={`${LINK} bg-rosso-600 text-white hover:bg-rosso-700`}
             >
               Gestisci la squadra
             </Link>
@@ -145,7 +145,7 @@ export function TeamPage() {
             haveTeam && (
               <Link
                 to={`/lega/${league.id}/mercato?tab=scambi&con=${team.id}`}
-                className={`${LINK} bg-orange-600 text-white hover:bg-orange-700`}
+                className={`${LINK} bg-rosso-600 text-white hover:bg-rosso-700`}
               >
                 Proponi uno scambio
               </Link>
@@ -153,7 +153,7 @@ export function TeamPage() {
           )}
           <Link
             to={`/lega/${league.id}/cronaca?squadra=${team.code}`}
-            className={`${LINK} border border-slate-300 hover:bg-slate-50 dark:border-slate-600 dark:hover:bg-slate-800`}
+            className={`${LINK} border border-stampa-300 hover:bg-stampa-50 dark:border-stampa-600 dark:hover:bg-stampa-800`}
           >
             Cronaca della squadra
           </Link>
@@ -162,7 +162,7 @@ export function TeamPage() {
 
       <Card className="space-y-2 !p-4">
         <h2 className="font-semibold">Sul mercato</h2>
-        <p className="text-xs text-slate-500 dark:text-slate-400">
+        <p className="text-xs text-stampa-500 dark:text-stampa-400">
           {team.ownerId
             ? mine
               ? 'I giocatori che hai messo sul mercato: li vede tutta la lega.'
@@ -170,9 +170,9 @@ export function TeamPage() {
             : `Secondo la strategia del bot (${STRATEGY_LABEL[extra.strategy]}): è indicativo, decide la sua valutazione.`}
         </p>
         {data.onBlock.length === 0 ? (
-          <p className="text-sm text-slate-500 dark:text-slate-400">Nessun giocatore.</p>
+          <p className="text-sm text-stampa-500 dark:text-stampa-400">Nessun giocatore.</p>
         ) : (
-          <ul className="divide-y divide-slate-100 text-sm dark:divide-slate-700">
+          <ul className="divide-y divide-stampa-100 text-sm dark:divide-stampa-700">
             {data.onBlock.map((p) => (
               <li key={p.id} className="flex items-center gap-2 py-1">
                 <span className="w-8 shrink-0 text-center font-mono font-semibold">{overall(p)}</span>
@@ -181,14 +181,14 @@ export function TeamPage() {
                   className="min-w-0 flex-1 truncate hover:underline"
                 >
                   {p.firstName} {p.lastName}
-                  <span className="ml-1 text-xs text-slate-500 dark:text-slate-400">
+                  <span className="ml-1 text-xs text-stampa-500 dark:text-stampa-400">
                     {p.role} · {p.age} anni · {contractSummary(p, millions)}
                   </span>
                 </Link>
                 {!mine && haveTeam && (
                   <Link
                     to={`/lega/${league.id}/mercato?tab=scambi&con=${team.id}&prendi=${p.id}`}
-                    className="inline-flex min-h-11 shrink-0 items-center rounded-lg px-2 text-xs font-semibold text-orange-700 hover:bg-orange-50 dark:text-orange-300 dark:hover:bg-orange-950"
+                    className="inline-flex min-h-11 shrink-0 items-center rounded-lg px-2 text-xs font-semibold text-rosso-700 hover:bg-rosso-50 dark:text-rosso-300 dark:hover:bg-rosso-950"
                   >
                     Proponi
                   </Link>
@@ -200,7 +200,7 @@ export function TeamPage() {
         {mine && (
           <Link
             to={`/lega/${league.id}/mercato?tab=scambi`}
-            className="inline-flex min-h-11 items-center text-sm font-semibold text-orange-700 hover:underline dark:text-orange-300"
+            className="inline-flex min-h-11 items-center text-sm font-semibold text-rosso-700 hover:underline dark:text-rosso-300"
           >
             Cambia la lista nel mercato
           </Link>
@@ -210,11 +210,11 @@ export function TeamPage() {
       <Card className="space-y-2 !p-4">
         <h2 className="font-semibold">Rosa</h2>
         {firstYear !== null && (
-          <p className="text-xs text-slate-500 dark:text-slate-400">
+          <p className="text-xs text-stampa-500 dark:text-stampa-400">
             Stipendi dalla stagione {firstYear}-{String((firstYear + 1) % 100).padStart(2, '0')}.
           </p>
         )}
-        <ul className="divide-y divide-slate-100 text-sm dark:divide-slate-700">
+        <ul className="divide-y divide-stampa-100 text-sm dark:divide-stampa-700">
           {sorted.map((p) => (
             <li key={p.id} className="flex flex-wrap items-center gap-x-2 gap-y-0.5 py-2">
               <span className="w-8 shrink-0 text-center font-mono font-semibold">{overall(p)}</span>
@@ -223,20 +223,20 @@ export function TeamPage() {
                 className="min-w-0 flex-1 truncate hover:underline"
               >
                 {p.firstName} {p.lastName}
-                <span className="ml-1 text-xs text-slate-500 dark:text-slate-400">
+                <span className="ml-1 text-xs text-stampa-500 dark:text-stampa-400">
                   {p.role}
                   {p.secondaryRole ? `/${p.secondaryRole}` : ''} · {p.age} anni
                   {p.injury ? ` · infortunato (${p.injury.gamesRemaining})` : ''}
                 </span>
               </Link>
-              <span className="ml-10 w-full text-xs text-slate-600 sm:ml-0 sm:w-auto dark:text-slate-300">
+              <span className="ml-10 w-full text-xs text-stampa-600 sm:ml-0 sm:w-auto dark:text-stampa-300">
                 {contractSummary(p, millions)}
               </span>
             </li>
           ))}
         </ul>
         {extra.deadMoney.length > 0 && (
-          <div className="pt-2 text-xs text-slate-600 dark:text-slate-300">
+          <div className="pt-2 text-xs text-stampa-600 dark:text-stampa-300">
             <p className="font-semibold">Stipendi residui dei tagliati</p>
             <ul>
               {extra.deadMoney.map((d, i) => (
@@ -264,7 +264,7 @@ export function TeamPage() {
         )}
         {(swaps.held.length > 0 || swaps.given.length > 0) && (
           <div>
-            <h3 className="text-xs font-semibold tracking-wide text-slate-500 uppercase dark:text-slate-400">
+            <h3 className="text-xs font-semibold tracking-wide text-stampa-500 uppercase dark:text-stampa-400">
               Swap
             </h3>
             <ul className="text-sm">
@@ -303,10 +303,10 @@ function PickList({
 }) {
   return (
     <div>
-      <h3 className="text-xs font-semibold tracking-wide text-slate-500 uppercase dark:text-slate-400">
+      <h3 className="text-xs font-semibold tracking-wide text-stampa-500 uppercase dark:text-stampa-400">
         {title}
       </h3>
-      {picks.length === 0 && <p className="text-sm text-slate-500 dark:text-slate-400">{empty}</p>}
+      {picks.length === 0 && <p className="text-sm text-stampa-500 dark:text-stampa-400">{empty}</p>}
       <ul className="text-sm">
         {picks.map((k) => (
           <li key={k.id} className="py-0.5">

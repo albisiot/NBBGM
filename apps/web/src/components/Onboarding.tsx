@@ -14,7 +14,7 @@ import {
 } from '../lib/install.ts';
 import { Button, Card } from './ui.tsx';
 
-const LINK = 'font-semibold text-orange-700 hover:underline dark:text-orange-300';
+const LINK = 'font-semibold text-rosso-700 hover:underline dark:text-rosso-300';
 
 /** Suggerimento per installare l'app sulla schermata Home (solo nel browser, non nell'app installata). */
 export function InstallHint() {
@@ -30,12 +30,12 @@ export function InstallHint() {
     <Card className="mb-4 space-y-2 !p-4">
       <h2 className="font-semibold">Installa NBBGM sul telefono</h2>
       {advice === 'prompt' && (
-        <p className="text-sm text-slate-600 dark:text-slate-300">
+        <p className="text-sm text-stampa-600 dark:text-stampa-300">
           Si apre dalla schermata Home come un’app, a tutto schermo e anche senza rete.
         </p>
       )}
       {advice === 'ios' && (
-        <ol className="list-decimal space-y-1 pl-5 text-sm text-slate-600 dark:text-slate-300">
+        <ol className="list-decimal space-y-1 pl-5 text-sm text-stampa-600 dark:text-stampa-300">
           <li>
             Tocca <strong>Condividi</strong> (il quadrato con la freccia in su, in basso o in alto in Safari).
           </li>
@@ -46,7 +46,7 @@ export function InstallHint() {
         </ol>
       )}
       {advice === 'ios-other-browser' && (
-        <p className="text-sm text-slate-600 dark:text-slate-300">
+        <p className="text-sm text-stampa-600 dark:text-stampa-300">
           Su iPhone e iPad l’app si installa da Safari: apri questa pagina in Safari, tocca{' '}
           <strong>Condividi</strong> e poi <strong>Aggiungi alla schermata Home</strong>.
         </p>
@@ -72,14 +72,14 @@ export function WelcomeCard({ leagueId, teamName }: { leagueId: string; teamName
     setHidden(true);
   };
   return (
-    <Card className="space-y-3 border-orange-300 dark:border-orange-700">
+    <Card className="space-y-3 border-rosso-300 dark:border-rosso-700">
       <div>
         <h2 className="text-lg font-semibold">Primi passi</h2>
-        <p className="text-sm text-slate-600 dark:text-slate-300">
+        <p className="text-sm text-stampa-600 dark:text-stampa-300">
           Guidi i {teamName}. Come si gioca, in breve:
         </p>
       </div>
-      <ol className="list-decimal space-y-2 pl-5 text-sm text-slate-700 dark:text-slate-200">
+      <ol className="list-decimal space-y-2 pl-5 text-sm text-stampa-700 dark:text-stampa-200">
         <li>
           In{' '}
           <Link to={`/lega/${leagueId}/squadra`} className={LINK}>

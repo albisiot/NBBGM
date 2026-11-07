@@ -77,7 +77,7 @@ export function LeagueAdmin({
     return (
       <Card className="space-y-2">
         <h2 className="font-semibold">Lascia la lega</h2>
-        <p className="text-sm text-slate-600 dark:text-slate-300">
+        <p className="text-sm text-stampa-600 dark:text-stampa-300">
           La tua squadra torna al bot. Potrai rientrare con il codice invito, prendendo una squadra libera.
         </p>
         <ConfirmButton
@@ -98,24 +98,24 @@ export function LeagueAdmin({
 
       <Invitations league={league} onChange={onChange} />
 
-      <div className="space-y-2 border-t border-slate-100 pt-4 dark:border-slate-700">
+      <div className="space-y-2 border-t border-stampa-100 pt-4 dark:border-stampa-700">
         <h2 className="font-semibold">Manager</h2>
         {managers.length === 0 ? (
-          <p className="text-sm text-slate-500 dark:text-slate-400">
+          <p className="text-sm text-stampa-500 dark:text-stampa-400">
             Per ora sei l’unico manager: le altre squadre sono dei bot.
           </p>
         ) : (
           <>
-            <p className="text-sm text-slate-600 dark:text-slate-300">
+            <p className="text-sm text-stampa-600 dark:text-stampa-300">
               Liberando una squadra torna al bot e il manager esce dalla lega: potrà rientrare con il codice
               invito. Chi è espulso non può più rientrare. In entrambi i casi decadono il suo Pronto,
               l’allenatore, le offerte e gli scambi in sospeso.
             </p>
-            <ul className="divide-y divide-slate-100 dark:divide-slate-700">
+            <ul className="divide-y divide-stampa-100 dark:divide-stampa-700">
               {managers.map((t) => (
                 <li key={t.id} className="flex flex-wrap items-center justify-between gap-2 py-2 text-sm">
                   <span className="flex min-w-0 items-center gap-2">
-                    <span className="w-10 shrink-0 rounded bg-slate-100 px-1 text-center text-xs font-bold text-slate-700 dark:bg-slate-700 dark:text-slate-200">
+                    <span className="w-10 shrink-0 rounded bg-stampa-100 px-1 text-center text-xs font-bold text-stampa-700 dark:bg-stampa-700 dark:text-stampa-200">
                       {t.code}
                     </span>
                     <span className="truncate">{t.ownerName ?? 'Manager'}</span>
@@ -146,9 +146,9 @@ export function LeagueAdmin({
       </div>
 
       {managers.length > 0 && (
-        <div className="space-y-2 border-t border-slate-100 pt-4 dark:border-slate-700">
+        <div className="space-y-2 border-t border-stampa-100 pt-4 dark:border-stampa-700">
           <h2 className="font-semibold">Passa il ruolo di commissario</h2>
-          <p className="text-sm text-slate-600 dark:text-slate-300">
+          <p className="text-sm text-stampa-600 dark:text-stampa-300">
             Il nuovo commissario gestisce turni, manager e lega; tu resti in lega come manager della tua
             squadra.
           </p>
@@ -177,7 +177,7 @@ export function LeagueAdmin({
       )}
 
       <form
-        className="space-y-2 border-t border-slate-100 pt-4 dark:border-slate-700"
+        className="space-y-2 border-t border-stampa-100 pt-4 dark:border-stampa-700"
         onSubmit={(e) => {
           e.preventDefault();
           if (!sameLeagueName(typedName, league.name)) return;
@@ -185,7 +185,7 @@ export function LeagueAdmin({
         }}
       >
         <h2 className="font-semibold">Elimina la lega</h2>
-        <p className="text-sm text-slate-600 dark:text-slate-300">
+        <p className="text-sm text-stampa-600 dark:text-stampa-300">
           Spariscono squadre, partite, statistiche e bilanci, per tutti i manager. Non si può annullare.
         </p>
         <TextInput
@@ -241,9 +241,9 @@ function Invitations({ league, onChange }: { league: LeagueDetail; onChange: () 
   }
 
   return (
-    <div className="space-y-3 border-t border-slate-100 pt-4 dark:border-slate-700">
+    <div className="space-y-3 border-t border-stampa-100 pt-4 dark:border-stampa-700">
       <h2 className="font-semibold">Inviti</h2>
-      <p className="text-sm text-slate-600 dark:text-slate-300">
+      <p className="text-sm text-stampa-600 dark:text-stampa-300">
         Ci si iscrive a NBBGM solo su invito: chi apre il link della lega si iscrive con il codice via email.
         Chi vuole entrare con Google va invitato per email.
       </p>
@@ -264,7 +264,7 @@ function Invitations({ league, onChange }: { league: LeagueDetail; onChange: () 
         </Button>
       </form>
       {(invites.data ?? []).length > 0 && (
-        <ul className="divide-y divide-slate-100 text-sm dark:divide-slate-700">
+        <ul className="divide-y divide-stampa-100 text-sm dark:divide-stampa-700">
           {(invites.data ?? []).map((i) => (
             <li key={i.email} className="flex items-center justify-between gap-2 py-1">
               <span className="min-w-0 truncate">{i.email}</span>
@@ -288,7 +288,7 @@ function Invitations({ league, onChange }: { league: LeagueDetail; onChange: () 
         >
           Cambia il codice invito
         </ConfirmButton>
-        <p className="text-xs text-slate-500 dark:text-slate-400">
+        <p className="text-xs text-stampa-500 dark:text-stampa-400">
           Con il codice nuovo il link vecchio non funziona più: chi è uscito dalla lega non rientra senza il
           codice nuovo.
         </p>
@@ -296,7 +296,7 @@ function Invitations({ league, onChange }: { league: LeagueDetail; onChange: () 
       {(bans.data ?? []).length > 0 && (
         <div className="space-y-1">
           <h3 className="text-sm font-semibold">Esclusi</h3>
-          <ul className="divide-y divide-slate-100 text-sm dark:divide-slate-700">
+          <ul className="divide-y divide-stampa-100 text-sm dark:divide-stampa-700">
             {(bans.data ?? []).map((b) => (
               <li key={b.userId} className="flex items-center justify-between gap-2 py-1">
                 <span className="min-w-0 truncate">{b.name}</span>
@@ -319,7 +319,7 @@ function Invitations({ league, onChange }: { league: LeagueDetail; onChange: () 
 }
 
 const SELECT =
-  'mt-1 block min-h-11 w-full rounded-lg border border-slate-300 bg-white px-2 text-sm dark:border-slate-600 dark:bg-slate-800';
+  'mt-1 block min-h-11 w-full rounded-lg border border-stampa-300 bg-stampa-25 px-2 text-sm dark:border-stampa-600 dark:bg-stampa-800';
 
 /** Scadenza dei turni e ritmo massimo con gli allenatori, che il commissario può cambiare quando vuole. */
 function TurnSettings({ league, onChange }: { league: LeagueDetail; onChange: () => void }) {
@@ -386,7 +386,7 @@ function TurnSettings({ league, onChange }: { league: LeagueDetail; onChange: ()
           </select>
         </label>
       </div>
-      <p className="text-xs text-slate-500 dark:text-slate-400">
+      <p className="text-xs text-stampa-500 dark:text-stampa-400">
         Con una scadenza il turno si chiude anche se qualcuno non è pronto (chi non ha confermato gioca con le
         ultime impostazioni salvate). Cambiandola, il turno aperto riparte da adesso.
       </p>
@@ -395,7 +395,7 @@ function TurnSettings({ league, onChange }: { league: LeagueDetail; onChange: ()
       </Button>
       {message &&
         (message.ok ? (
-          <p role="status" className="text-sm text-green-700 dark:text-green-300">
+          <p role="status" className="text-sm text-stampa-900 italic dark:text-stampa-50">
             {message.text}
           </p>
         ) : (

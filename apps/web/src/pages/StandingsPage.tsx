@@ -63,13 +63,13 @@ export function StandingsPage() {
         ),
       )}
       {view === 'conference' && (
-        <p className="flex flex-wrap gap-4 text-xs text-slate-500 dark:text-slate-400">
+        <p className="flex flex-wrap gap-4 text-xs text-stampa-500 dark:text-stampa-400">
           <span>
             <span className="mr-1 inline-block size-2.5 rounded-sm bg-green-500" />
             1-6: playoff
           </span>
           <span>
-            <span className="mr-1 inline-block size-2.5 rounded-sm bg-orange-400" />
+            <span className="mr-1 inline-block size-2.5 rounded-sm bg-rosso-400" />
             7-10: play-in
           </span>
           <span>A parità: scontri diretti, differenza punti, poi sorteggio.</span>
@@ -99,8 +99,8 @@ function StandingsTable({
     <div className="overflow-x-auto">
       <table className="w-full min-w-[36rem] text-sm">
         <thead>
-          <tr className="border-b border-slate-200 text-xs text-slate-500 dark:border-slate-700 dark:text-slate-400">
-            <th className="sticky left-0 bg-white py-1 pr-2 pl-2 text-left font-medium dark:bg-slate-800">
+          <tr className="border-b border-stampa-200 text-xs text-stampa-500 dark:border-stampa-700 dark:text-stampa-400">
+            <th className="sticky left-0 bg-stampa-25 py-1 pr-2 pl-2 text-left font-medium dark:bg-stampa-800">
               <span className="inline-block w-6">#</span>Squadra
             </th>
             <th className={th}>V</th>
@@ -125,18 +125,18 @@ function StandingsTable({
               : rank <= 6
                 ? 'shadow-[inset_4px_0_0_var(--color-green-500)]'
                 : rank <= 10
-                  ? 'shadow-[inset_4px_0_0_var(--color-orange-400)]'
+                  ? 'shadow-[inset_4px_0_0_var(--color-rosso-400)]'
                   : '';
             const gb = leader ? (leader.w - l.w + (l.l - leader.l)) / 2 : 0;
             return (
               <tr
                 key={l.teamId}
-                className={`border-b border-slate-100 dark:border-slate-700/60 ${l.teamId === mine ? 'font-semibold' : ''} ${
-                  seeds && rank === 6 ? 'border-b-slate-300 dark:border-b-slate-500' : ''
-                } ${seeds && rank === 10 ? 'border-b-slate-300 dark:border-b-slate-500' : ''}`}
+                className={`border-b border-stampa-100 dark:border-stampa-700/60 ${l.teamId === mine ? 'font-semibold' : ''} ${
+                  seeds && rank === 6 ? 'border-b-stampa-300 dark:border-b-stampa-500' : ''
+                } ${seeds && rank === 10 ? 'border-b-stampa-300 dark:border-b-stampa-500' : ''}`}
               >
                 <td
-                  className={`sticky left-0 max-w-[12rem] truncate bg-white py-1 pr-2 pl-2 sm:max-w-60 dark:bg-slate-800 ${mark}`}
+                  className={`sticky left-0 max-w-[12rem] truncate bg-stampa-25 py-1 pr-2 pl-2 sm:max-w-60 dark:bg-stampa-800 ${mark}`}
                 >
                   <span className="flex items-center gap-2">
                     <span className="w-5 shrink-0 font-normal">{rank}</span>

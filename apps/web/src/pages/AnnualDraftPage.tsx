@@ -147,7 +147,7 @@ export function AnnualDraftPage() {
     return (
       <div className="space-y-4">
         <PageTitle>Draft {draftYear}</PageTitle>
-        <p className="text-sm text-slate-600 dark:text-slate-300">
+        <p className="text-sm text-stampa-600 dark:text-stampa-300">
           L’ordine del draft si decide alla fine della stagione, dopo la finale: lottery per le 14 squadre
           fuori dai playoff, poi l’ordine inverso di classifica.
         </p>
@@ -170,7 +170,7 @@ export function AnnualDraftPage() {
         <Card className="space-y-2 !p-4">
           <h2 className="font-semibold">La tua lista</h2>
           {current.length === 0 && (
-            <p className="text-sm text-slate-500 dark:text-slate-400">
+            <p className="text-sm text-stampa-500 dark:text-stampa-400">
               Vuota: sceglierà il server il migliore per i ruoli scoperti. Aggiungi i prospetti dall’elenco
               qui sotto.
             </p>
@@ -180,11 +180,11 @@ export function AnnualDraftPage() {
               const p = byId.get(pid);
               return (
                 <li key={pid} className="flex items-center gap-2">
-                  <span className="w-6 text-right text-xs text-slate-500 dark:text-slate-400">{i + 1}</span>
+                  <span className="w-6 text-right text-xs text-stampa-500 dark:text-stampa-400">{i + 1}</span>
                   <span className="min-w-0 flex-1 truncate">
                     {p ? `${p.firstName} ${p.lastName}` : 'Non più disponibile'}
                     {p && (
-                      <span className="ml-1 text-xs text-slate-500 dark:text-slate-400">
+                      <span className="ml-1 text-xs text-stampa-500 dark:text-stampa-400">
                         {p.role} · {p.age} anni · pot. {p.scoutedPotential}
                       </span>
                     )}
@@ -218,7 +218,7 @@ export function AnnualDraftPage() {
       <div className="grid gap-4 md:grid-cols-2">
         <Card className="!p-4">
           <h2 className="mb-2 font-semibold">Ordine delle scelte</h2>
-          <ol className="max-h-[32rem] divide-y divide-slate-100 overflow-y-auto text-sm dark:divide-slate-700">
+          <ol className="max-h-[32rem] divide-y divide-stampa-100 overflow-y-auto text-sm dark:divide-stampa-700">
             {order.map((s) => {
               const owner = team.get(s.teamId);
               const picked = s.playerId ? players.get(s.playerId) : null;
@@ -227,7 +227,7 @@ export function AnnualDraftPage() {
                   key={s.pickNo}
                   className={`flex items-center gap-2 py-1 ${s.teamId === mine?.id ? 'font-semibold' : ''}`}
                 >
-                  <span className="w-10 text-right font-mono text-xs text-slate-500 dark:text-slate-400">
+                  <span className="w-10 text-right font-mono text-xs text-stampa-500 dark:text-stampa-400">
                     {s.round}.{String(s.number).padStart(2, '0')}
                   </span>
                   <TeamCode code={owner?.code ?? '?'} strong={s.teamId === mine?.id} />
@@ -235,14 +235,14 @@ export function AnnualDraftPage() {
                     {picked ? (
                       <Link to={`/lega/${league.id}/giocatore/${s.playerId}`} className="hover:underline">
                         {picked.name}{' '}
-                        <span className="text-xs text-slate-500 dark:text-slate-400">{picked.role}</span>
+                        <span className="text-xs text-stampa-500 dark:text-stampa-400">{picked.role}</span>
                       </Link>
                     ) : (
-                      <span className="text-slate-500 dark:text-slate-400">da scegliere</span>
+                      <span className="text-stampa-500 dark:text-stampa-400">da scegliere</span>
                     )}
                   </span>
                   {s.originalTeamId !== s.teamId && (
-                    <span className="text-xs text-slate-500 dark:text-slate-400">
+                    <span className="text-xs text-stampa-500 dark:text-stampa-400">
                       da {team.get(s.originalTeamId)?.code}
                     </span>
                   )}
@@ -255,10 +255,10 @@ export function AnnualDraftPage() {
         {!done && (
           <Card className="!p-4">
             <h2 className="mb-2 font-semibold">Prospetti</h2>
-            <p className="mb-2 text-xs text-slate-500 dark:text-slate-400">
+            <p className="mb-2 text-xs text-stampa-500 dark:text-stampa-400">
               Il potenziale è una stima, come la vedono anche i bot.
             </p>
-            <ul className="max-h-[32rem] divide-y divide-slate-100 overflow-y-auto text-sm dark:divide-slate-700">
+            <ul className="max-h-[32rem] divide-y divide-stampa-100 overflow-y-auto text-sm dark:divide-stampa-700">
               {prospects.map((p) => {
                 const inList = current.includes(p.id);
                 return (
@@ -269,7 +269,7 @@ export function AnnualDraftPage() {
                       className="min-w-0 flex-1 truncate hover:underline"
                     >
                       {p.firstName} {p.lastName}
-                      <span className="ml-1 text-xs text-slate-500 dark:text-slate-400">
+                      <span className="ml-1 text-xs text-stampa-500 dark:text-stampa-400">
                         {p.role} · {p.age} anni · pot. {p.scoutedPotential} · {p.archetype}
                       </span>
                     </Link>

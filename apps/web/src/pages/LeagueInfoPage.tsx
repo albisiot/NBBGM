@@ -9,7 +9,7 @@ import { useUserId } from '../lib/auth.tsx';
 import { deadlineLabel, leagueDetail, paceLabel, type LeagueTeam } from '../lib/leagues.ts';
 import { useAsync } from '../lib/useAsync.ts';
 
-const LINK = 'font-semibold text-orange-700 hover:underline dark:text-orange-300';
+const LINK = 'font-semibold text-rosso-700 hover:underline dark:text-rosso-300';
 
 export function LeagueInfoPage() {
   const { id = '' } = useParams();
@@ -45,7 +45,7 @@ export function LeagueInfoPage() {
       <Card>
         <h2 className="mb-2 font-semibold">Impostazioni</h2>
         <dl className="grid gap-1 text-sm sm:grid-cols-[auto_1fr] sm:gap-x-4">
-          <dt className="text-slate-500 dark:text-slate-400">Rose iniziali</dt>
+          <dt className="text-stampa-500 dark:text-stampa-400">Rose iniziali</dt>
           <dd>
             {league.rosterMode === 'real' ? 'Rose reali' : 'Draft di tutti i giocatori'}
             {/* Il draft iniziale finito non serve più nella pagina della lega: resta raggiungibile da qui */}
@@ -58,15 +58,15 @@ export function LeagueInfoPage() {
               </>
             )}
           </dd>
-          <dt className="text-slate-500 dark:text-slate-400">Scadenza dei turni</dt>
+          <dt className="text-stampa-500 dark:text-stampa-400">Scadenza dei turni</dt>
           <dd>{deadlineLabel(league.deadlineMinutes)}</dd>
-          <dt className="text-slate-500 dark:text-slate-400">Ritmo con gli allenatori</dt>
+          <dt className="text-stampa-500 dark:text-stampa-400">Ritmo con gli allenatori</dt>
           <dd>{paceLabel(league.maxPaceSeconds)}</dd>
-          <dt className="text-slate-500 dark:text-slate-400">Rookie</dt>
+          <dt className="text-stampa-500 dark:text-stampa-400">Rookie</dt>
           <dd>{league.rookieSource === 'generated' ? 'Generati' : 'Reali, da file'}</dd>
         </dl>
         {isCommissioner && (
-          <p className="mt-3 text-xs text-slate-500 dark:text-slate-400">
+          <p className="mt-3 text-xs text-stampa-500 dark:text-stampa-400">
             Sei il commissario di questa lega.
           </p>
         )}
@@ -90,17 +90,17 @@ function TeamList({
 }) {
   return (
     <div>
-      <h3 className="mb-1 text-xs font-semibold tracking-wide text-slate-500 uppercase dark:text-slate-400">
+      <h3 className="mb-1 text-xs font-semibold tracking-wide text-stampa-500 uppercase dark:text-stampa-400">
         {title}
       </h3>
-      <ul className="divide-y divide-slate-100 dark:divide-slate-700">
+      <ul className="divide-y divide-stampa-100 dark:divide-stampa-700">
         {teams.map((t) => (
           <li
             key={t.id}
             className={`flex items-center justify-between gap-2 py-1.5 text-sm ${t.ownerId === userId ? 'font-semibold' : ''}`}
           >
             <span className="flex min-w-0 items-center gap-2">
-              <span className="w-10 shrink-0 rounded bg-slate-100 px-1 text-center text-xs font-bold text-slate-700 dark:bg-slate-700 dark:text-slate-200">
+              <span className="w-10 shrink-0 rounded bg-stampa-100 px-1 text-center text-xs font-bold text-stampa-700 dark:bg-stampa-700 dark:text-stampa-200">
                 {t.code}
               </span>
               <Link to={`/lega/${leagueId}/squadre/${t.code}`} className="truncate hover:underline">
@@ -108,7 +108,7 @@ function TeamList({
               </Link>
             </span>
             <span
-              className={`shrink-0 text-xs ${t.ownerId ? 'text-orange-700 dark:text-orange-300' : 'text-slate-500'}`}
+              className={`shrink-0 text-xs ${t.ownerId ? 'text-rosso-700 dark:text-rosso-300' : 'text-stampa-500'}`}
             >
               {t.ownerId === userId ? 'Tu' : (t.ownerName ?? 'Bot')}
             </span>

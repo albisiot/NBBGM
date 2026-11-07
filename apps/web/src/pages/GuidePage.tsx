@@ -77,14 +77,14 @@ export function GuidePage() {
         <Card key={s.title} className="space-y-2 !p-4">
           <h2 className="font-semibold">{s.title}</h2>
           {s.text.map((t, i) => (
-            <p key={i} className="text-sm text-slate-700 dark:text-slate-200">
+            <p key={i} className="text-sm text-stampa-700 dark:text-stampa-200">
               {t}
             </p>
           ))}
         </Card>
       ))}
       <p className="text-sm">
-        <Link to="/" className="font-semibold text-orange-700 hover:underline dark:text-orange-300">
+        <Link to="/" className="font-semibold text-rosso-700 hover:underline dark:text-rosso-300">
           Torna alle tue leghe
         </Link>
       </p>

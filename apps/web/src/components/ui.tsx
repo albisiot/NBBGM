@@ -7,25 +7,45 @@ import {
   type ReactNode,
 } from 'react';
 
+export type ButtonVariant = 'primary' | 'accent' | 'secondary' | 'ghost' | 'danger';
+
+/**
+ * Pulsanti nello stile Edicola: maiuscolo stretto e angoli vivi. primary è d'inchiostro; accent è il rosso, per
+ * l'azione principale della pagina (Sono pronto): uno per pagina, perché il rosso segna anche gli avvisi; danger
+ * è il rosso scuro delle azioni che non si annullano; ghost è un link in corsivo sottolineato.
+ */
 export function Button({
   variant = 'primary',
   className = '',
   ...props
-}: ButtonHTMLAttributes<HTMLButtonElement> & { variant?: 'primary' | 'secondary' | 'ghost' | 'danger' }) {
+}: ButtonHTMLAttributes<HTMLButtonElement> & { variant?: ButtonVariant }) {
   const styles = {
-    primary: 'bg-orange-600 text-white hover:bg-orange-700 disabled:bg-orange-300',
-    danger: 'bg-red-600 text-white hover:bg-red-700 disabled:bg-red-300 dark:disabled:bg-red-900',
+    primary:
+      'bg-stampa-900 text-stampa-25 hover:bg-stampa-700 disabled:bg-stampa-400 dark:bg-stampa-100 dark:text-stampa-900 dark:hover:bg-stampa-50 dark:disabled:bg-stampa-600',
+    accent:
+      'bg-rosso-600 text-white hover:bg-rosso-700 disabled:bg-rosso-300 dark:bg-rosso-500 dark:hover:bg-rosso-600 dark:disabled:bg-rosso-900',
+    danger:
+      'bg-rosso-700 text-white hover:bg-rosso-800 disabled:bg-rosso-300 dark:bg-rosso-500 dark:hover:bg-rosso-600 dark:disabled:bg-rosso-900',
     secondary:
-      'border border-slate-300 bg-white text-slate-800 hover:bg-slate-50 disabled:text-slate-400 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100 dark:hover:bg-slate-700',
-    ghost: 'text-slate-600 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-800',
+      'border border-stampa-900 bg-transparent text-stampa-900 hover:bg-stampa-100 disabled:border-stampa-300 disabled:text-stampa-400 dark:border-stampa-100 dark:text-stampa-50 dark:hover:bg-stampa-800 dark:disabled:border-stampa-700',
+    ghost:
+      'text-stampa-800 underline underline-offset-4 hover:bg-stampa-100 dark:text-stampa-100 dark:hover:bg-stampa-800',
   }[variant];
+  const type =
+    variant === 'ghost'
+      ? 'font-serif text-[0.95rem] font-semibold italic'
+      : 'font-titolo text-[0.95rem] font-semibold tracking-wider uppercase';
   return (
     <button
-      className={`inline-flex min-h-11 items-center justify-center gap-2 rounded-lg px-4 py-2 text-sm font-semibold transition-colors disabled:cursor-not-allowed ${styles} ${className}`}
+      className={`inline-flex min-h-11 items-center justify-center gap-2 rounded-sm px-4 py-2 transition-colors disabled:cursor-not-allowed ${type} ${styles} ${className}`}
       {...props}
     />
   );
 }
+
+/** Etichetta dei campi e dei gruppi di scelte: maiuscolo stretto, come le testatine del giornale. */
+const FIELD_LABEL =
+  'font-titolo text-xs font-semibold tracking-widest uppercase text-stampa-800 dark:text-stampa-100';
 
 /**
  * Pulsante da toccare due volte per le azioni che non si annullano con un tocco: il primo chiede conferma
@@ -82,12 +102,16 @@ export function TextInput({
 }: InputHTMLAttributes<HTMLInputElement> & { label: string; hint?: string }) {
   return (
     <label className="block">
-      <span className="text-sm font-medium text-slate-700 dark:text-slate-200">{label}</span>
+      <span className={FIELD_LABEL}>{label}</span>
       <input
-        className="mt-1 block min-h-11 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-base text-slate-900 shadow-sm focus:border-orange-500 focus:ring-2 focus:ring-orange-200 focus:outline-none dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100 dark:focus:ring-orange-900"
+        className="mt-1 block min-h-11 w-full rounded-sm border border-stampa-900 bg-stampa-25 px-3 py-2 text-base text-stampa-900 focus:ring-2 focus:ring-rosso-200 focus:outline-none dark:border-stampa-300 dark:bg-stampa-800 dark:text-stampa-50 dark:focus:ring-rosso-900"
         {...props}
       />
-      {hint && <span className="mt-1 block text-xs text-slate-500 dark:text-slate-400">{hint}</span>}
+      {hint && (
+        <span className="mt-1 block text-[0.8125rem] text-stampa-500 italic dark:text-stampa-400">
+          {hint}
+        </span>
+      )}
     </label>
   );
 }
@@ -95,7 +119,7 @@ export function TextInput({
 export function Card({ children, className = '' }: { children: ReactNode; className?: string }) {
   return (
     <section
-      className={`rounded-xl border border-slate-200 bg-white p-4 shadow-sm sm:p-6 dark:border-slate-700 dark:bg-slate-800 ${className}`}
+      className={`border border-stampa-900 bg-stampa-25 p-4 sm:p-6 dark:border-stampa-600 dark:bg-stampa-800 ${className}`}
     >
       {children}
     </section>
@@ -107,7 +131,7 @@ export function ErrorText({ children }: { children: ReactNode }) {
   return (
     <p
       role="alert"
-      className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700 dark:bg-red-950 dark:text-red-200"
+      className="border-2 border-rosso-600 bg-stampa-25 px-3 py-2 text-sm text-rosso-800 dark:border-rosso-300 dark:bg-stampa-800 dark:text-rosso-200"
     >
       {children}
     </p>
@@ -116,8 +140,8 @@ export function ErrorText({ children }: { children: ReactNode }) {
 
 export function Spinner({ label = 'Caricamento…' }: { label?: string }) {
   return (
-    <p className="flex items-center gap-2 text-sm text-slate-500 dark:text-slate-400" role="status">
-      <span className="size-4 animate-spin rounded-full border-2 border-slate-300 border-t-orange-600" />
+    <p className="flex items-center gap-2 text-sm text-stampa-500 italic dark:text-stampa-400" role="status">
+      <span className="size-4 animate-spin rounded-full border-2 border-stampa-300 border-t-rosso-600" />
       {label}
     </p>
   );
@@ -126,8 +150,8 @@ export function Spinner({ label = 'Caricamento…' }: { label?: string }) {
 export function PageTitle({ children, sub }: { children: ReactNode; sub?: ReactNode }) {
   return (
     <header className="mb-4">
-      <h1 className="text-2xl font-bold text-slate-900 dark:text-slate-50">{children}</h1>
-      {sub && <p className="mt-1 text-sm text-slate-600 dark:text-slate-400">{sub}</p>}
+      <h1 className="text-3xl leading-tight font-bold text-stampa-900 dark:text-stampa-50">{children}</h1>
+      {sub && <p className="mt-1 text-sm text-stampa-600 italic dark:text-stampa-300">{sub}</p>}
     </header>
   );
 }
@@ -145,27 +169,27 @@ export function Choice<T extends string | number | null>({
 }) {
   return (
     <fieldset>
-      <legend className="text-sm font-medium text-slate-700 dark:text-slate-200">{label}</legend>
+      <legend className={FIELD_LABEL}>{label}</legend>
       <div className="mt-2 grid gap-2">
         {options.map((o) => (
           <label
             key={String(o.value)}
-            className={`flex min-h-11 items-center gap-3 rounded-lg border px-3 py-2 text-sm ${
+            className={`flex min-h-11 items-center gap-3 rounded-sm border px-3 py-2 text-sm ${
               o.value === value
-                ? 'border-orange-500 bg-orange-50 dark:bg-orange-950'
-                : 'border-slate-200 dark:border-slate-700'
+                ? 'border-stampa-900 bg-stampa-25 ring-1 ring-stampa-900 dark:border-stampa-100 dark:bg-stampa-800 dark:ring-stampa-100'
+                : 'border-stampa-300 dark:border-stampa-600'
             } ${o.disabled ? 'opacity-50' : 'cursor-pointer'}`}
           >
             <input
               type="radio"
-              className="accent-orange-600"
+              className="accent-stampa-900 dark:accent-stampa-100"
               checked={o.value === value}
               disabled={o.disabled}
               onChange={() => onChange(o.value)}
             />
             <span>
               {o.label}
-              {o.note && <span className="block text-xs text-slate-500 dark:text-slate-400">{o.note}</span>}
+              {o.note && <span className="block text-xs text-stampa-500 dark:text-stampa-400">{o.note}</span>}
             </span>
           </label>
         ))}
@@ -190,7 +214,7 @@ export function Segmented<T extends string | number>({
     <div
       role="group"
       aria-label={label}
-      className="inline-flex flex-wrap gap-1 rounded-lg bg-slate-100 p-1 dark:bg-slate-800"
+      className="inline-flex flex-wrap border border-stampa-900 dark:border-stampa-100"
     >
       {options.map((o) => (
         <button
@@ -198,10 +222,10 @@ export function Segmented<T extends string | number>({
           type="button"
           aria-pressed={o.value === value}
           onClick={() => onChange(o.value)}
-          className={`min-h-11 min-w-11 rounded-md px-3 text-sm font-medium ${
+          className={`min-h-11 min-w-11 px-3 font-titolo text-sm font-semibold tracking-wider uppercase ${
             o.value === value
-              ? 'bg-white text-orange-700 shadow-sm dark:bg-slate-700 dark:text-orange-300'
-              : 'text-slate-600 hover:text-slate-900 dark:text-slate-300 dark:hover:text-white'
+              ? 'bg-stampa-900 text-stampa-25 dark:bg-stampa-100 dark:text-stampa-900'
+              : 'text-stampa-700 hover:bg-stampa-100 dark:text-stampa-200 dark:hover:bg-stampa-800'
           }`}
         >
           {o.label}
@@ -239,10 +263,11 @@ export function Toast({ message, onClose }: { message: ToastMessage | null; onCl
   }, [message, onClose]);
   const card = (m: ToastMessage) => (
     <div
-      className={`pointer-events-auto flex w-full max-w-lg items-center gap-2 rounded-xl py-1 pr-1 pl-4 text-sm shadow-lg ring-1 ${
+      // Conferme d'inchiostro, errori con il bordo rosso: come i riquadri del giornale
+      className={`pointer-events-auto flex w-full max-w-lg items-center gap-2 py-1 pr-1 pl-4 text-sm shadow-lg ${
         m.ok
-          ? 'bg-green-50 text-green-900 ring-green-200 dark:bg-green-950 dark:text-green-50 dark:ring-green-800'
-          : 'bg-red-50 text-red-800 ring-red-200 dark:bg-red-950 dark:text-red-100 dark:ring-red-800'
+          ? 'bg-stampa-900 text-stampa-25 dark:bg-stampa-100 dark:text-stampa-900'
+          : 'bg-stampa-25 text-rosso-800 ring-2 ring-rosso-600 dark:bg-stampa-800 dark:text-rosso-200 dark:ring-rosso-300'
       }`}
     >
       <p className="min-w-0 flex-1 py-2">{m.text}</p>
@@ -250,7 +275,7 @@ export function Toast({ message, onClose }: { message: ToastMessage | null; onCl
         type="button"
         aria-label="Chiudi il messaggio"
         onClick={onClose}
-        className="inline-flex size-11 shrink-0 items-center justify-center rounded-lg hover:bg-black/5 dark:hover:bg-white/10"
+        className="inline-flex size-11 shrink-0 items-center justify-center hover:bg-black/10 dark:hover:bg-white/10"
       >
         ✕
       </button>
@@ -268,14 +293,14 @@ export function Toast({ message, onClose }: { message: ToastMessage | null; onCl
   );
 }
 
-/** Sigla della squadra in un riquadro. */
+/** Sigla della squadra in un riquadro: piena d'inchiostro la propria (strong), a filo le altre. */
 export function TeamCode({ code, strong = false }: { code: string; strong?: boolean }) {
   return (
     <span
-      className={`inline-block w-11 shrink-0 rounded px-1 text-center text-xs font-bold ${
+      className={`inline-block w-11 shrink-0 border px-1 text-center font-titolo text-[0.8125rem] font-semibold tracking-wide ${
         strong
-          ? 'bg-orange-100 text-orange-800 dark:bg-orange-900 dark:text-orange-100'
-          : 'bg-slate-100 text-slate-700 dark:bg-slate-700 dark:text-slate-200'
+          ? 'border-stampa-900 bg-stampa-900 text-stampa-25 dark:border-stampa-100 dark:bg-stampa-100 dark:text-stampa-900'
+          : 'border-stampa-900 text-stampa-900 dark:border-stampa-300 dark:text-stampa-100'
       }`}
     >
       {code}

@@ -44,7 +44,7 @@ export function ResultsPage() {
       <label className="flex min-h-11 w-fit cursor-pointer items-center gap-2 text-sm">
         <input
           type="checkbox"
-          className="size-5 accent-orange-600"
+          className="size-5 accent-rosso-600"
           checked={spoilerFree}
           onChange={(e) => {
             setSpoilerFree(e.target.checked);
@@ -59,7 +59,7 @@ export function ResultsPage() {
         <p className="text-center font-semibold">
           {roundLabel(selected, kind)}
           {kind !== 'regular' && (
-            <span className="block text-xs font-normal text-slate-500 dark:text-slate-400">
+            <span className="block text-xs font-normal text-stampa-500 dark:text-stampa-400">
               turno {selected - 81} della post-season
             </span>
           )}
@@ -73,11 +73,13 @@ export function ResultsPage() {
           return (
             <Card key={g.id} className="space-y-2 !p-4">
               {g.kind === 'playoffs' && g.seriesId && (
-                <p className="text-xs text-slate-500 dark:text-slate-400">
+                <p className="text-xs text-stampa-500 dark:text-stampa-400">
                   {seriesText(g, games, series, (tid) => team.get(tid)?.code ?? '?', hide)}
                 </p>
               )}
-              {g.kind === 'play-in' && <p className="text-xs text-slate-500 dark:text-slate-400">Play-in</p>}
+              {g.kind === 'play-in' && (
+                <p className="text-xs text-stampa-500 dark:text-stampa-400">Play-in</p>
+              )}
               {[g.awayTeamId, g.homeTeamId].map((tid) => {
                 const score = tid === g.homeTeamId ? g.homeScore : g.awayScore;
                 const other = tid === g.homeTeamId ? g.awayScore : g.homeScore;
@@ -88,7 +90,7 @@ export function ResultsPage() {
                     <span className="min-w-0 flex-1 truncate text-sm">
                       {team.get(tid)?.fullName}
                       {tid === g.homeTeamId && (
-                        <span className="ml-1 text-xs font-normal text-slate-500 dark:text-slate-400">
+                        <span className="ml-1 text-xs font-normal text-stampa-500 dark:text-stampa-400">
                           casa
                         </span>
                       )}
@@ -100,7 +102,7 @@ export function ResultsPage() {
                 );
               })}
               <div className="flex items-center justify-between text-xs">
-                <span className="text-slate-500 dark:text-slate-400">
+                <span className="text-stampa-500 dark:text-stampa-400">
                   {g.homeScore === null
                     ? 'Da giocare'
                     : hide
@@ -112,7 +114,7 @@ export function ResultsPage() {
                 {g.homeScore !== null && (
                   <Link
                     to={`/lega/${id}/partita/${g.id}${hide ? '?vista=dal-vivo' : ''}`}
-                    className="inline-flex min-h-11 items-center rounded px-2 font-semibold text-orange-700 hover:bg-orange-50 dark:text-orange-300 dark:hover:bg-orange-950"
+                    className="inline-flex min-h-11 items-center rounded px-2 font-semibold text-rosso-700 hover:bg-rosso-50 dark:text-rosso-300 dark:hover:bg-rosso-950"
                   >
                     {hide ? 'Guarda dal vivo' : 'Box score e cronaca'}
                   </Link>
@@ -123,7 +125,7 @@ export function ResultsPage() {
         })}
       </div>
       {list.length === 0 && (
-        <p className="text-sm text-slate-500 dark:text-slate-400">Nessuna partita in questo turno.</p>
+        <p className="text-sm text-stampa-500 dark:text-stampa-400">Nessuna partita in questo turno.</p>
       )}
     </div>
   );
@@ -172,7 +174,7 @@ function RoundLink({ id, round, label }: { id: string; round: number | undefined
   return (
     <Link
       to={`/lega/${id}/risultati/${round}`}
-      className="inline-flex min-h-11 min-w-24 items-center justify-center rounded-lg border border-slate-300 px-3 text-sm font-medium hover:bg-slate-50 dark:border-slate-600 dark:hover:bg-slate-800"
+      className="inline-flex min-h-11 min-w-24 items-center justify-center rounded-lg border border-stampa-300 px-3 text-sm font-medium hover:bg-stampa-50 dark:border-stampa-600 dark:hover:bg-stampa-800"
     >
       {label}
     </Link>

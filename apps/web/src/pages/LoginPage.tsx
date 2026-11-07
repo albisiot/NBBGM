@@ -88,8 +88,8 @@ export function LoginPage() {
         <p className="text-4xl" aria-hidden>
           🏀
         </p>
-        <h1 className="mt-2 text-3xl font-bold text-slate-900 dark:text-slate-50">NBBGM</h1>
-        <p className="mt-1 text-sm text-slate-600 dark:text-slate-400">
+        <h1 className="mt-2 text-3xl font-bold text-stampa-900 dark:text-stampa-50">NBBGM</h1>
+        <p className="mt-1 text-sm text-stampa-600 dark:text-stampa-400">
           Il manageriale di basket a turni da giocare con gli amici.
         </p>
       </div>
@@ -106,9 +106,9 @@ export function LoginPage() {
             <Button variant="secondary" className="w-full" onClick={google}>
               <GoogleIcon /> Continua con Google
             </Button>
-            <div className="flex items-center gap-3 text-xs text-slate-500 dark:text-slate-400">
-              <span className="h-px flex-1 bg-slate-200 dark:bg-slate-700" /> oppure{' '}
-              <span className="h-px flex-1 bg-slate-200 dark:bg-slate-700" />
+            <div className="flex items-center gap-3 text-xs text-stampa-500 dark:text-stampa-400">
+              <span className="h-px flex-1 bg-stampa-200 dark:bg-stampa-700" /> oppure{' '}
+              <span className="h-px flex-1 bg-stampa-200 dark:bg-stampa-700" />
             </div>
             <form onSubmit={sendCode} className="space-y-3">
               <TextInput
@@ -139,7 +139,7 @@ export function LoginPage() {
           </>
         ) : (
           <form onSubmit={verify} className="space-y-3">
-            <p className="text-sm text-slate-700 dark:text-slate-300">
+            <p className="text-sm text-stampa-700 dark:text-stampa-300">
               Ti abbiamo mandato un codice a <strong>{sentTo}</strong>. Scrivilo qui.
             </p>
             <TextInput
@@ -173,9 +173,9 @@ export function LoginPage() {
         )}
         <ErrorText>{error}</ErrorText>
       </Card>
-      <p className="mt-6 text-center text-xs text-slate-500 dark:text-slate-400">
+      <p className="mt-6 text-center text-xs text-stampa-500 dark:text-stampa-400">
         Un gioco privato tra amici.{' '}
-        <a href="./privacy.html" className="underline hover:text-slate-700 dark:hover:text-slate-200">
+        <a href="./privacy.html" className="underline hover:text-stampa-700 dark:hover:text-stampa-200">
           Informativa privacy
         </a>
       </p>

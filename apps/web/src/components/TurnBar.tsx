@@ -69,7 +69,7 @@ export function TurnBar({ leagueId, userId }: { leagueId: string; userId: string
     return !turn.data && !turn.error ? (
       <div
         aria-hidden="true"
-        className="mb-4 min-h-[3.75rem] rounded-xl border border-slate-200 bg-white dark:border-slate-700 dark:bg-slate-800"
+        className="mb-4 min-h-[3.75rem] border border-stampa-300 bg-stampa-25 dark:border-stampa-700 dark:bg-stampa-800"
       />
     ) : null;
   const warnings =
@@ -80,16 +80,16 @@ export function TurnBar({ leagueId, userId }: { leagueId: string; userId: string
         })
       : [];
   return (
-    <div className="mb-4 rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm shadow-sm dark:border-slate-700 dark:bg-slate-800">
+    <div className="mb-4 border border-stampa-900 bg-stampa-25 px-3 py-2 text-sm dark:border-stampa-600 dark:bg-stampa-800">
       {/* Su telefono il turno sta su una riga sua (larghezza minima), decisioni e Pronto sotto, a destra */}
       <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
         <Link
           to={`/lega/${leagueId}`}
-          className="flex min-h-11 min-w-[13rem] flex-1 items-center gap-2 font-semibold hover:underline"
+          className="flex min-h-11 min-w-[13rem] flex-1 items-center gap-2 font-titolo font-semibold tracking-wide uppercase hover:underline"
         >
           <span className="truncate">{view.title}</span>
           <span
-            className={`shrink-0 rounded-full px-2 py-0.5 text-xs font-semibold ${TONE[view.badge.tone]}`}
+            className={`shrink-0 px-2 py-0.5 text-xs font-semibold tracking-wider ${TONE[view.badge.tone]}`}
           >
             {view.badge.label}
           </span>
@@ -97,7 +97,7 @@ export function TurnBar({ leagueId, userId }: { leagueId: string; userId: string
         {view.decisions > 0 && (
           <Link
             to={`/lega/${leagueId}`}
-            className="inline-flex min-h-11 items-center rounded-lg bg-amber-100 px-3 text-xs font-semibold text-amber-900 hover:bg-amber-200 dark:bg-amber-900 dark:text-amber-100"
+            className="inline-flex min-h-11 items-center px-1 text-sm font-semibold text-rosso-700 italic underline underline-offset-4 dark:text-rosso-300"
           >
             {view.decisions === 1 ? '1 decisione' : `${view.decisions} decisioni`} →
           </Link>
@@ -110,10 +110,11 @@ export function TurnBar({ leagueId, userId }: { leagueId: string; userId: string
               if (view.action === 'ready' && warnings.length > 0) setAsking(true);
               else void toggle(view.action === 'ready');
             }}
-            className={`ml-auto inline-flex min-h-11 items-center rounded-lg px-4 text-sm font-semibold disabled:cursor-not-allowed ${
+            // Sono pronto è il pulsante rosso della pagina (stile Edicola: il rosso per l'azione principale)
+            className={`ml-auto inline-flex min-h-11 items-center rounded-sm px-4 font-titolo text-[0.95rem] font-semibold tracking-wider uppercase disabled:cursor-not-allowed ${
               view.action === 'ready'
-                ? 'bg-orange-600 text-white hover:bg-orange-700 disabled:bg-orange-300'
-                : 'border border-slate-300 text-slate-800 hover:bg-slate-50 disabled:text-slate-400 dark:border-slate-600 dark:text-slate-100 dark:hover:bg-slate-700'
+                ? 'bg-rosso-600 text-white hover:bg-rosso-700 disabled:bg-rosso-300 dark:bg-rosso-500 dark:hover:bg-rosso-600'
+                : 'border border-stampa-900 text-stampa-900 hover:bg-stampa-100 disabled:text-stampa-400 dark:border-stampa-100 dark:text-stampa-50 dark:hover:bg-stampa-700'
             }`}
           >
             {view.action === 'ready' ? 'Sono pronto' : 'Non più pronto'}
@@ -135,7 +136,7 @@ export function TurnBar({ leagueId, userId }: { leagueId: string; userId: string
         />
       )}
       {error && (
-        <p role="alert" className="mt-1 text-xs text-red-700 dark:text-red-300">
+        <p role="alert" className="mt-1 text-xs text-rosso-700 dark:text-rosso-300">
           {error}
         </p>
       )}

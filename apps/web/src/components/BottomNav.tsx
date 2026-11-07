@@ -1,6 +1,6 @@
 // Menu della lega in basso su telefono (sotto sm): quattro voci principali più "Altro", che apre le altre pagine
-// sopra la barra. Da sm in su resta il menu in alto (Layout). La barra tiene conto dell'area sicura in basso; la
-// barra Salva di Squadra e i messaggi in basso le stanno sopra (classe dock-above-nav in index.css).
+// sopra la barra. Da sm in su resta il menu in alto (Layout). La barra è staccata dai bordi e tiene conto delle aree
+// sicure; la barra Salva di Squadra e i messaggi in basso le stanno sopra (classe dock-above-nav in index.css).
 import { useEffect, useId, useRef, useState, type ReactNode } from 'react';
 import { Link, useLocation } from 'react-router';
 import { activeLink, LEAGUE_LINKS, leagueHref, MAIN_LINKS } from '../lib/leagueNav.ts';
@@ -33,10 +33,10 @@ function Icon({ name }: { name: string }) {
     <svg
       aria-hidden="true"
       viewBox="0 0 24 24"
-      className="size-6"
+      className="size-[1.375rem]"
       fill="none"
       stroke="currentColor"
-      strokeWidth="1.8"
+      strokeWidth="2"
       strokeLinecap="round"
       strokeLinejoin="round"
     >
@@ -45,11 +45,11 @@ function Icon({ name }: { name: string }) {
   );
 }
 
-const ITEM = 'flex min-h-14 flex-1 flex-col items-center justify-center gap-0.5 px-1 text-xs font-medium';
+// Barra scura staccata dai bordi, con la voce aperta in una pillola rossa (stile Edicola)
+const ITEM =
+  'flex min-h-14 flex-1 flex-col items-center justify-center gap-0.5 rounded-2xl px-1 font-titolo text-xs font-medium tracking-wider uppercase';
 const tone = (active: boolean) =>
-  active
-    ? 'text-orange-700 dark:text-orange-300'
-    : 'text-slate-600 hover:text-slate-900 dark:text-slate-300 dark:hover:text-white';
+  active ? 'bg-rosso-600 text-white dark:bg-rosso-500' : 'text-stampa-200 hover:text-stampa-50';
 
 export function BottomNav({ id }: { id: string }) {
   const { pathname } = useLocation();
@@ -83,7 +83,8 @@ export function BottomNav({ id }: { id: string }) {
       // Fondo pieno, senza backdrop-blur: un filtro renderebbe la barra il riferimento dei figli fixed (il velo che
       // chiude il pannello toccando fuori deve coprire tutto lo schermo). Con il pannello aperto la barra sta sopra
       // i messaggi in basso (z-40), che altrimenti coprirebbero le ultime voci
-      className={`fixed inset-x-0 bottom-0 ${open ? 'z-50' : 'z-20'} border-t border-slate-200 bg-white pr-[env(safe-area-inset-right)] pb-[env(safe-area-inset-bottom)] pl-[env(safe-area-inset-left)] sm:hidden dark:border-slate-700 dark:bg-slate-900`}
+      // Staccata di 0,75rem dai lati e 0,625rem dal fondo, più le aree sicure: alta 4,25rem (index.css ne tiene conto)
+      className={`fixed right-[calc(0.75rem+env(safe-area-inset-right))] bottom-[calc(0.625rem+env(safe-area-inset-bottom))] left-[calc(0.75rem+env(safe-area-inset-left))] ${open ? 'z-50' : 'z-20'} rounded-[1.375rem] bg-stampa-900 p-1.5 shadow-lg sm:hidden dark:bg-stampa-800 dark:ring-1 dark:ring-stampa-700`}
     >
       {open && (
         <>
@@ -91,7 +92,7 @@ export function BottomNav({ id }: { id: string }) {
           <div aria-hidden="true" className="fixed inset-0 -z-10" onClick={() => setOpen(false)} />
           <ul
             id={panelId}
-            className="absolute right-2 bottom-full mb-2 w-56 overflow-hidden rounded-xl border border-slate-200 bg-white py-1 shadow-lg dark:border-slate-700 dark:bg-slate-800"
+            className="absolute right-0 bottom-full mb-2 w-56 overflow-hidden border border-stampa-900 bg-stampa-25 py-1 shadow-lg dark:border-stampa-600 dark:bg-stampa-800"
           >
             {more.map((l, i) => (
               <li key={l.key}>
@@ -99,7 +100,7 @@ export function BottomNav({ id }: { id: string }) {
                   ref={i === 0 ? first : undefined}
                   to={leagueHref(id, l.to)}
                   aria-current={active === l.key ? 'page' : undefined}
-                  className={`flex min-h-11 items-center px-4 text-sm ${active === l.key ? 'font-semibold text-orange-700 dark:text-orange-300' : 'text-slate-700 hover:bg-slate-50 dark:text-slate-200 dark:hover:bg-slate-700'}`}
+                  className={`flex min-h-11 items-center px-4 font-titolo text-sm tracking-wider uppercase ${active === l.key ? 'font-semibold text-rosso-700 dark:text-rosso-300' : 'text-stampa-800 hover:bg-stampa-100 dark:text-stampa-100 dark:hover:bg-stampa-700'}`}
                 >
                   {l.label}
                 </Link>

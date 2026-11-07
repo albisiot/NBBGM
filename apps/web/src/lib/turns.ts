@@ -552,14 +552,18 @@ export const PHASE_LABEL: Record<RoundPhase, string> = {
 
 export type Tone = 'green' | 'sky' | 'amber' | 'slate' | 'orange' | 'red';
 
-/** Colori delle etichette di stato (barra del turno, elenco delle leghe), nel tema chiaro e scuro. */
+/**
+ * Colori delle etichette di stato (barra del turno, elenco delle leghe), nel tema chiaro e scuro. Stile Edicola:
+ * i nomi dei toni restano, i colori sono del giornale. green (aperto, pronto) è d'inchiostro, sky (allenatore) a
+ * filo, amber (da decidere) e red (bloccato) rossi, orange (in chiusura) rosa, slate neutro.
+ */
 export const TONE_CLASS: Record<Tone, string> = {
-  green: 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-100',
-  sky: 'bg-sky-100 text-sky-800 dark:bg-sky-900 dark:text-sky-100',
-  amber: 'bg-amber-100 text-amber-900 dark:bg-amber-900 dark:text-amber-100',
-  slate: 'bg-slate-100 text-slate-700 dark:bg-slate-700 dark:text-slate-200',
-  orange: 'bg-orange-100 text-orange-800 dark:bg-orange-900 dark:text-orange-100',
-  red: 'bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-100',
+  green: 'bg-stampa-900 text-stampa-25 dark:bg-stampa-100 dark:text-stampa-900',
+  sky: 'border border-stampa-900 text-stampa-900 dark:border-stampa-100 dark:text-stampa-100',
+  amber: 'bg-rosso-600 text-white dark:bg-rosso-500',
+  slate: 'bg-stampa-100 text-stampa-700 dark:bg-stampa-700 dark:text-stampa-200',
+  orange: 'bg-rosso-100 text-rosso-800 dark:bg-rosso-900 dark:text-rosso-100',
+  red: 'bg-rosso-700 text-white dark:bg-rosso-300 dark:text-stampa-900',
 };
 
 export const PHASE_TONE: Record<RoundPhase, Tone> = {

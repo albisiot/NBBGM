@@ -64,7 +64,7 @@ export function LiveGame({
       <div className="grid grid-cols-3 items-center gap-2">
         {score(away, frame.away, frame.away > frame.home)}
         <div className="text-center">
-          <p className="text-xs text-slate-500 dark:text-slate-400">
+          <p className="text-xs text-stampa-500 dark:text-stampa-400">
             {frame.finished ? 'Finale' : periodLabel(frame.period)}
           </p>
           <p className="font-mono text-2xl tabular-nums">{clock(frame.clock)}</p>
@@ -72,14 +72,14 @@ export function LiveGame({
         {score(home, frame.home, frame.home > frame.away)}
       </div>
       <div
-        className="h-1.5 overflow-hidden rounded-full bg-slate-200 dark:bg-slate-700"
+        className="h-1.5 overflow-hidden rounded-full bg-stampa-200 dark:bg-stampa-700"
         role="progressbar"
         aria-label="Avanzamento della partita"
         aria-valuemin={0}
         aria-valuemax={100}
         aria-valuenow={Math.round((t / total) * 100)}
       >
-        <div className="h-full bg-orange-500" style={{ width: `${(t / total) * 100}%` }} />
+        <div className="h-full bg-rosso-500" style={{ width: `${(t / total) * 100}%` }} />
       </div>
       <div className="flex flex-wrap items-center gap-2">
         <Button
@@ -111,22 +111,22 @@ export function LiveGame({
       <p role="status" className="sr-only">
         {frame.finished ? `Finale: ${away.code} ${frame.away}, ${home.code} ${frame.home}.` : ''}
       </p>
-      <ol className="divide-y divide-slate-100 text-sm dark:divide-slate-700">
+      <ol className="divide-y divide-stampa-100 text-sm dark:divide-stampa-700">
         {feed.length === 0 && (
-          <li className="py-1.5 text-slate-500 dark:text-slate-400">
+          <li className="py-1.5 text-stampa-500 dark:text-stampa-400">
             Tocca Avvia: la partita riparte dalla palla a due.
           </li>
         )}
         {feed.map((p, i) => (
           <li key={frame.shown - i} className="flex items-start gap-2 py-1.5">
-            <span className="w-14 shrink-0 font-mono text-xs text-slate-500 dark:text-slate-400">
+            <span className="w-14 shrink-0 font-mono text-xs text-stampa-500 dark:text-stampa-400">
               {p[0] <= 4 ? `${p[0]}q` : `S${p[0] - 4}`} {clock(p[1])}
             </span>
             <span className="w-11 shrink-0">
               {p[2] && <TeamCode code={p[2] === 'h' ? home.code : away.code} />}
             </span>
             <span className="min-w-0 flex-1">{p[3]}</span>
-            <span className="shrink-0 font-mono text-xs text-slate-600 dark:text-slate-300">
+            <span className="shrink-0 font-mono text-xs text-stampa-600 dark:text-stampa-300">
               {p[5]}-{p[4]}
             </span>
           </li>

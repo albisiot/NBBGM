@@ -82,7 +82,7 @@ import { useRoundChange } from '../lib/useRoundChange.ts';
 type Tab = 'svincolati' | 'scambi' | 'rinnovi' | 'bilancio';
 
 const SELECT =
-  'min-h-11 min-w-0 rounded-lg border border-slate-300 bg-white px-2 text-sm dark:border-slate-600 dark:bg-slate-800';
+  'min-h-11 min-w-0 rounded-lg border border-stampa-300 bg-stampa-25 px-2 text-sm dark:border-stampa-600 dark:bg-stampa-800';
 
 /** Dati del turno: rosa, svincolati, scelte, bilancio cambiano solo alla chiusura del turno. */
 interface MarketBase {
@@ -230,18 +230,18 @@ export function MarketPage() {
         ]}
       />
       {!regular && !offseason && tab !== 'bilancio' && (
-        <p className="text-sm text-slate-600 dark:text-slate-300">
+        <p className="text-sm text-stampa-600 dark:text-stampa-300">
           Durante play-in e playoff il mercato è chiuso (gli scambi si fermano dopo la giornata{' '}
           {TRADE_DEADLINE_TURN + 1} e riaprono nell’offseason).
         </p>
       )}
       {tab === 'svincolati' && !signing && (
-        <p className="text-sm text-slate-600 dark:text-slate-300">
+        <p className="text-sm text-stampa-600 dark:text-stampa-300">
           Gli svincolati si firmano in regular season e nei quattro turni di free agency dell’offseason.
         </p>
       )}
       {data.faRound !== null && (
-        <p className="text-sm text-slate-600 dark:text-slate-300">
+        <p className="text-sm text-stampa-600 dark:text-stampa-300">
           Free agency, turno {data.faRound + 1} di 4: anche i bot fanno le loro offerte, e le richieste
           scendono di turno in turno. Fino a 21 giocatori in rosa nell’offseason; contratti e cap sono già
           quelli della prossima stagione.
@@ -280,7 +280,7 @@ function FinanceSummary({ data }: { data: MarketData }) {
       <dl className="grid grid-cols-2 gap-3 text-sm sm:grid-cols-5">
         {items.map((i) => (
           <div key={i.label}>
-            <dt className="text-xs text-slate-500 dark:text-slate-400">{i.label}</dt>
+            <dt className="text-xs text-stampa-500 dark:text-stampa-400">{i.label}</dt>
             <dd className={`font-semibold ${i.warn ? 'text-red-600 dark:text-red-400' : ''}`}>{i.value}</dd>
           </div>
         ))}
@@ -339,13 +339,13 @@ function FreeAgents({ data, busy, run }: { data: MarketData; busy: boolean; run:
       {(pending.length > 0 || recent.length > 0) && (
         <Card className="space-y-2 !p-4">
           <h2 className="font-semibold">Le tue offerte</h2>
-          <ul className="divide-y divide-slate-100 text-sm dark:divide-slate-700">
+          <ul className="divide-y divide-stampa-100 text-sm dark:divide-stampa-700">
             {[...pending, ...recent].map((b) => (
               <li key={b.id} className="flex flex-wrap items-center justify-between gap-2 py-1.5">
                 <span>
                   <span className="font-medium">{name(b.playerId)}</span> · {b.salaries.length}{' '}
                   {b.salaries.length === 1 ? 'anno' : 'anni'}, {millions(b.salaries[0] ?? 0)} il primo
-                  <span className="block text-xs text-slate-500 dark:text-slate-400">
+                  <span className="block text-xs text-stampa-500 dark:text-stampa-400">
                     {BID_STATUS[b.status]}
                   </span>
                 </span>
@@ -367,7 +367,7 @@ function FreeAgents({ data, busy, run }: { data: MarketData; busy: boolean; run:
       <Card className="space-y-3 !p-4">
         <div className="flex flex-wrap items-center justify-between gap-2">
           <h2 className="font-semibold">Svincolati</h2>
-          <span className="text-xs text-slate-500 dark:text-slate-400">
+          <span className="text-xs text-stampa-500 dark:text-stampa-400">
             {filtered.length === rows.length
               ? `${rows.length} in tutto`
               : `${filtered.length} su ${rows.length}`}
@@ -378,7 +378,7 @@ function FreeAgents({ data, busy, run }: { data: MarketData; busy: boolean; run:
             type="search"
             aria-label="Cerca per nome"
             placeholder="Cerca per nome"
-            className="col-span-2 min-h-11 rounded-lg border border-slate-300 bg-white px-3 text-base sm:col-span-3 sm:text-sm dark:border-slate-600 dark:bg-slate-800"
+            className="col-span-2 min-h-11 rounded-lg border border-stampa-300 bg-stampa-25 px-3 text-base sm:col-span-3 sm:text-sm dark:border-stampa-600 dark:bg-stampa-800"
             value={query.name}
             onChange={(e) => change({ name: e.target.value })}
           />
@@ -441,17 +441,17 @@ function FreeAgents({ data, busy, run }: { data: MarketData; busy: boolean; run:
             </Button>
           )}
         </div>
-        <p className="text-xs text-slate-500 dark:text-slate-400">
+        <p className="text-xs text-stampa-500 dark:text-stampa-400">
           Offerte a busta chiusa: alla chiusura del turno ogni svincolato sceglie, tra le offerte sopra la sua
           richiesta, quella con il punteggio migliore (soldi, minuti attesi, forza della squadra). Sopra il
           cap si firma solo al minimo.
         </p>
         {list.length === 0 && (
-          <p className="text-sm text-slate-500 dark:text-slate-400">
+          <p className="text-sm text-stampa-500 dark:text-stampa-400">
             {rows.length === 0 ? 'Nessuno svincolato.' : 'Nessuno svincolato con questi filtri.'}
           </p>
         )}
-        <ul className="divide-y divide-slate-100 dark:divide-slate-700">
+        <ul className="divide-y divide-stampa-100 dark:divide-stampa-700">
           {list.map(({ p, ovr, ask }) => (
             <li key={p.id} className="py-2 text-sm">
               <div className="flex flex-wrap items-center gap-2">
@@ -461,7 +461,7 @@ function FreeAgents({ data, busy, run }: { data: MarketData; busy: boolean; run:
                   className="min-w-0 flex-1 truncate hover:underline"
                 >
                   {p.firstName} {p.lastName}
-                  <span className="ml-1 text-xs text-slate-500 dark:text-slate-400">
+                  <span className="ml-1 text-xs text-stampa-500 dark:text-stampa-400">
                     {p.role}
                     {p.secondaryRole ? `/${p.secondaryRole}` : ''} · {p.age} anni · pot. {p.scoutedPotential}
                     {skill &&
@@ -470,11 +470,11 @@ function FreeAgents({ data, busy, run }: { data: MarketData; busy: boolean; run:
                 </Link>
                 <Link
                   to={compareWith(data.league.id, p.id)}
-                  className="inline-flex min-h-11 items-center rounded-lg px-2 text-xs font-semibold text-orange-700 hover:bg-orange-50 dark:text-orange-300 dark:hover:bg-orange-950"
+                  className="inline-flex min-h-11 items-center rounded-lg px-2 text-xs font-semibold text-rosso-700 hover:bg-rosso-50 dark:text-rosso-300 dark:hover:bg-rosso-950"
                 >
                   Confronta
                 </Link>
-                <span className="text-xs text-slate-600 dark:text-slate-300">chiede {millions(ask)}</span>
+                <span className="text-xs text-stampa-600 dark:text-stampa-300">chiede {millions(ask)}</span>
                 <Button
                   variant="secondary"
                   disabled={busy}
@@ -523,7 +523,7 @@ function OfferForm({
   const run = first !== null ? salaryRunOf(first, years) : [];
   return (
     <form
-      className="mt-2 flex flex-wrap items-end gap-3 rounded-lg bg-slate-50 p-3 dark:bg-slate-900"
+      className="mt-2 flex flex-wrap items-end gap-3 rounded-lg bg-stampa-50 p-3 dark:bg-stampa-900"
       onSubmit={(e) => {
         e.preventDefault();
         if (first !== null) onSubmit(first, years);
@@ -533,7 +533,7 @@ function OfferForm({
         Primo anno (milioni)
         <input
           inputMode="decimal"
-          className="mt-1 block min-h-11 w-28 rounded-lg border border-slate-300 bg-white px-2 text-sm dark:border-slate-600 dark:bg-slate-800"
+          className="mt-1 block min-h-11 w-28 rounded-lg border border-stampa-300 bg-stampa-25 px-2 text-sm dark:border-stampa-600 dark:bg-stampa-800"
           value={salary}
           onChange={(e) => setSalary(e.target.value)}
         />
@@ -541,7 +541,7 @@ function OfferForm({
       <label className="text-xs">
         Anni
         <select
-          className="mt-1 block min-h-11 rounded-lg border border-slate-300 bg-white px-2 text-sm dark:border-slate-600 dark:bg-slate-800"
+          className="mt-1 block min-h-11 rounded-lg border border-stampa-300 bg-stampa-25 px-2 text-sm dark:border-stampa-600 dark:bg-stampa-800"
           value={years}
           onChange={(e) => setYears(Number(e.target.value))}
         >
@@ -552,7 +552,7 @@ function OfferForm({
           ))}
         </select>
       </label>
-      <p className="min-w-40 flex-1 text-xs text-slate-500 dark:text-slate-400">
+      <p className="min-w-40 flex-1 text-xs text-stampa-500 dark:text-stampa-400">
         {run.length ? `Totale ${millions(run.reduce((a, b) => a + b, 0))}, +5% l'anno.` : 'Cifra non valida.'}
       </p>
       <Button type="submit" disabled={busy || !run.length}>
@@ -690,7 +690,7 @@ function OfferList({
   return (
     <Card className="space-y-3 !p-4">
       <h2 className="font-semibold">{title}</h2>
-      {offers.length === 0 && <p className="text-sm text-slate-500 dark:text-slate-400">{empty}</p>}
+      {offers.length === 0 && <p className="text-sm text-stampa-500 dark:text-stampa-400">{empty}</p>}
       {offers.map((o) => {
         const mineFrom = o.fromTeamId === me;
         const other = teams.get(mineFrom ? o.toTeamId : o.fromTeamId);
@@ -713,18 +713,18 @@ function OfferList({
               ...o.picksFrom.map((k) => pickLabel(picks.get(k), teams, o.protections[k])),
             ];
         return (
-          <div key={o.id} className="rounded-lg border border-slate-200 p-3 text-sm dark:border-slate-700">
+          <div key={o.id} className="rounded-lg border border-stampa-200 p-3 text-sm dark:border-stampa-700">
             <p className="flex items-center gap-2 font-medium">
               <TeamCode code={other?.code ?? '?'} />
               {mineFrom ? `Proposta a ${other?.fullName}` : `Proposta da ${other?.fullName}`}
             </p>
             <div className="mt-2 grid gap-2 sm:grid-cols-2">
               <div>
-                <p className="text-xs text-slate-500 dark:text-slate-400">Cedi</p>
+                <p className="text-xs text-stampa-500 dark:text-stampa-400">Cedi</p>
                 <p>{give.join(', ') || 'niente'}</p>
               </div>
               <div>
-                <p className="text-xs text-slate-500 dark:text-slate-400">Ricevi</p>
+                <p className="text-xs text-stampa-500 dark:text-stampa-400">Ricevi</p>
                 <p>{get.join(', ') || 'niente'}</p>
               </div>
             </div>
@@ -740,7 +740,7 @@ function OfferList({
               </p>
             )}
             <div className="mt-2 flex flex-wrap items-center justify-between gap-2">
-              <span className="text-xs text-slate-500 dark:text-slate-400">
+              <span className="text-xs text-stampa-500 dark:text-stampa-400">
                 {TRADE_STATUS[o.status] ?? o.status}
               </span>
               <span className="flex gap-2">{actions(o)}</span>
@@ -880,7 +880,7 @@ function NewTrade({
         <h2 className="font-semibold">Nuova proposta</h2>
         <select
           aria-label="Squadra"
-          className="min-h-11 w-full rounded-lg border border-slate-300 bg-white px-2 text-sm sm:w-auto dark:border-slate-600 dark:bg-slate-800"
+          className="min-h-11 w-full rounded-lg border border-stampa-300 bg-stampa-25 px-2 text-sm sm:w-auto dark:border-stampa-600 dark:bg-stampa-800"
           value={partner}
           onChange={(e) => {
             setPartner(e.target.value);
@@ -896,7 +896,7 @@ function NewTrade({
         </select>
         {partner && (
           <>
-            <label className="flex items-center gap-2 text-xs text-slate-500 dark:text-slate-400">
+            <label className="flex items-center gap-2 text-xs text-stampa-500 dark:text-stampa-400">
               Ordina le rose per
               <select className={SELECT} value={sort} onChange={(e) => setSort(e.target.value as RosterSort)}>
                 <option value="overall">Overall</option>
@@ -936,7 +936,7 @@ function NewTrade({
               />
             </div>
             <div className="space-y-2">
-              <p className="text-xs text-slate-500 dark:text-slate-400">
+              <p className="text-xs text-stampa-500 dark:text-stampa-400">
                 Swap: il diritto di scambiare, dopo la lottery, la propria scelta con quella dell’altra
                 squadra.
               </p>
@@ -944,7 +944,7 @@ function NewTrade({
                 <div key={i} className="flex flex-wrap items-center gap-2 text-sm">
                   <select
                     aria-label="Chi ha il diritto"
-                    className="min-h-11 rounded-lg border border-slate-300 bg-white px-2 dark:border-slate-600 dark:bg-slate-800"
+                    className="min-h-11 rounded-lg border border-stampa-300 bg-stampa-25 px-2 dark:border-stampa-600 dark:bg-stampa-800"
                     value={w.holder}
                     onChange={(e) =>
                       setSwaps((s) =>
@@ -957,7 +957,7 @@ function NewTrade({
                   </select>
                   <select
                     aria-label="Draft"
-                    className="min-h-11 rounded-lg border border-slate-300 bg-white px-2 dark:border-slate-600 dark:bg-slate-800"
+                    className="min-h-11 rounded-lg border border-stampa-300 bg-stampa-25 px-2 dark:border-stampa-600 dark:bg-stampa-800"
                     value={w.draft_year}
                     onChange={(e) =>
                       setSwaps((s) =>
@@ -973,7 +973,7 @@ function NewTrade({
                   </select>
                   <select
                     aria-label="Giro"
-                    className="min-h-11 rounded-lg border border-slate-300 bg-white px-2 dark:border-slate-600 dark:bg-slate-800"
+                    className="min-h-11 rounded-lg border border-stampa-300 bg-stampa-25 px-2 dark:border-stampa-600 dark:bg-stampa-800"
                     value={w.round}
                     onChange={(e) =>
                       setSwaps((s) =>
@@ -1078,23 +1078,23 @@ function Side({
   );
   return (
     <div className="space-y-2">
-      <h3 className="text-xs font-semibold tracking-wide text-slate-500 uppercase dark:text-slate-400">
+      <h3 className="text-xs font-semibold tracking-wide text-stampa-500 uppercase dark:text-stampa-400">
         {title}
       </h3>
       <ul className="max-h-72 space-y-1 overflow-y-auto text-sm">
         {sorted.map((p) => (
           <li key={p.id}>
-            <label className="flex min-h-11 cursor-pointer items-center gap-2 rounded px-1 hover:bg-slate-50 dark:hover:bg-slate-900">
+            <label className="flex min-h-11 cursor-pointer items-center gap-2 rounded px-1 hover:bg-stampa-50 dark:hover:bg-stampa-900">
               <input
                 type="checkbox"
-                className="size-4 accent-orange-600"
+                className="size-4 accent-rosso-600"
                 checked={selected.has(p.id)}
                 onChange={() => onPlayer(p.id)}
               />
               <span className="w-7 text-center font-mono text-xs">{overall(p)}</span>
               <span className="min-w-0 flex-1 truncate">
                 {p.firstName} {p.lastName}
-                <span className="ml-1 text-xs text-slate-500 dark:text-slate-400">
+                <span className="ml-1 text-xs text-stampa-500 dark:text-stampa-400">
                   {p.role} · {p.age}
                 </span>
                 {onBlock?.has(p.id) && (
@@ -1106,7 +1106,7 @@ function Side({
                   </span>
                 )}
               </span>
-              <span className="shrink-0 text-xs text-slate-500 dark:text-slate-400">
+              <span className="shrink-0 text-xs text-stampa-500 dark:text-stampa-400">
                 {p.contractType === 'two-way'
                   ? 'two-way'
                   : p.salaries[0]
@@ -1126,7 +1126,7 @@ function Side({
               <label className="flex flex-1 cursor-pointer items-center gap-2">
                 <input
                   type="checkbox"
-                  className="size-4 accent-orange-600"
+                  className="size-4 accent-rosso-600"
                   checked={selectedPicks.has(k.id)}
                   onChange={() => onPick(k.id)}
                 />
@@ -1135,7 +1135,7 @@ function Side({
               {canProtect && selectedPicks.has(k.id) && (
                 <select
                   aria-label="Protezione"
-                  className="min-h-11 rounded border border-slate-300 bg-white px-1 text-xs dark:border-slate-600 dark:bg-slate-800"
+                  className="min-h-11 rounded border border-stampa-300 bg-stampa-25 px-1 text-xs dark:border-stampa-600 dark:bg-stampa-800"
                   value={protections?.[k.id] ?? 0}
                   onChange={(e) => onProtection(k.id, Number(e.target.value))}
                 >
@@ -1164,16 +1164,16 @@ function Ledger({ data }: { data: MarketData }) {
       <Card className="space-y-2 !p-4 text-sm">
         <h2 className="font-semibold">Stagione</h2>
         <dl className="grid grid-cols-2 gap-x-4 gap-y-1 sm:grid-cols-[auto_1fr]">
-          <dt className="text-slate-500 dark:text-slate-400">Ricavi della stagione</dt>
+          <dt className="text-stampa-500 dark:text-stampa-400">Ricavi della stagione</dt>
           <dd>{millions(config.revenue)} (uguali per tutti, giornata per giornata)</dd>
-          <dt className="text-slate-500 dark:text-slate-400">Salary cap</dt>
+          <dt className="text-stampa-500 dark:text-stampa-400">Salary cap</dt>
           <dd>{millions(config.salaryCap)}</dd>
-          <dt className="text-slate-500 dark:text-slate-400">Soglia della luxury tax</dt>
+          <dt className="text-stampa-500 dark:text-stampa-400">Soglia della luxury tax</dt>
           <dd>{millions(config.luxuryTax)}</dd>
-          <dt className="text-slate-500 dark:text-slate-400">Monte stipendi minimo</dt>
+          <dt className="text-stampa-500 dark:text-stampa-400">Monte stipendi minimo</dt>
           <dd>{millions(config.minimumTeamSalary)}</dd>
         </dl>
-        <p className="text-xs text-slate-500 dark:text-slate-400">
+        <p className="text-xs text-stampa-500 dark:text-stampa-400">
           Tassa e monte minimo si pagano a fine regular season, sul monte stipendi di quel momento
           {finance.repeater ? '; paghi le aliquote maggiorate (tassa in 3 delle ultime 4 stagioni)' : ''}.
         </p>
@@ -1197,14 +1197,16 @@ function Ledger({ data }: { data: MarketData }) {
       <Card className="space-y-2 !p-4">
         <h2 className="font-semibold">Movimenti</h2>
         {finance.ledger.length === 0 && (
-          <p className="text-sm text-slate-500 dark:text-slate-400">Nessun movimento ancora.</p>
+          <p className="text-sm text-stampa-500 dark:text-stampa-400">Nessun movimento ancora.</p>
         )}
-        <ul className="divide-y divide-slate-100 text-sm dark:divide-slate-700">
+        <ul className="divide-y divide-stampa-100 text-sm dark:divide-stampa-700">
           {finance.ledger.map((l, i) => (
             <li key={i} className="flex justify-between gap-2 py-1">
               <span>
                 {LEDGER_LABEL[l.kind] ?? l.kind}
-                {l.note && <span className="ml-1 text-xs text-slate-500 dark:text-slate-400">{l.note}</span>}
+                {l.note && (
+                  <span className="ml-1 text-xs text-stampa-500 dark:text-stampa-400">{l.note}</span>
+                )}
               </span>
               <span
                 className={`font-mono ${l.amount < 0 ? 'text-red-600 dark:text-red-400' : 'text-green-700 dark:text-green-400'}`}
@@ -1228,14 +1230,14 @@ function Renewals({ data, busy, run }: { data: MarketData; busy: boolean; run: R
   return (
     <Card className="space-y-3 !p-4">
       <h2 className="font-semibold">Giocatori in scadenza</h2>
-      <p className="text-xs text-slate-500 dark:text-slate-400">
+      <p className="text-xs text-stampa-500 dark:text-stampa-400">
         Le richieste sono ai prezzi della prossima stagione e dipendono da valore, età e morale. Con il morale
         sotto 30 il giocatore non rinnova. Alla chiusura del turno chi non hai rinnovato diventa svincolato.
       </p>
       {expiring.length === 0 && (
-        <p className="text-sm text-slate-500 dark:text-slate-400">Nessun giocatore in scadenza.</p>
+        <p className="text-sm text-stampa-500 dark:text-stampa-400">Nessun giocatore in scadenza.</p>
       )}
-      <ul className="divide-y divide-slate-100 text-sm dark:divide-slate-700">
+      <ul className="divide-y divide-stampa-100 text-sm dark:divide-stampa-700">
         {expiring.map((p) => {
           const ask = expiringAskOf(data.config, p);
           const request = data.requests.find((r) => r.playerId === p.id && r.kind === 'renew');
@@ -1247,11 +1249,11 @@ function Renewals({ data, busy, run }: { data: MarketData; busy: boolean; run: R
                 className="min-w-0 flex-1 truncate hover:underline"
               >
                 {p.firstName} {p.lastName}
-                <span className="ml-1 text-xs text-slate-500 dark:text-slate-400">
+                <span className="ml-1 text-xs text-stampa-500 dark:text-stampa-400">
                   {p.role} · {p.age} anni · morale {Math.round(p.morale)}
                 </span>
               </Link>
-              <span className="text-xs text-slate-600 dark:text-slate-300">
+              <span className="text-xs text-stampa-600 dark:text-stampa-300">
                 {ask ? `${ask.length} anni, ${millions(ask[0] ?? 0)} il primo` : 'non vuole rinnovare'}
               </span>
               {request ? (

@@ -30,7 +30,7 @@ const COLUMNS: { key: SortKey; label: string; title: string; pct?: boolean; int?
 const LIMIT = 100;
 
 // Colonna del nome fissa a sinistra quando la tabella scorre (su telefono): fondo della scheda sotto
-const STICKY = 'sticky left-0 bg-white pl-1 dark:bg-slate-800';
+const STICKY = 'sticky left-0 bg-stampa-25 pl-1 dark:bg-stampa-800';
 
 export function StatsPage() {
   const { id = '' } = useParams();
@@ -84,7 +84,7 @@ export function StatsPage() {
           <label className="flex items-center gap-2">
             Stagione
             <select
-              className="min-h-11 rounded-lg border border-slate-300 bg-white px-2 dark:border-slate-600 dark:bg-slate-800"
+              className="min-h-11 rounded-lg border border-stampa-300 bg-stampa-25 px-2 dark:border-stampa-600 dark:bg-stampa-800"
               value={data.year}
               onChange={(e) => setSearch({ stagione: e.target.value }, { replace: true })}
             >
@@ -100,7 +100,7 @@ export function StatsPage() {
         <label className="flex items-center gap-2">
           Squadra
           <select
-            className="min-h-11 rounded-lg border border-slate-300 bg-white px-2 dark:border-slate-600 dark:bg-slate-800"
+            className="min-h-11 rounded-lg border border-stampa-300 bg-stampa-25 px-2 dark:border-stampa-600 dark:bg-stampa-800"
             value={teamFilter}
             onChange={(e) => setTeamFilter(e.target.value)}
           >
@@ -119,7 +119,7 @@ export function StatsPage() {
           <label className="flex items-center gap-2">
             <input
               type="checkbox"
-              className="size-4 accent-orange-600"
+              className="size-4 accent-rosso-600"
               checked={minGames}
               onChange={(e) => setMinGames(e.target.checked)}
             />
@@ -129,13 +129,13 @@ export function StatsPage() {
       </div>
 
       {rows.length === 0 ? (
-        <p className="text-sm text-slate-500 dark:text-slate-400">Nessuna partita giocata.</p>
+        <p className="text-sm text-stampa-500 dark:text-stampa-400">Nessuna partita giocata.</p>
       ) : (
         <Card className="!p-4">
           <div className="overflow-x-auto">
             <table className="w-full min-w-[46rem] text-sm">
               <thead>
-                <tr className="border-b border-slate-200 text-xs text-slate-500 dark:border-slate-700 dark:text-slate-400">
+                <tr className="border-b border-stampa-200 text-xs text-stampa-500 dark:border-stampa-700 dark:text-stampa-400">
                   <th className={`${STICKY} py-1 pr-2 text-left font-medium`}>
                     <span className="inline-block w-6">#</span>Giocatore
                   </th>
@@ -145,7 +145,7 @@ export function StatsPage() {
                         type="button"
                         title={c.title}
                         onClick={() => setSort(c.key)}
-                        className={`min-h-11 min-w-11 rounded px-1 ${sort === c.key ? 'font-bold text-orange-700 dark:text-orange-300' : 'hover:text-slate-900 dark:hover:text-white'}`}
+                        className={`min-h-11 min-w-11 rounded px-1 ${sort === c.key ? 'font-bold text-rosso-700 dark:text-rosso-300' : 'hover:text-stampa-900 dark:hover:text-white'}`}
                       >
                         {c.label}
                         {sort === c.key ? ' ↓' : ''}
@@ -170,7 +170,7 @@ export function StatsPage() {
             </table>
           </div>
           {rows.length > LIMIT && (
-            <p className="mt-2 text-xs text-slate-500 dark:text-slate-400">
+            <p className="mt-2 text-xs text-stampa-500 dark:text-stampa-400">
               I primi {LIMIT} su {rows.length}.
             </p>
           )}
@@ -196,16 +196,18 @@ function Row({
   sort: SortKey;
 }) {
   return (
-    <tr className={`border-b border-slate-100 dark:border-slate-700/60 ${mine ? 'font-semibold' : ''}`}>
+    <tr className={`border-b border-stampa-100 dark:border-stampa-700/60 ${mine ? 'font-semibold' : ''}`}>
       <td className={`${STICKY} max-w-[13rem] truncate py-1 pr-2 sm:max-w-64`}>
         <span className="flex items-center gap-2">
-          <span className="w-4 shrink-0 text-xs font-normal text-slate-500 dark:text-slate-400">{rank}</span>
+          <span className="w-4 shrink-0 text-xs font-normal text-stampa-500 dark:text-stampa-400">
+            {rank}
+          </span>
           <TeamCode code={code ?? 'SV'} strong={mine} />
           <Link to={`/lega/${leagueId}/giocatore/${p.id}`} className="truncate hover:underline">
             {p.name}
           </Link>
           {/* Su telefono il ruolo lascia spazio al nome: si vede nella scheda del giocatore */}
-          <span className="hidden text-xs text-slate-500 sm:inline dark:text-slate-400">{p.role}</span>
+          <span className="hidden text-xs text-stampa-500 sm:inline dark:text-stampa-400">{p.role}</span>
         </span>
       </td>
       {COLUMNS.map((c) => {

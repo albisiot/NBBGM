@@ -22,7 +22,7 @@ export function SharePreview({
 }) {
   const canShare = typeof navigator.share === 'function';
   return (
-    <div className="space-y-2 rounded-lg border border-slate-200 p-3 dark:border-slate-700">
+    <div className="space-y-2 rounded-lg border border-stampa-200 p-3 dark:border-stampa-700">
       <pre className="font-sans text-sm break-words whitespace-pre-wrap">{text}</pre>
       <div className="flex flex-wrap gap-2">
         {canShare && <Button onClick={() => void shareText(text, title).then(onResult)}>Condividi</Button>}

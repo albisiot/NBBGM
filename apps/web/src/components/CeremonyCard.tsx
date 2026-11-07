@@ -48,20 +48,20 @@ export function CeremonyCard({
   const owner = data.champion.ownerId;
 
   return (
-    <Card className="space-y-4 border-amber-300 bg-gradient-to-b from-amber-50 to-white dark:border-amber-700 dark:from-amber-950 dark:to-slate-800">
+    <Card className="space-y-4 border-2 border-stampa-900 dark:border-stampa-100">
       <div className="text-center">
         <p className="text-4xl" aria-hidden="true">
           🏆
         </p>
-        <p className="text-sm text-slate-600 dark:text-slate-300">Stagione {seasonLabel(data.year)}</p>
+        <p className="text-sm text-stampa-600 dark:text-stampa-300">Stagione {seasonLabel(data.year)}</p>
         <h2 className="text-2xl font-bold">{data.champion.fullName} campioni</h2>
         {data.finalist && (
-          <p className="text-sm text-slate-600 dark:text-slate-300">
+          <p className="text-sm text-stampa-600 dark:text-stampa-300">
             Finale vinta {data.wins[0]}-{data.wins[1]} su {data.finalist.fullName}
           </p>
         )}
         {owner && (
-          <p className="mt-1 text-sm font-semibold text-amber-800 dark:text-amber-200">
+          <p className="mt-1 text-sm font-semibold text-rosso-700 dark:text-rosso-300">
             {owner === userId
               ? 'Il titolo è tuo: complimenti!'
               : `Campioni con ${data.champion.ownerName ?? 'il loro manager'}`}
@@ -72,9 +72,9 @@ export function CeremonyCard({
         {data.awards.map((a) => (
           <li
             key={a.key}
-            className={`rounded-lg border border-slate-200 bg-white p-3 dark:border-slate-700 dark:bg-slate-800 ${a.key === 'finals' ? 'sm:col-span-2' : ''}`}
+            className={`rounded-lg border border-stampa-200 bg-stampa-25 p-3 dark:border-stampa-700 dark:bg-stampa-800 ${a.key === 'finals' ? 'sm:col-span-2' : ''}`}
           >
-            <p className="text-xs font-semibold tracking-wide text-amber-800 uppercase dark:text-amber-200">
+            <p className="text-xs font-semibold tracking-wide text-rosso-700 uppercase dark:text-rosso-300">
               {a.label}
             </p>
             <p className="flex items-center gap-2 font-semibold">
@@ -83,11 +83,11 @@ export function CeremonyCard({
                 {a.name}
               </Link>
             </p>
-            <p className="text-xs text-slate-600 dark:text-slate-300">{a.note}</p>
+            <p className="text-xs text-stampa-600 dark:text-stampa-300">{a.note}</p>
           </li>
         ))}
       </ul>
-      <details className="text-xs text-slate-600 dark:text-slate-300">
+      <details className="text-xs text-stampa-600 dark:text-stampa-300">
         <summary className="min-h-11 cursor-pointer content-center font-semibold">Come si calcolano</summary>
         <ul className="list-disc space-y-1 pl-5">
           <li>MVP delle Finali: {FINALS_MVP_FORMULA.toLowerCase()}.</li>
@@ -114,7 +114,7 @@ export function CeremonyCard({
           {!inHistory && (
             <Link
               to={`/lega/${league.id}/storico?stagione=${data.year}`}
-              className="inline-flex min-h-11 items-center rounded-lg border border-slate-300 px-4 text-sm font-semibold hover:bg-slate-50 dark:border-slate-600 dark:hover:bg-slate-700"
+              className="inline-flex min-h-11 items-center rounded-lg border border-stampa-300 px-4 text-sm font-semibold hover:bg-stampa-50 dark:border-stampa-600 dark:hover:bg-stampa-700"
             >
               Storico
             </Link>

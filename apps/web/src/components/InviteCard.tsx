@@ -10,12 +10,12 @@ export function InviteCard({ league }: { league: Pick<LeagueDetail, 'inviteCode'
     <Card className="space-y-2">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
-          <p className="text-sm text-slate-500 dark:text-slate-400">Codice invito</p>
+          <p className="text-sm text-stampa-500 dark:text-stampa-400">Codice invito</p>
           <p className="font-mono text-2xl font-bold tracking-widest">{league.inviteCode}</p>
         </div>
         <InviteButtons code={league.inviteCode} name={league.name} />
       </div>
-      <p className="text-xs text-slate-500 dark:text-slate-400">
+      <p className="text-xs text-stampa-500 dark:text-stampa-400">
         {humans === 1 ? '1 manager umano' : `${humans} manager umani`} · {30 - humans} squadre guidate dai bot
       </p>
     </Card>

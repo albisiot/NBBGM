@@ -53,7 +53,7 @@ export function ProfilePage() {
       </Card>
       <PushSettings userId={userId} />
       <p className="text-sm">
-        <Link to="/guida" className="font-semibold text-orange-700 hover:underline dark:text-orange-300">
+        <Link to="/guida" className="font-semibold text-rosso-700 hover:underline dark:text-rosso-300">
           Come si gioca
         </Link>
       </p>

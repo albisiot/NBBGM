@@ -83,7 +83,7 @@ export function LeaguePage() {
       {/* Il draft iniziale finché non è finito; dopo si rivede da Info lega */}
       {league.draftState && league.draftState !== 'done' && (
         <Card className="space-y-2">
-          <p className="text-sm text-slate-500 dark:text-slate-400">
+          <p className="text-sm text-stampa-500 dark:text-stampa-400">
             Draft iniziale · {league.draftMode === 'live' ? 'dal vivo' : 'modalità lista'}
           </p>
           <p className="text-lg font-semibold">
@@ -91,17 +91,17 @@ export function LeaguePage() {
           </p>
           <Link
             to={`/lega/${league.id}/draft`}
-            className="inline-flex min-h-11 items-center rounded-lg bg-orange-600 px-4 text-sm font-semibold text-white hover:bg-orange-700"
+            className="inline-flex min-h-11 items-center rounded-lg bg-rosso-600 px-4 text-sm font-semibold text-white hover:bg-rosso-700"
           >
             Vai al draft
           </Link>
         </Card>
       )}
 
-      <p className="text-sm text-slate-600 dark:text-slate-300">
+      <p className="text-sm text-stampa-600 dark:text-stampa-300">
         <Link
           to={`/lega/${league.id}/info`}
-          className="font-semibold text-orange-700 hover:underline dark:text-orange-300"
+          className="font-semibold text-rosso-700 hover:underline dark:text-rosso-300"
         >
           Info lega
         </Link>
