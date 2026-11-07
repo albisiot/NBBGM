@@ -14,6 +14,7 @@ import {
   MAX_ROUND_ATTEMPTS,
   MEMBER_REOPEN_HOURS,
   memberReopenAt,
+  PAUSED_NOTE,
   PHASE_LABEL,
   readiness,
   readinessNote,
@@ -266,6 +267,9 @@ export function TurnCard({
           <p className="text-sm text-orange-700 dark:text-orange-300">
             Il commissario ha forzato l’avanzamento.
           </p>
+        )}
+        {open && status.paused && !stuck && (
+          <p className="text-sm text-slate-600 dark:text-slate-300">{PAUSED_NOTE}</p>
         )}
         {stuck && (
           <StuckRound

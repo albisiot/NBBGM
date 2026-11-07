@@ -13,15 +13,18 @@ export interface SwapInfo {
 
 /**
  * Swap ancora da decidere (dopo la lottery dell'anno si sa chi ha preso cosa); con teamId solo quelli in cui c'è la
- * squadra.
+ * squadra (o una delle squadre: la proposta di scambio vuole quelli delle due parti, perché una scelta non entra in
+ * due swap).
  */
-export async function openSwaps(leagueId: string, teamId?: string): Promise<SwapInfo[]> {
+export async function openSwaps(leagueId: string, teamId?: string | readonly string[]): Promise<SwapInfo[]> {
   let query = supabase
     .from('draft_swaps')
     .select('id, draft_year, round, holder_team_id, other_team_id')
     .eq('league_id', leagueId)
     .is('result', null);
-  if (teamId) query = query.or(involving(teamId, ['holder_team_id', 'other_team_id']));
+  const teams = teamId === undefined ? [] : typeof teamId === 'string' ? [teamId] : teamId;
+  if (teams.length)
+    query = query.or(teams.map((t) => involving(t, ['holder_team_id', 'other_team_id'])).join(','));
   const { data, error } = await query.order('draft_year').order('round');
   if (error) throw error;
   return (

@@ -212,6 +212,46 @@ export const DEFAULT_SETTINGS: LeagueSettings = {
   rookie_source: 'generated',
 };
 
+/**
+ * Scadenza dei turni e ritmo massimo più brevi ammessi (le scelte più brevi dell'app). Li controllano anche i
+ * vincoli di leagues (terza analisi): con una scadenza di un minuto, o il ritmo a 0, una lega giocava 1.440 turni al
+ * giorno, con circa 145 MB di database e 1.440 chiamate ad advance-turn.
+ */
+export const MIN_DEADLINE_MINUTES = 15;
+export const MIN_PACE_SECONDS = 60;
+
+export class SettingsError extends Error {}
+
+/** Impostazioni della lega dalla richiesta di create-league, con i controlli dei valori ammessi. */
+export function readSettings(raw: unknown): LeagueSettings & { pick_seconds: number } {
+  const s = {
+    ...DEFAULT_SETTINGS,
+    pick_seconds: 60,
+    ...(typeof raw === 'object' && raw !== null ? raw : {}),
+  } as LeagueSettings & { pick_seconds: number };
+  if (
+    s.deadline_minutes !== null &&
+    !(Number.isInteger(s.deadline_minutes) && s.deadline_minutes >= MIN_DEADLINE_MINUTES)
+  )
+    throw new SettingsError(`La scadenza dei turni è di almeno ${MIN_DEADLINE_MINUTES} minuti`);
+  if (!(Number.isInteger(s.max_pace_seconds) && s.max_pace_seconds >= MIN_PACE_SECONDS))
+    throw new SettingsError('Il ritmo massimo è di al più un turno al minuto');
+  if (!['real', 'draft'].includes(s.roster_mode)) throw new SettingsError('Rose iniziali non valide');
+  if (!(Number.isInteger(s.pick_seconds) && s.pick_seconds >= 10 && s.pick_seconds <= 600))
+    throw new SettingsError('Tempo per scelta non valido');
+  if (!['list', 'live'].includes(s.draft_mode)) throw new SettingsError('Modalità del draft non valida');
+  if (!['generated', 'real'].includes(s.rookie_source))
+    throw new SettingsError('Origine dei rookie non valida');
+  return {
+    deadline_minutes: s.deadline_minutes,
+    max_pace_seconds: s.max_pace_seconds,
+    roster_mode: s.roster_mode,
+    draft_mode: s.draft_mode,
+    rookie_source: s.rookie_source,
+    pick_seconds: s.pick_seconds,
+  };
+}
+
 export interface LeaguePayloadOptions {
   /** Id per chiave (league, season:2026, team:BOS, player:<slug>...): usa keyedIds. */
   id: (key: string) => string;

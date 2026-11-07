@@ -187,14 +187,27 @@ export function runAnnualDraft(state: LeagueState, lists: ReadonlyMap<string, re
   const year = state.config.year;
   const rng = new Rng(`${state.seed}:draft:${off.draftYear}`);
   const next = nextConfig(state.config);
+  // Le liste ridotte una volta per squadra ai soli prospetti, senza doppioni e nello stesso ordine: il primo
+  // disponibile resta lo stesso, ma una lista lunghissima non si scorre più a ogni chiamata (terza analisi)
+  const prospectIds = new Set(state.players.filter((p) => p.prospect === off.draftYear).map((p) => p.id));
+  const shortLists = new Map<string, string[]>();
+  const shortList = (teamId: string): string[] => {
+    let list = shortLists.get(teamId);
+    if (!list) {
+      list = [...new Set(lists.get(teamId) ?? [])].filter((id) => prospectIds.has(id));
+      shortLists.set(teamId, list);
+    }
+    return list;
+  };
   for (const slot of off.slots) {
     if (slot.playerId) continue;
     const available = state.players.filter((p) => p.prospect === off.draftYear);
     if (!available.length) break;
     const team = state.teams.find((t) => t.id === slot.ownerId);
-    const list = team?.human ? (lists.get(slot.ownerId) ?? []) : [];
+    const list = team?.human ? shortList(slot.ownerId) : [];
+    const byId = new Map(available.map((p) => [p.id, p]));
     const choice =
-      list.map((id) => available.find((p) => p.id === id)).find((p) => p !== undefined) ??
+      list.map((id) => byId.get(id)).find((p) => p !== undefined) ??
       botDraftChoice(state, slot.ownerId, available, rng);
     choice.prospect = null;
     slot.playerId = choice.id;

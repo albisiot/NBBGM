@@ -399,6 +399,90 @@ describe('tagli, rinnovi e svincolati', () => {
   });
 });
 
+describe('proposte con elementi ripetuti o di forma sbagliata (terza analisi)', () => {
+  it('la funzione market le rifiuta prima di scrivere, con un messaggio per il manager', async () => {
+    const [a] = await standard(BOS);
+    const [c] = await standard(LAL);
+    const [second] = await q<{ id: string }>(
+      `select id from public.draft_picks where original_team_id = $1 and round = 2 and position is null
+       order by draft_year limit 1`,
+      [BOS],
+    );
+    const count = async () =>
+      (await q<{ n: number }>('select count(*)::int as n from public.trade_offers'))[0]!.n;
+    const before = await count();
+    const propose = (rest: Record<string, unknown>) =>
+      act(ANNA, { kind: 'propose_trade', to_team_id: LAL, ...rest } as MarketAction);
+    await expect(propose({ players_from: [a!.id, a!.id], players_to: [c!.id] })).rejects.toThrow(
+      'Un giocatore compare più di una volta nello scambio',
+    );
+    await expect(propose({ picks_from: [second!.id, second!.id] })).rejects.toThrow(
+      'Una scelta compare più di una volta nello scambio',
+    );
+    await expect(propose({ picks_from: Array.from({ length: 40 }, () => second!.id) })).rejects.toThrow(
+      'Troppi elementi nello scambio',
+    );
+    for (const swaps of [
+      [{ draft_year: 2028.5, round: 1, holder: 'from' }],
+      [{ draft_year: Number.NaN, round: 1, holder: 'from' }],
+      [{ draft_year: '2028', round: 1, holder: 'from' }],
+      [{ draft_year: 2028, round: 1, holder: 'tutti' }],
+      'tutti',
+    ])
+      await expect(propose({ players_from: [a!.id], swaps })).rejects.toThrow('Proposta non valida: swap');
+    await expect(propose({ players_from: ['non-un-uuid'] })).rejects.toThrow(
+      'Proposta non valida: giocatori ceduti',
+    );
+    await expect(propose({ players_from: [a!.id], picks_to: 'tutte' })).rejects.toThrow(
+      'Proposta non valida: scelte richieste',
+    );
+    await expect(propose({ players_from: [a!.id], protections: [10] })).rejects.toThrow(
+      'Proposta non valida: protezioni',
+    );
+    await expect(act(ANNA, { kind: 'withdraw_trade', offer_id: 'x' })).rejects.toThrow('non trovata');
+    await expect(act(ANNA, { kind: 'withdraw_bid', bid_id: '1' })).rejects.toThrow('non trovata');
+    expect(await count()).toBe(before);
+  });
+
+  it('le proposte salvate prima con doppioni o swap non interi saltano alla chiusura senza fermare il turno', async () => {
+    const [a] = await standard(BOS);
+    const [c] = await standard(LAL);
+    const round = (
+      await q<{ id: string }>('select current_round_id as id from public.leagues where id = $1', [LEAGUE])
+    )[0]!.id;
+    const insert = async (rest: string, values: unknown[]) =>
+      (
+        await q<{ id: string }>(
+          `insert into public.trade_offers (league_id, from_team_id, to_team_id, status, created_round_id, ${rest})
+           values ($1, $2, $3, 'accepted', $4, ${values.map((_, i) => `$${i + 5}`).join(', ')}) returning id`,
+          [LEAGUE, BOS, LAL, round, ...values],
+        )
+      )[0]!.id;
+    const doubled = await insert('players_from, players_to', [[a!.id, a!.id], [c!.id]]);
+    const swap = await insert('swaps', [
+      JSON.stringify([{ draft_year: 2028.5, round: 1, holder_team_id: BOS, other_team_id: LAL }]),
+    ]);
+    await nextTurn();
+    const status = await q<{ id: string; status: string }>(
+      'select id, status from public.trade_offers where id = any($1)',
+      [[doubled, swap]],
+    );
+    expect(Object.fromEntries(status.map((s) => [s.id, s.status]))).toEqual({
+      [doubled]: 'void',
+      [swap]: 'void',
+    });
+    const teamOf = (
+      await q<{ team_id: string }>('select team_id from public.players where id = $1', [a!.id])
+    )[0];
+    expect(teamOf!.team_id).toBe(BOS);
+    const swaps = await q<{ n: number }>(
+      'select count(*)::int as n from public.draft_swaps where league_id = $1',
+      [LEAGUE],
+    );
+    expect(swaps[0]!.n).toBe(0);
+  });
+});
+
 describe('stagione intera', () => {
   it('con le proposte dei bot, il saldo di fine stagione è la somma dei movimenti', async () => {
     let proposals = 0;

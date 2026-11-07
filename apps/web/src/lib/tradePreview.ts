@@ -92,7 +92,7 @@ export interface PreviewInput {
   partner: PreviewTeam;
   /** Scelte future della lega (per la regola Stepien servono tutte quelle delle due squadre). */
   picks: readonly PickInfo[];
-  /** Swap ancora aperti che riguardano la propria squadra. */
+  /** Swap ancora aperti che riguardano le due squadre. */
   swaps: readonly SwapInfo[];
   sel: TradeSelection;
 }
@@ -164,7 +164,7 @@ function miniState(input: PreviewInput): LeagueState {
       originalTeamId: teamCode(k.originalTeamId),
       ownerId: teamCode(k.ownerTeamId),
       protection: k.protection,
-      deferrals: 0,
+      deferrals: k.deferrals ?? 0,
     })),
     swaps: input.swaps.map((w) => ({
       id: w.id,

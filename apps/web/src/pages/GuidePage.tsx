@@ -8,6 +8,7 @@ const SECTIONS: { title: string; text: string[] }[] = [
     text: [
       'La lega avanza a turni: in regular season un turno è una giornata, una partita per squadra. Poi play-in, playoff e un’offseason di 7 turni (draft, rinnovi, quattro turni di free agency, preparazione).',
       'Il turno si gioca quando tutti i manager sono pronti, oppure alla scadenza se il commissario ne ha impostata una, oppure quando il commissario lo forza.',
+      'Se per 3 turni di fila la scadenza arriva senza che nessun manager faccia niente, la lega si mette in pausa da sola: la riprende il commissario, o il primo che preme Sono pronto.',
     ],
   },
   {

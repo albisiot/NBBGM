@@ -7,14 +7,14 @@ import { createClient } from 'npm:@supabase/supabase-js@2.118.0';
 import { createLeagueState, TEAMS } from '../../../packages/engine/src/index.ts';
 import {
   BASE_DATASET,
-  DEFAULT_SETTINGS,
   keyedIds,
   LEAGUE_LIMIT_MESSAGE,
   leagueFromBaseRows,
   leaguePayload,
   MAX_LEAGUES_PER_USER,
+  readSettings,
+  SettingsError,
   type BaseRows,
-  type LeagueSettings,
 } from '../_shared/league.ts';
 
 const CORS = {
@@ -46,33 +46,6 @@ function serverKey(): string {
   return key;
 }
 
-/** Impostazioni della lega dalla richiesta, con i controlli dei valori ammessi. */
-function readSettings(raw: unknown): LeagueSettings & { pick_seconds: number } {
-  const s = {
-    ...DEFAULT_SETTINGS,
-    pick_seconds: 60,
-    ...(typeof raw === 'object' && raw !== null ? raw : {}),
-  } as LeagueSettings & { pick_seconds: number };
-  if (s.deadline_minutes !== null && !(Number.isInteger(s.deadline_minutes) && s.deadline_minutes > 0))
-    throw new RequestError('Scadenza dei turni non valida');
-  if (!(Number.isInteger(s.max_pace_seconds) && s.max_pace_seconds >= 0))
-    throw new RequestError('Ritmo massimo non valido');
-  if (!['real', 'draft'].includes(s.roster_mode)) throw new RequestError('Rose iniziali non valide');
-  if (!(Number.isInteger(s.pick_seconds) && s.pick_seconds >= 10 && s.pick_seconds <= 600))
-    throw new RequestError('Tempo per scelta non valido');
-  if (!['list', 'live'].includes(s.draft_mode)) throw new RequestError('Modalità del draft non valida');
-  if (!['generated', 'real'].includes(s.rookie_source))
-    throw new RequestError('Origine dei rookie non valida');
-  return {
-    deadline_minutes: s.deadline_minutes,
-    max_pace_seconds: s.max_pace_seconds,
-    roster_mode: s.roster_mode,
-    draft_mode: s.draft_mode,
-    rookie_source: s.rookie_source,
-    pick_seconds: s.pick_seconds,
-  };
-}
-
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: CORS });
   try {
@@ -97,7 +70,12 @@ Deno.serve(async (req) => {
       throw new RequestError('Il nome della lega va da 1 a 60 caratteri');
     const team = typeof body?.team === 'string' ? body.team.toUpperCase() : '';
     if (!TEAMS.some((t) => t.id === team)) throw new RequestError('Squadra non valida');
-    const settings = readSettings(body?.settings);
+    let settings: ReturnType<typeof readSettings>;
+    try {
+      settings = readSettings(body?.settings);
+    } catch (e) {
+      throw e instanceof SettingsError ? new RequestError(e.message) : e;
+    }
 
     // Il limite lo ricontrolla il database (trigger su leagues): qui si evita di preparare la lega per niente
     const { count, error: countError } = await admin

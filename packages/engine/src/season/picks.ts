@@ -62,6 +62,81 @@ export function violatesStepien(picks: readonly DraftPick[], teamId: string, nex
   return stepienGaps(picks, teamId, nextDraftYear).length > 0;
 }
 
+type SwapKey = Pick<DraftSwap, 'draftYear' | 'round' | 'holderId' | 'otherId'>;
+
+/** Lo swap riguarda la scelta propria della squadra per quel draft e giro? Ogni swap tocca le due scelte proprie. */
+export function swapTouches(swap: SwapKey, draftYear: number, round: number, teamId: string): boolean {
+  return (
+    swap.draftYear === draftYear &&
+    swap.round === round &&
+    (swap.holderId === teamId || swap.otherId === teamId)
+  );
+}
+
+/** La propria scelta della squadra per quel draft e giro, se esiste ancora (di chiunque sia). */
+export function ownPick(
+  picks: readonly DraftPick[],
+  teamId: string,
+  draftYear: number,
+  round: number,
+): DraftPick | undefined {
+  return picks.find((p) => p.draftYear === draftYear && p.round === round && p.originalTeamId === teamId);
+}
+
+/**
+ * Lo swap si può ancora fare: le due squadre possiedono la propria scelta di quel draft e giro. Al draft
+ * (resolveDraft) uno swap che non lo è più decade; per i bot vale 0 (swapValue).
+ */
+export function swapLive(picks: readonly DraftPick[], swap: SwapKey): boolean {
+  return [swap.holderId, swap.otherId].every(
+    (team) => ownPick(picks, team, swap.draftYear, swap.round)?.ownerId === team,
+  );
+}
+
+/**
+ * La scelta è legata a uno swap aperto: è la scelta propria di una delle due squadre, ancora in mano sua. Finché lo
+ * swap è aperto non si cede (validateTrade).
+ */
+export function pickInSwap(swaps: readonly SwapKey[], pick: DraftPick): boolean {
+  return (
+    pick.ownerId === pick.originalTeamId &&
+    swaps.some((w) => swapTouches(w, pick.draftYear, pick.round, pick.originalTeamId))
+  );
+}
+
+/**
+ * Draft in cui la prima scelta propria della squadra può passare a un'altra squadra per il rinvio di una scelta
+ * protetta (resolveDraft): una prima scelta protetta in mano ad altri che cade nella fascia passa l'obbligo alla
+ * prima scelta dell'anno dopo, se è ancora della squadra, e così via fino a MAX_DEFERRALS rinvii. Uno swap su una di
+ * queste scelte potrebbe decadere senza colpa di chi l'ha comprato: validateTrade non lo permette.
+ */
+export function deferralYears(picks: readonly DraftPick[], teamId: string): Set<number> {
+  const own = new Map(
+    picks.filter((p) => p.round === 1 && p.originalTeamId === teamId).map((p) => [p.draftYear, p]),
+  );
+  const out = new Set<number>();
+  if (!own.size) return out;
+  const years = [...own.keys()];
+  // Rinvii già fatti dall'obbligo che potrebbe arrivare in questo draft dall'anno prima (null: nessuno)
+  let incoming: number | null = null;
+  for (let y = Math.min(...years); y <= Math.max(...years); y++) {
+    const p = own.get(y);
+    if (!p) {
+      incoming = null;
+      continue;
+    }
+    let deferrals: number | null = null;
+    if (incoming !== null && p.ownerId === teamId) {
+      out.add(y);
+      deferrals = incoming;
+    }
+    if (p.ownerId !== teamId && p.protection !== null)
+      deferrals = deferrals === null ? p.deferrals : Math.min(deferrals, p.deferrals);
+    incoming = deferrals !== null && deferrals < MAX_DEFERRALS ? deferrals + 1 : null;
+  }
+  return out;
+}
+
 export interface DraftSlot {
   round: 1 | 2;
   /** Posizione nel giro, da 1. */
@@ -141,12 +216,21 @@ export function resolveDraft(
     }
   }
 
-  // Swap: chi ha il diritto prende la migliore delle due, se possiede ancora la propria e l'altra squadra la sua
+  // Swap: chi ha il diritto prende la migliore delle due, se possiede ancora la propria e l'altra squadra la sua.
+  // Altrimenti decade, con una nota: dalla terza analisi uno swap nuovo non si vende su una scelta che non si ha o
+  // che è già in un altro swap, ma quelli salvati prima possono esserlo (vale il primo che si fa)
   for (const swap of swaps.filter((s) => s.draftYear === draftYear)) {
     const a = slots.find((s) => s.round === swap.round && s.originalTeamId === swap.holderId);
     const b = slots.find((s) => s.round === swap.round && s.originalTeamId === swap.otherId);
     if (!a || !b) continue;
-    if (b.number < a.number && a.ownerId === swap.holderId && b.ownerId === swap.otherId) {
+    if (a.ownerId !== swap.holderId || b.ownerId !== swap.otherId) {
+      const lost = a.ownerId !== swap.holderId ? swap.holderId : swap.otherId;
+      notes.push(
+        `Swap ${draftYear} tra ${swap.holderId} e ${swap.otherId} decaduto: ${lost} non ha più la sua ${swap.round === 1 ? 'prima' : 'seconda'} scelta`,
+      );
+      continue;
+    }
+    if (b.number < a.number) {
       a.ownerId = swap.otherId;
       b.ownerId = swap.holderId;
       notes.push(

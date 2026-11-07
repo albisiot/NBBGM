@@ -183,6 +183,15 @@ describe('avviso dello spazio', () => {
   });
 });
 
+describe('pausa automatica (terza analisi)', () => {
+  it('l’avviso al commissario dice perché si è fermata e come riprenderla', () => {
+    const t = alertText({ kind: 'league_paused', payload: { rounds: 3 } });
+    expect(t.title).toBe('Lega in pausa');
+    expect(t.body).toContain('3 turni di fila si sono chiusi per scadenza');
+    expect(t.body).toContain('primo manager che preme Pronto');
+  });
+});
+
 describe('turno fermo in chiusura', () => {
   const closing = (startedMinutesAgo: number) => ({
     ...(status().round as NonNullable<TurnStatus['round']>),

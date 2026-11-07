@@ -15,7 +15,7 @@ import {
   type SeasonConfig,
 } from '@nbbgm/engine';
 import { FunctionsHttpError } from '@supabase/supabase-js';
-import type { RosterPlayer } from './roster.ts';
+import { chunks, IDS_PER_REQUEST, type RosterPlayer } from './roster.ts';
 import { SKILL_GROUPS, skillOf, type SkillKey } from './skills.ts';
 import { supabase } from './supabase.ts';
 
@@ -299,6 +299,8 @@ export interface PickInfo {
   originalTeamId: string;
   ownerTeamId: string;
   protection: number | null;
+  /** Rinvii già fatti da una scelta protetta (per l'anteprima dello scambio: quanto può ancora slittare). */
+  deferrals?: number;
 }
 
 /**
@@ -309,36 +311,73 @@ export function involving(teamId: string, columns: readonly string[]): string {
   return columns.map((c) => `${c}.eq.${teamId}`).join(',');
 }
 
+const PICK_COLUMNS = 'id, draft_year, round, original_team_id, owner_team_id, protection, deferrals';
+
+interface PickRow {
+  id: string;
+  draft_year: number;
+  round: 1 | 2;
+  original_team_id: string;
+  owner_team_id: string;
+  protection: number | null;
+  deferrals?: number;
+}
+
+const pickOf = (k: PickRow): PickInfo => ({
+  id: k.id,
+  draftYear: k.draft_year,
+  round: k.round,
+  originalTeamId: k.original_team_id,
+  ownerTeamId: k.owner_team_id,
+  protection: k.protection,
+  deferrals: k.deferrals ?? 0,
+});
+
 /**
  * Scelte al draft future della lega; con teamId solo quelle che la squadra possiede o ha ceduto (la pagina della
- * squadra non scarica le circa 400 della lega per mostrarne una trentina).
+ * squadra non scarica le circa 400 della lega per mostrarne una trentina, il mercato quelle delle due squadre).
+ * Future vuol dire senza posizione: le scelte usate restano nel database con la posizione al draft e il
+ * giocatore null (terza analisi: con il filtro su player_id il mercato offriva le 60 scelte già usate).
  */
 export async function leaguePicks(leagueId: string, teamId?: string): Promise<PickInfo[]> {
   let query = supabase
     .from('draft_picks')
-    .select('id, draft_year, round, original_team_id, owner_team_id, protection, player_id')
+    .select(PICK_COLUMNS)
     .eq('league_id', leagueId)
-    .is('player_id', null);
+    .is('position', null);
   if (teamId) query = query.or(involving(teamId, ['owner_team_id', 'original_team_id']));
   const { data, error } = await query.order('draft_year').order('round');
   if (error) throw error;
-  return (
-    (data ?? []) as {
-      id: string;
-      draft_year: number;
-      round: 1 | 2;
-      original_team_id: string;
-      owner_team_id: string;
-      protection: number | null;
-    }[]
-  ).map((k) => ({
-    id: k.id,
-    draftYear: k.draft_year,
-    round: k.round,
-    originalTeamId: k.original_team_id,
-    ownerTeamId: k.owner_team_id,
-    protection: k.protection,
-  }));
+  return ((data ?? []) as PickRow[]).map(pickOf);
+}
+
+/** Scelte per id (anche già usate), a pezzi: quelle citate dalle proposte di scambio che la pagina non ha. */
+export async function picksByIds(ids: readonly string[]): Promise<PickInfo[]> {
+  const pages = await Promise.all(
+    chunks([...new Set(ids)], IDS_PER_REQUEST).map(async (part) => {
+      const { data, error } = await supabase.from('draft_picks').select(PICK_COLUMNS).in('id', part);
+      if (error) throw error;
+      return (data ?? []) as PickRow[];
+    }),
+  );
+  return pages.flat().map(pickOf);
+}
+
+/** Scelte citate dalle proposte che non sono tra quelle già lette. */
+export function missingPickIds(
+  offers: readonly Pick<TradeOffer, 'picksFrom' | 'picksTo'>[],
+  known: ReadonlyMap<string, unknown>,
+): string[] {
+  const ids = new Set<string>();
+  for (const o of offers) for (const id of [...o.picksFrom, ...o.picksTo]) ids.add(id);
+  return [...ids].filter((id) => !known.has(id));
+}
+
+/** Scelte di due squadre senza doppioni (una scelta ceduta dall'una all'altra compare in tutte e due le letture). */
+export function mergePicks(...lists: readonly (readonly PickInfo[])[]): PickInfo[] {
+  const byId = new Map<string, PickInfo>();
+  for (const list of lists) for (const k of list) byId.set(k.id, k);
+  return [...byId.values()].sort((a, b) => a.draftYear - b.draftYear || a.round - b.round);
 }
 
 export interface Finance {

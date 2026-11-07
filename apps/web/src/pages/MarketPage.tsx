@@ -34,10 +34,13 @@ import {
   myRequests,
   type RosterRequest,
   leaguePicks,
+  mergePicks,
+  missingPickIds,
   LEDGER_LABEL,
   marketAction,
   millions,
   missingPlayerIds,
+  picksByIds,
   myBids,
   offerInput,
   offerSalary,
@@ -100,18 +103,22 @@ interface MarketLive {
   offers: TradeOffer[];
   requests: RosterRequest[];
   players: Map<string, PlayerLite>;
+  /** Scelte citate dalle proposte, oltre a quelle della propria squadra (anche già usate). */
+  offerPicks: Map<string, PickInfo>;
 }
 
 type MarketData = MarketBase & MarketLive;
 
 /**
- * Offerte, proposte di scambio e richieste; dei giocatori citati si scaricano solo quelli che la pagina non
- * conosce già (known: rosa, svincolati e quelli letti prima).
+ * Offerte, proposte di scambio e richieste; dei giocatori e delle scelte citati si scaricano solo quelli che la
+ * pagina non conosce già (known: rosa, svincolati e quelli letti prima; knownPicks: le scelte della propria squadra e
+ * quelle lette prima).
  */
 async function loadLive(
   league: LeagueDetail,
   me: LeagueTeam,
   known: ReadonlyMap<string, PlayerLite>,
+  knownPicks: ReadonlyMap<string, PickInfo>,
 ): Promise<MarketLive> {
   const [bids, offers, requests] = await Promise.all([
     myBids(me.id),
@@ -120,8 +127,15 @@ async function loadLive(
   ]);
   const players = new Map(known);
   const missing = missingPlayerIds(offers, bids, known);
-  if (missing.length > 0) for (const [pid, p] of await playersLite(missing)) players.set(pid, p);
-  return { bids, offers, requests, players };
+  const offerPicks = new Map(knownPicks);
+  const missingPicks = missingPickIds(offers, knownPicks);
+  const [lite, picks] = await Promise.all([
+    missing.length > 0 ? playersLite(missing) : new Map<string, PlayerLite>(),
+    missingPicks.length > 0 ? picksByIds(missingPicks) : [],
+  ]);
+  for (const [pid, p] of lite) players.set(pid, p);
+  for (const k of picks) offerPicks.set(k.id, k);
+  return { bids, offers, requests, players, offerPicks };
 }
 
 export function MarketPage() {
@@ -143,10 +157,11 @@ export function MarketPage() {
       teamFinance(me.id),
       teamRoster(me.id),
       freeAgentPlayers(league.id),
-      leaguePicks(league.id),
+      // Solo le scelte della propria squadra: quelle dell'altra parte si leggono scegliendola
+      leaguePicks(league.id, me.id),
     ]);
     const known = new Map([...roster, ...freeAgents].map((p) => [p.id, liteOf(p)]));
-    const live = await loadLive(league, me, known);
+    const live = await loadLive(league, me, known, new Map(picks.map((k) => [k.id, k])));
     const faRound = league.roundKind === 'offseason' ? faRoundOf(league.roundStage) : null;
     return { league, me, config, finance, roster, freeAgents, picks, faRound, ...live };
   }, [id, userId]);
@@ -176,7 +191,10 @@ export function MarketPage() {
     setMessage({ ok: true, text: ok });
     if (loaded && data) {
       try {
-        setLive({ of: loaded, value: await loadLive(data.league, data.me, data.players) });
+        setLive({
+          of: loaded,
+          value: await loadLive(data.league, data.me, data.players, data.offerPicks),
+        });
       } catch {
         // Rilettura breve non riuscita: si rilegge tutto
         reload();
@@ -663,7 +681,7 @@ function OfferList({
   actions: (o: TradeOffer) => ReactNode;
 }) {
   const teams = new Map(data.league.teams.map((t) => [t.id, t]));
-  const picks = new Map(data.picks.map((k) => [k.id, k]));
+  const picks = data.offerPicks;
   const me = data.me.id;
   const player = (id: string) => {
     const p = data.players.get(id);
@@ -770,14 +788,17 @@ function NewTrade({
   const [protections, setProtections] = useState<Record<string, number>>({});
   const [swaps, setSwaps] = useState<{ draft_year: number; round: number; holder: 'from' | 'to' }[]>([]);
   const [sort, setSort] = useState<RosterSort>('overall');
-  // Dell'altra squadra: rosa, residui dei tagliati e strategia (per l'anteprima e la lista dei bot), più gli swap
-  // aperti della propria squadra (lo swap tra le stesse due squadre per lo stesso draft non si rifà)
+  // Dell'altra squadra: rosa, residui dei tagliati, strategia (per l'anteprima e la lista dei bot) e scelte, più gli
+  // swap aperti delle due squadre (una scelta non entra in due swap, e finché lo swap è aperto non si cede)
   const { data: other } = useAsync(
     () =>
       partner
-        ? Promise.all([teamRoster(partner), teamExtra(partner), openSwaps(data.league.id, data.me.id)]).then(
-            ([roster, extra, swaps]) => ({ roster, extra, swaps }),
-          )
+        ? Promise.all([
+            teamRoster(partner),
+            teamExtra(partner),
+            leaguePicks(data.league.id, partner),
+            openSwaps(data.league.id, [data.me.id, partner]),
+          ]).then(([roster, extra, picks, swaps]) => ({ roster, extra, picks, swaps }))
         : Promise.resolve(null),
     [partner],
   );
@@ -815,7 +836,7 @@ function NewTrade({
     setSwaps([]);
   };
   const myPicks = data.picks.filter((k) => k.ownerTeamId === data.me.id);
-  const theirPicks = data.picks.filter((k) => k.ownerTeamId === partner);
+  const theirPicks = (other?.picks ?? []).filter((k) => k.ownerTeamId === partner);
   const empty = give.size + get.size + givePicks.size + getPicks.size === 0 && swaps.length === 0;
   // Anteprima con le regole del motore sui dati già letti: il server ricontrolla tutto
   const preview: TradePreview | null =
@@ -840,7 +861,7 @@ function NewTrade({
             balance: null,
             repeater: null,
           },
-          picks: data.picks,
+          picks: mergePicks(data.picks, other.picks),
           swaps: other.swaps,
           sel: {
             give: [...give],

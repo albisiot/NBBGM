@@ -160,3 +160,15 @@ export function draftAnnouncement(myTurn: boolean, left: number | null, pickSeco
 export function pickLabel(pick: number, teams = 30): string {
   return `giro ${Math.floor(pick / teams) + 1}, scelta ${(pick % teams) + 1}`;
 }
+
+/** Giocatori al massimo nella lista del draft annuale (vincolo di draft_lists; i prospetti sono 70). */
+export const ANNUAL_DRAFT_LIST_MAX = 100;
+
+/**
+ * Lista del draft annuale da salvare: solo i prospetti di quest'anno, senza doppioni, nell'ordine scelto e al più
+ * ANNUAL_DRAFT_LIST_MAX. La lista salvata resta da una stagione all'altra: senza questo filtro i giocatori già scelti
+ * negli anni prima si sommavano e una lista lunga avrebbe superato il limite del database.
+ */
+export function annualListToSave(list: readonly string[], prospects: ReadonlySet<string>): string[] {
+  return [...new Set(list)].filter((id) => prospects.has(id)).slice(0, ANNUAL_DRAFT_LIST_MAX);
+}

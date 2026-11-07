@@ -49,8 +49,59 @@ export type MarketAction =
   | { kind: 'withdraw_request'; request_id: string };
 
 const millions = (x: number) => `${(x / 1e6).toFixed(2).replace('.', ',')} mln`;
-const ids = (x: unknown): string[] => (Array.isArray(x) ? x.filter((v) => typeof v === 'string') : []);
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const isUuid = (x: unknown): x is string => typeof x === 'string' && UUID.test(x);
+
+/** Elementi al massimo in ogni lista di una proposta (giocatori, scelte, swap): bastano per qualunque scambio vero. */
+export const MAX_TRADE_ITEMS = 30;
+
+/**
+ * Forma della proposta come arriva dall'app (o dall'API chiamata a mano): liste di uuid, protezioni { uuid: intero },
+ * swap con anno e giro interi e holder 'from' o 'to'. Quello che non torna è un MarketError, non un errore del
+ * database alla scrittura (uuid[] e integer) o alla chiusura del turno (terza analisi: uno swap con anno 2028.5 era
+ * salvato e fermava il turno).
+ */
+function tradeShape(action: Extract<MarketAction, { kind: 'propose_trade' }>) {
+  const bad = (what: string) => new MarketError(`Proposta non valida: ${what}`);
+  const list = (x: unknown, what: string): string[] => {
+    if (x === undefined || x === null) return [];
+    if (!Array.isArray(x) || !x.every(isUuid)) throw bad(what);
+    if (x.length > MAX_TRADE_ITEMS) throw new MarketError('Troppi elementi nello scambio');
+    return x;
+  };
+  const protections: Record<string, number> = {};
+  if (action.protections !== undefined && action.protections !== null) {
+    const p: unknown = action.protections;
+    if (typeof p !== 'object' || Array.isArray(p)) throw bad('protezioni');
+    for (const [id, n] of Object.entries(p as Record<string, unknown>)) {
+      if (!isUuid(id) || typeof n !== 'number' || !Number.isInteger(n)) throw bad('protezioni');
+      protections[id] = n;
+    }
+  }
+  const swaps: unknown = action.swaps ?? [];
+  if (!Array.isArray(swaps)) throw bad('swap');
+  if (swaps.length > MAX_TRADE_ITEMS) throw new MarketError('Troppi elementi nello scambio');
+  const integer = (x: unknown): x is number => typeof x === 'number' && Number.isInteger(x);
+  for (const w of swaps as unknown[]) {
+    const s = w as { draft_year?: unknown; round?: unknown; holder?: unknown } | null;
+    if (!s || typeof s !== 'object' || !integer(s.draft_year) || !integer(s.round)) throw bad('swap');
+    if (s.holder !== 'from' && s.holder !== 'to') throw bad('swap');
+  }
+  return {
+    playersFrom: list(action.players_from, 'giocatori ceduti'),
+    playersTo: list(action.players_to, 'giocatori richiesti'),
+    picksFrom: list(action.picks_from, 'scelte cedute'),
+    picksTo: list(action.picks_to, 'scelte richieste'),
+    protections,
+    swaps: swaps as { draft_year: number; round: number; holder: 'from' | 'to' }[],
+  };
+}
+
+/** L'id di una riga a cui l'azione si riferisce (offerta, proposta, richiesta, squadra): un uuid, o MarketError. */
+function rowId(x: unknown, what: string): string {
+  if (!isUuid(x)) throw new MarketError(`${what} non trovata`);
+  return x;
+}
 
 /**
  * Giocatore dell'azione (offerta, taglio, rinnovo), o null. La Edge Function legge lo stato con
@@ -110,24 +161,25 @@ export function checkMarketAction(
     }
 
     case 'withdraw_bid':
-      return write({ kind: 'withdraw_bid', bid_id: action.bid_id });
+      return write({ kind: 'withdraw_bid', bid_id: rowId(action.bid_id, 'Offerta') });
 
     case 'propose_trade': {
       const to = rows.teams.find((t) => t.id === action.to_team_id);
       if (!to || to.id === team.id) throw new MarketError('Scegli la squadra con cui scambiare');
       const open = (rows.trade_offers ?? []).filter((o) => o.from_team_id === team.id).length;
       if (open >= MAX_OPEN_OFFERS) throw new MarketError(`Hai già ${MAX_OPEN_OFFERS} proposte in attesa`);
+      const shape = tradeShape(action);
       const trade: Trade = {
         teamA: me,
         teamB: to.code,
-        playersA: ids(action.players_from),
-        playersB: ids(action.players_to),
-        picksA: ids(action.picks_from),
-        picksB: ids(action.picks_to),
-        protections: action.protections ?? {},
-        swaps: (action.swaps ?? []).map((w) => ({
-          draftYear: Number(w.draft_year),
-          round: Number(w.round) as 1 | 2,
+        playersA: shape.playersFrom,
+        playersB: shape.playersTo,
+        picksA: shape.picksFrom,
+        picksB: shape.picksTo,
+        protections: shape.protections,
+        swaps: shape.swaps.map((w) => ({
+          draftYear: w.draft_year,
+          round: w.round as 1 | 2,
           holderId: w.holder === 'from' ? me : to.code,
           otherId: w.holder === 'from' ? to.code : me,
         })),
@@ -169,7 +221,7 @@ export function checkMarketAction(
     }
 
     case 'withdraw_trade':
-      return write({ kind: 'withdraw_trade', offer_id: action.offer_id });
+      return write({ kind: 'withdraw_trade', offer_id: rowId(action.offer_id, 'Proposta di scambio') });
 
     case 'release': {
       if (!marketOpen && !offseason) throw new MarketError('Durante play-in e playoff non si taglia');
@@ -201,7 +253,7 @@ export function checkMarketAction(
     }
 
     case 'withdraw_request':
-      return write({ kind: 'withdraw_request', request_id: action.request_id });
+      return write({ kind: 'withdraw_request', request_id: rowId(action.request_id, 'Richiesta') });
 
     default:
       throw new MarketError('Azione non valida');

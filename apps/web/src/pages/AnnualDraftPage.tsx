@@ -7,6 +7,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { Link, useParams } from 'react-router';
 import { Button, Card, ErrorText, PageTitle, Spinner, TeamCode } from '../components/ui.tsx';
 import { useUserId } from '../lib/auth.tsx';
+import { annualListToSave } from '../lib/draft.ts';
 import { friendlyError } from '../lib/errors.ts';
 import { latestSaver } from '../lib/latestSaver.ts';
 import { leagueDetail } from '../lib/leagues.ts';
@@ -130,9 +131,10 @@ export function AnnualDraftPage() {
 
   function update(next: string[]) {
     if (!saver || !editable) return;
-    setList(next);
+    const kept = annualListToSave(next, new Set(byId.keys()));
+    setList(kept);
     setSaveError(null);
-    void saver.save(next);
+    void saver.save(kept);
   }
   const move = (i: number, d: number) => {
     const next = [...current];

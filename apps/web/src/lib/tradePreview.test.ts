@@ -129,6 +129,53 @@ describe('anteprima dello scambio', () => {
     expect(tradePreview(input(state, cases[3]!)).problems).toEqual([]);
   });
 
+  it('elementi ripetuti, swap e scelte negli swap: gli stessi problemi del motore (terza analisi)', () => {
+    const state = structuredClone(base);
+    const year = state.config.year + 1;
+    // Uno swap aperto tra BOS e MIA sulle prime scelte dell'anno prossimo; LAL ha la prima 2028 di BOS protetta
+    state.swaps.push({ id: 'w', draftYear: year, round: 1, holderId: 'MIA', otherId: 'BOS' });
+    const first = (team: string, y: number) =>
+      state.picks.find((k) => k.originalTeamId === team && k.round === 1 && k.draftYear === y)!;
+    Object.assign(first('BOS', year + 1), { ownerId: 'LAL', protection: 10, deferrals: 2 });
+    const withSwaps = (sel: Partial<TradeSelection>): PreviewInput => ({
+      ...input(state, sel),
+      picks: state.picks.map((k) => ({
+        ...picksOf(state).find((x) => x.id === k.id)!,
+        deferrals: k.deferrals,
+      })),
+      swaps: state.swaps.map((w) => ({
+        id: w.id,
+        draftYear: w.draftYear,
+        round: w.round,
+        holderTeamId: `id-${w.holderId}`,
+        otherTeamId: `id-${w.otherId}`,
+      })),
+    });
+    const bos = standard(state, 'BOS');
+    const lal = standard(state, 'LAL');
+    const cases: Partial<TradeSelection>[] = [
+      { give: [bos[0]!.id, bos[0]!.id], get: [lal[0]!.id] },
+      { givePicks: [first('BOS', year).id] },
+      { swaps: [{ draft_year: year, round: 1, holder: 'to' }] },
+      { swaps: [{ draft_year: year + 2.5, round: 1, holder: 'to' }] },
+      // Con due rinvii già fatti la protetta può slittare solo al draft dopo: lo swap del draft ancora dopo va bene
+      { swaps: [{ draft_year: year + 2, round: 1, holder: 'to' }] },
+      { swaps: [{ draft_year: year + 3, round: 1, holder: 'to' }] },
+    ];
+    const problems = cases.map((sel) => {
+      const i = withSwaps(sel);
+      const preview = tradePreview(i);
+      expect(preview.problems).toEqual(validateTrade(state, tradeOf(i)));
+      return preview.problems.join(' ');
+    });
+    expect(problems[0]).toContain('compare più di una volta');
+    expect(problems[1]).toContain('legata a uno swap');
+    expect(problems[2]).toContain('già legata a uno swap');
+    expect(problems[3]).toContain('prossimi 7 draft');
+    expect(problems[4]).toContain('rinvio di una scelta protetta');
+    expect(problems[5]).toBe('');
+  });
+
   it('con il saldo in rosso la propria squadra non aumenta il monte stipendi', () => {
     const state = structuredClone(base);
     state.teams.find((t) => t.id === 'BOS')!.balance = -1;

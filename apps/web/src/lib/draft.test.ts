@@ -1,5 +1,12 @@
 import { describe, expect, it } from 'vitest';
-import { draftAnnouncement, formatSalary, pickLabel, secondsLeft } from './draft.ts';
+import {
+  ANNUAL_DRAFT_LIST_MAX,
+  annualListToSave,
+  draftAnnouncement,
+  formatSalary,
+  pickLabel,
+  secondsLeft,
+} from './draft.ts';
 
 describe('draft: etichette', () => {
   it('stipendi in milioni', () => {
@@ -27,5 +34,19 @@ describe('draft: etichette', () => {
     expect(secondsLeft('2026-11-05T20:00:42Z', now)).toBe(42);
     expect(secondsLeft('2026-11-05T19:59:00Z', now)).toBe(0);
     expect(secondsLeft(null, now)).toBeNull();
+  });
+});
+
+describe('lista del draft annuale', () => {
+  it('solo i prospetti di quest’anno, senza doppioni, al massimo 100', () => {
+    const prospects = new Set(Array.from({ length: 150 }, (_, i) => `p${i}`));
+    expect(annualListToSave(['vecchio', 'p2', 'p1', 'p2', 'altro', 'p0'], prospects)).toEqual([
+      'p2',
+      'p1',
+      'p0',
+    ]);
+    const all = annualListToSave([...prospects], prospects);
+    expect(all).toHaveLength(ANNUAL_DRAFT_LIST_MAX);
+    expect(all[0]).toBe('p0');
   });
 });

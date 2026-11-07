@@ -394,6 +394,12 @@ export function alertText(a: Pick<AlertItem, 'kind' | 'payload'>): {
         body: 'Fai le tue offerte agli svincolati nella pagina del mercato: alla chiusura del turno ognuno sceglie l’offerta migliore. Le richieste scendono di turno in turno.',
         action: 'Ho finito',
       };
+    case 'league_paused':
+      return {
+        title: 'Lega in pausa',
+        body: `La lega si è fermata da sola: ${String(p.rounds ?? 3)} turni di fila si sono chiusi per scadenza senza che nessun manager facesse niente. Riprendila dalla pagina della lega quando volete ricominciare; la riprende anche il primo manager che preme Pronto.`,
+        action: 'Ok',
+      };
     case 'preparation':
       return {
         title: 'Preparazione della stagione',
@@ -501,6 +507,10 @@ export function roundPhase(
   if (opts.draftPending) return 'draft';
   return opts.paused ? 'paused' : 'open';
 }
+
+/** Nella scheda del turno con la lega in pausa: chi la riprende (la pausa automatica si toglie anche con un Pronto). */
+export const PAUSED_NOTE =
+  'La lega è in pausa. La riprende il commissario; se si è fermata da sola perché nessuno giocava, la riprende anche il primo Pronto.';
 
 export const PHASE_LABEL: Record<RoundPhase, string> = {
   draft: 'Draft in corso',

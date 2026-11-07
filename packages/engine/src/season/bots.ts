@@ -4,7 +4,7 @@ import type { Rng } from '../rng.ts';
 import type { Contract, Role } from '../types.ts';
 import { luxuryTax, minimumSalaryFor, nextConfig, type SeasonConfig } from './config.ts';
 import { contractOf, isRepeater, marketValue, payroll, roster, standardRoster } from './finance.ts';
-import { lotteryPositionOdds, MAX_DEFERRALS } from './picks.ts';
+import { lotteryPositionOdds, MAX_DEFERRALS, pickInSwap, swapLive } from './picks.ts';
 import { REGULAR_SEASON_TURNS } from './schedule.ts';
 import type { DraftPick, DraftSwap, LeagueState, PlayerState, Strategy } from './state.ts';
 import { executeTrade, payrollChange, tradeWindowOpen, validateTrade, type Trade } from './trades.ts';
@@ -229,7 +229,8 @@ export function pickValue(
 
 /**
  * Valore di uno swap per chi ha il diritto: la differenza attesa tra la scelta dell'altra squadra e la propria,
- * se è migliore, più un valore d'opzione (le classifiche cambiano). Chi lo concede perde lo stesso valore.
+ * se è migliore, più un valore d'opzione (le classifiche cambiano). Chi lo concede perde lo stesso valore. Vale 0 se
+ * una delle due squadre non ha più la propria scelta (al draft lo swap decadrebbe).
  */
 export function swapValue(
   state: LeagueState,
@@ -237,6 +238,8 @@ export function swapValue(
   strategy: Strategy,
   ranking: readonly string[],
 ): number {
+  // Uno swap su una scelta che una delle due squadre non ha più decade al draft: non vale niente
+  if (!swapLive(state.picks, swap)) return 0;
   const value = (team: string) =>
     pickValue(
       state,
@@ -394,7 +397,7 @@ function buildVeteranTrade(
         forBuyer: playerValue(p, contractOf(state, p.id), sB, state.config, state),
       })),
     ...state.picks
-      .filter((p) => p.ownerId === buyerId)
+      .filter((p) => p.ownerId === buyerId && !pickInSwap(state.swaps, p))
       .map((p) => ({
         kind: 'pick' as const,
         id: p.id,
@@ -509,7 +512,7 @@ export function botSalaryDump(state: LeagueState, rng: Rng, turn: number | null)
       const value = playerValue(target, contract, buyer.strategy, c, state);
       // Incentivo: le seconde scelte, poi le prime più lontane del venditore
       const sweeteners = state.picks
-        .filter((p) => p.ownerId === seller.id)
+        .filter((p) => p.ownerId === seller.id && !pickInSwap(state.swaps, p))
         .sort((a, b) => b.round - a.round || b.draftYear - a.draftYear);
       const trade: Trade = {
         teamA: seller.id,
