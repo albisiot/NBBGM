@@ -116,8 +116,14 @@ describe('permessi', () => {
       'set_ready(uuid,boolean,uuid)',
       'team_balance(uuid)',
       'transfer_commissioner(uuid,uuid)',
+      // Stato del turno in una lettura (seconda analisi, prestazioni): legge con la RLS di chi chiama
+      'turn_status(uuid)',
       'unban_manager(uuid,uuid)',
     ]);
+    // Lo stato leggero per il mercato solo il server, come league_state
+    for (const role of ['anon', 'authenticated'])
+      expect(rows.some((r) => r.name === 'market_state(uuid,uuid)' && r.role === role)).toBe(false);
+    expect(rows.some((r) => r.name === 'market_state(uuid,uuid)' && r.role === 'service_role')).toBe(true);
     // Solo il server registra l'esito degli invii delle notifiche; l'hook delle iscrizioni solo Supabase Auth
     for (const role of ['anon', 'authenticated'])
       expect(rows.some((r) => r.name === 'push_failed(text[],text[])' && r.role === role)).toBe(false);

@@ -1,6 +1,9 @@
 // Storico delle stagioni: elenco delle stagioni, campioni e finaliste, statistiche di regular season di ogni
 // stagione (salvate a fine regular season in player_seasons; per la stagione in corso quelle dei giocatori).
-import { emptyStats, type SeasonStats } from '@nbbgm/engine';
+import { emptyStats, type Conference, type SeasonStats, type StandingsLine } from '@nbbgm/engine';
+import { KeyedCache } from './cache.ts';
+import type { LeagueDetail } from './leagues.ts';
+import { regularSeasonRecords, standingsFromRecords } from './results.ts';
 import { supabase } from './supabase.ts';
 
 export interface LeagueSeason {
@@ -96,6 +99,41 @@ export function toStats(raw: Record<string, unknown> | null | undefined): Season
   const s = emptyStats();
   for (const k of Object.keys(s) as (keyof SeasonStats)[]) s[k] = Number(raw?.[k] ?? 0) || 0;
   return s;
+}
+
+export interface PastSeason {
+  players: SeasonPlayer[];
+  standings: Record<Conference, StandingsLine[]>;
+}
+
+// Stagioni passate: non cambiano più, quindi si leggono una volta sola per sessione (anche tornando indietro nella
+// scelta della stagione). Ambito: la stagione; la chiave è fissa.
+const pastSeasons = new KeyedCache<PastSeason>(6);
+
+/**
+ * Una stagione finita (non la corrente): statistiche salvate a fine regular season e classifica finale, dalle sole
+ * partite di regular season con le colonne della classifica. Dalla memoria se già letta.
+ */
+export function pastSeason(
+  league: Pick<LeagueDetail, 'id' | 'teams'>,
+  season: LeagueSeason,
+  read: {
+    players: typeof seasonPlayers;
+    records: typeof regularSeasonRecords;
+  } = { players: seasonPlayers, records: regularSeasonRecords },
+): Promise<PastSeason> {
+  return pastSeasons.get(season.id, 'finita', async () => {
+    const [{ players }, records] = await Promise.all([
+      read.players(league.id, season),
+      read.records(season.id),
+    ]);
+    return { players, standings: standingsFromRecords({ ...league, seasonYear: season.year }, records) };
+  });
+}
+
+/** Dimentica le stagioni passate in memoria (per i test). */
+export function clearPastSeasons(): void {
+  pastSeasons.clear();
 }
 
 /**

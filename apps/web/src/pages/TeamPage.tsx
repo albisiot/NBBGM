@@ -13,7 +13,6 @@ import {
   seasonConfig,
   type PickInfo,
 } from '../lib/market.ts';
-import { seasonStandings } from '../lib/results.ts';
 import { teamRoster } from '../lib/roster.ts';
 import {
   contractSummary,
@@ -27,7 +26,7 @@ import {
 } from '../lib/teams.ts';
 import { useAsync } from '../lib/useAsync.ts';
 import { useRoundChange } from '../lib/useRoundChange.ts';
-import { seasonRows } from '../lib/useSeason.ts';
+import { currentStandings } from '../lib/useSeason.ts';
 
 const LINK = 'inline-flex min-h-11 items-center rounded-lg px-4 text-sm font-semibold';
 
@@ -35,17 +34,17 @@ async function load(leagueId: string, code: string) {
   const league = await leagueDetail(leagueId);
   const team = league?.teams.find((t) => t.code === code.toUpperCase());
   if (!league || !team) return null;
-  const [roster, extra, picks, swaps, config, season] = await Promise.all([
+  const [roster, extra, picks, swaps, config, standings] = await Promise.all([
     teamRoster(team.id),
     teamExtra(team.id),
-    leaguePicks(league.id),
-    openSwaps(league.id),
+    leaguePicks(league.id, team.id),
+    openSwaps(league.id, team.id),
     league.seasonId
       ? seasonConfig(league.seasonId).then((c) => effectiveConfig(c, league.roundKind, league.roundStage))
       : Promise.resolve(null),
-    league.seasonId ? seasonRows({ ...league, seasonId: league.seasonId }) : Promise.resolve(null),
+    // Record e posto in conference: dalla classifica, senza scaricare tutte le partite se non servono
+    league.seasonId ? currentStandings({ ...league, seasonId: league.seasonId }) : Promise.resolve(null),
   ]);
-  const standings = season ? seasonStandings(league, season.games) : null;
   const line = standings?.[team.conference].find((l) => l.teamId === team.id) ?? null;
   return { league, team, roster, extra, picks, swaps, config, line };
 }

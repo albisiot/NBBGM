@@ -3,12 +3,15 @@ import { runInNewContext } from 'node:vm';
 import { describe, expect, it } from 'vitest';
 import {
   isAppShellResponse,
+  isHashedAsset,
   looksLikeAppShell,
   notificationFromPush,
   notificationTarget,
+  precachePlan,
   serviceWorkerSource,
   vapidKeyBytes,
   type ResponseInfo,
+  type ShellEntry,
 } from './serviceWorker.ts';
 import { PUSH_CHANGED_MESSAGE } from './messages.ts';
 
@@ -47,16 +50,57 @@ describe('pagina dell’app', () => {
   });
 });
 
-/** Il sw.js generato, eseguito con finti self, caches e fetch: si provano le navigazioni come nel browser. */
-function worker(network: (url: string, init: RequestInit) => Promise<Response>) {
+/** Cache finta: risposte per indirizzo assoluto. */
+class FakeCache {
+  readonly store = new Map<string, Response>();
+  async match(r: string | { url: string }) {
+    return this.store.get(key(r))?.clone();
+  }
+  async put(r: string | { url: string }, res: Response) {
+    this.store.set(key(r), res);
+  }
+  async keys() {
+    return [...this.store.keys()].map((url) => ({ url }));
+  }
+}
+
+const key = (r: string | { url: string }) => new URL(typeof r === 'string' ? r : r.url, SCOPE).href;
+
+/** CacheStorage finta, con più cache per nome come nel browser. */
+class FakeCaches {
+  readonly all = new Map<string, FakeCache>();
+  async open(name: string) {
+    let c = this.all.get(name);
+    if (!c) this.all.set(name, (c = new FakeCache()));
+    return c;
+  }
+  async keys() {
+    return [...this.all.keys()];
+  }
+  async delete(name: string) {
+    return this.all.delete(name);
+  }
+  async match(r: string | { url: string }) {
+    for (const c of this.all.values()) {
+      const hit = await c.match(r);
+      if (hit) return hit;
+    }
+    return undefined;
+  }
+}
+
+/**
+ * Il sw.js generato, eseguito con finti self, caches e fetch: si provano installazione, attivazione e navigazioni
+ * come nel browser. Più versioni possono condividere la stessa CacheStorage (un aggiornamento).
+ */
+function worker(
+  network: (url: string, init: RequestInit) => Promise<Response>,
+  opts: { version?: string; shell?: readonly (ShellEntry | string)[]; caches?: FakeCaches } = {},
+) {
   const handlers: Record<string, (event: unknown) => void> = {};
-  const store = new Map<string, Response>();
-  const key = (r: string | { url: string }) => new URL(typeof r === 'string' ? r : r.url, SCOPE).href;
+  const caches = opts.caches ?? new FakeCaches();
+  const version = opts.version ?? 'prova';
   const installed: { url: string; init: RequestInit }[] = [];
-  const cache = {
-    put: async (r: string, res: Response) => void store.set(key(r), res),
-    addAll: async (requests: { url: string; init: RequestInit }[]) => void installed.push(...requests),
-  };
   const calls: RequestInit[] = [];
   class FakeRequest {
     constructor(
@@ -64,25 +108,27 @@ function worker(network: (url: string, init: RequestInit) => Promise<Response>) 
       readonly init: RequestInit,
     ) {}
   }
-  runInNewContext(serviceWorkerSource('prova', ['./']), {
+  runInNewContext(serviceWorkerSource(version, opts.shell ?? ['./']), {
     self: {
       addEventListener: (type: string, h: (event: unknown) => void) => (handlers[type] = h),
       location: new URL(SCOPE),
       registration: { scope: SCOPE },
       skipWaiting: async () => undefined,
+      clients: { claim: async () => undefined },
     },
-    caches: {
-      open: async () => cache,
-      match: async (r: string | { url: string }) => store.get(key(r))?.clone(),
-    },
+    caches,
     fetch: (r: FakeRequest) => {
       calls.push(r.init);
+      if (r.init?.cache === 'reload') installed.push({ url: r.url, init: r.init });
       return network(r.url, r.init);
     },
     Request: FakeRequest,
     Response,
     URL,
   });
+  // La cache di questa versione (la pagina dell'app la salva qui)
+  const own = new FakeCache();
+  caches.all.set(`nbbgm-${version}`, own);
   async function navigate(url: string): Promise<Response | undefined> {
     let answer: Promise<Response | undefined> = Promise.resolve(undefined);
     const waits: Promise<unknown>[] = [];
@@ -95,12 +141,24 @@ function worker(network: (url: string, init: RequestInit) => Promise<Response>) 
     await Promise.all(waits);
     return res;
   }
-  async function install(): Promise<void> {
+  async function lifecycle(type: 'install' | 'activate'): Promise<void> {
     const waits: Promise<unknown>[] = [];
-    handlers.install!({ waitUntil: (p: Promise<unknown>) => waits.push(p) });
+    handlers[type]!({ waitUntil: (p: Promise<unknown>) => waits.push(p) });
     await Promise.all(waits);
   }
-  return { navigate, install, installed, store, calls };
+  return {
+    handlers,
+    navigate,
+    install: () => lifecycle('install'),
+    activate: () => lifecycle('activate'),
+    installed,
+    calls,
+    caches,
+    /** File nella cache di questa versione (dopo l'installazione è un'altra cache: si rilegge per nome). */
+    get store() {
+      return caches.all.get(`nbbgm-${version}`)?.store ?? new Map<string, Response>();
+    },
+  };
 }
 
 /** Risposta di rete con l'indirizzo finale (in Node una Response costruita a mano non ce l'ha). */
@@ -148,6 +206,200 @@ describe('service worker', () => {
     expect(await (await w.navigate(SCOPE))!.text()).toBe(INDEX);
     // Una pagina che non è in cache: si apre l'app
     expect(await (await w.navigate(`${SCOPE}altro.html`))!.text()).toBe(INDEX);
+  });
+});
+
+describe('aggiornamento: si scaricano solo i file cambiati (seconda analisi, prestazioni)', () => {
+  it('riconosce i file con l’hash nel nome', () => {
+    expect(isHashedAsset('assets/index-D1KxZ1nT.js')).toBe(true);
+    expect(isHashedAsset('assets/useRoundChange-_cjnx4nM.js')).toBe(true);
+    expect(isHashedAsset('assets/unsaved-vpaY_wZ-.js')).toBe(true);
+    expect(isHashedAsset('assets/index-DXiK80W7.css')).toBe(true);
+    expect(isHashedAsset('index.html')).toBe(false);
+    expect(isHashedAsset('icons/icon-192.png')).toBe(false);
+    expect(isHashedAsset('manifest.webmanifest')).toBe(false);
+    expect(isHashedAsset('assets/senza.js')).toBe(false);
+  });
+
+  it('piano: con l’hash nel nome basta lo stesso nome, gli altri vogliono la stessa impronta', () => {
+    const shell: ShellEntry[] = [
+      { url: './', rev: 'v2' },
+      { url: './assets/a-AAAAAAAA.js', rev: null },
+      { url: './assets/b-BBBBBBBB.js', rev: null },
+      { url: './icons/icon-192.png', rev: 'i1' },
+      { url: './privacy.html', rev: 'p2' },
+    ];
+    const plan = precachePlan(
+      shell,
+      [
+        {
+          name: 'nbbgm-v1',
+          urls: [SCOPE, `${SCOPE}assets/a-AAAAAAAA.js`, `${SCOPE}icons/icon-192.png`, `${SCOPE}privacy.html`],
+          revisions: { './': 'v1', './icons/icon-192.png': 'i1', './privacy.html': 'p1' },
+        },
+      ],
+      SCOPE,
+    );
+    expect(plan).toEqual([
+      { url: './', from: null },
+      { url: './assets/a-AAAAAAAA.js', from: 'nbbgm-v1' },
+      { url: './assets/b-BBBBBBBB.js', from: null },
+      { url: './icons/icon-192.png', from: 'nbbgm-v1' },
+      { url: './privacy.html', from: null },
+    ]);
+    // Una cache senza impronte (scritta dal service worker di prima): solo i file con l'hash nel nome
+    const old = precachePlan(
+      shell,
+      [{ name: 'nbbgm-x', urls: shell.map((e) => key(e.url)), revisions: {} }],
+      SCOPE,
+    );
+    expect(old.filter((p) => p.from).map((p) => p.url)).toEqual([
+      './assets/a-AAAAAAAA.js',
+      './assets/b-BBBBBBBB.js',
+    ]);
+  });
+
+  /** Un sito con i suoi file: la rete risponde con il contenuto della versione pubblicata. */
+  function site() {
+    const files = new Map<string, string>();
+    const served: string[] = [];
+    const state = { online: true, broken: null as string | null };
+    const network = async (url: string) => {
+      const href = key(url);
+      if (!state.online) throw new TypeError('Failed to fetch');
+      served.push(href.slice(SCOPE.length) || './');
+      const body = files.get(href);
+      if (body === undefined || href === state.broken) return page(href, 'Non trovato', 404);
+      const type = href.endsWith('/') || href.endsWith('.html') ? 'text/html; charset=utf-8' : 'text/plain';
+      const res = new Response(body, { status: 200, headers: { 'content-type': type } });
+      Object.defineProperty(res, 'url', { value: href });
+      return res;
+    };
+    return {
+      network,
+      served,
+      state,
+      publish(content: Record<string, string>) {
+        files.clear();
+        for (const [u, b] of Object.entries(content)) files.set(key(u), b);
+        served.length = 0;
+      },
+    };
+  }
+
+  const V1: Record<string, string> = {
+    './': INDEX.replace('</head>', '<!-- v1 --></head>'),
+    './assets/index-AAAAAAAA.js': 'console.log("index v1")',
+    './assets/pagina-PPPPPPPP.js': 'console.log("pagina")',
+    './icons/icon-192.png': 'icona',
+    './privacy.html': PRIVACY,
+  };
+  const SHELL1: ShellEntry[] = [
+    { url: './', rev: 'v1' },
+    { url: './assets/index-AAAAAAAA.js', rev: null },
+    { url: './assets/pagina-PPPPPPPP.js', rev: null },
+    { url: './icons/icon-192.png', rev: 'i1' },
+    { url: './privacy.html', rev: 'p1' },
+  ];
+  const V2: Record<string, string> = {
+    './': INDEX.replace('</head>', '<!-- v2 --></head>'),
+    './assets/index-BBBBBBBB.js': 'console.log("index v2")',
+    './assets/pagina-PPPPPPPP.js': 'console.log("pagina")',
+    './icons/icon-192.png': 'icona',
+    './privacy.html': PRIVACY.replace('</body>', '<!-- v2 --></body>'),
+  };
+  const SHELL2: ShellEntry[] = [
+    { url: './', rev: 'v2' },
+    { url: './assets/index-BBBBBBBB.js', rev: null },
+    { url: './assets/pagina-PPPPPPPP.js', rev: null },
+    { url: './icons/icon-192.png', rev: 'i1' },
+    { url: './privacy.html', rev: 'p2' },
+  ];
+
+  /** Un file chiesto dalla pagina (non una navigazione), come lo serve il service worker. */
+  async function asset(w: ReturnType<typeof worker>, url: string): Promise<string | null> {
+    let answer: Promise<Response | undefined> = Promise.resolve(undefined);
+    w.handlers.fetch!({
+      request: { method: 'GET', mode: 'no-cors', url: key(url) },
+      respondWith: (p: Promise<Response | undefined>) => (answer = p),
+      waitUntil: () => undefined,
+    });
+    const res = await answer.catch(() => undefined);
+    return res && res.ok ? res.text() : null;
+  }
+
+  const files = (w: ReturnType<typeof worker>) =>
+    [...w.store.keys()].filter((u) => !u.endsWith('nbbgm-impronte.json')).sort();
+
+  it('alla versione nuova riusa i file uguali, cancella la cache vecchia e si apre senza rete', async () => {
+    const net = site();
+    const caches = new FakeCaches();
+    net.publish(V1);
+    const v1 = worker(net.network, { version: 'v1', shell: SHELL1, caches });
+    await v1.install();
+    await v1.activate();
+    expect(net.served.sort()).toEqual(
+      Object.keys(V1)
+        .map((u) => u.slice(2) || './')
+        .sort(),
+    );
+
+    // Pubblicazione: cambiano la pagina, il pezzo principale (nome nuovo) e privacy.html
+    net.publish(V2);
+    const v2 = worker(net.network, { version: 'v2', shell: SHELL2, caches });
+    await v2.install();
+    expect(net.served.sort()).toEqual(['./', 'assets/index-BBBBBBBB.js', 'privacy.html']);
+    // Le copie riusate sono quelle di prima, e la cache nuova è completa
+    const reused = await caches.all.get('nbbgm-v2')!.match('./assets/pagina-PPPPPPPP.js');
+    expect(await reused!.text()).toBe('console.log("pagina")');
+    expect(files(v2)).toEqual(SHELL2.map((e) => key(e.url)).sort());
+    await v2.activate();
+    expect(await caches.keys()).toEqual(['nbbgm-v2']);
+
+    // Senza rete: la pagina dell'app nuova e i suoi file
+    net.state.online = false;
+    expect(await (await v2.navigate(SCOPE))!.text()).toContain('<!-- v2 -->');
+    expect(await asset(v2, './assets/index-BBBBBBBB.js')).toBe('console.log("index v2")');
+    expect(await asset(v2, './assets/pagina-PPPPPPPP.js')).toBe('console.log("pagina")');
+    expect(await asset(v2, './icons/icon-192.png')).toBe('icona');
+  });
+
+  it('dalla cache del service worker di prima (senza impronte) riusa i file con l’hash nel nome', async () => {
+    const net = site();
+    const caches = new FakeCaches();
+    const old = await caches.open('nbbgm-0123456789ab');
+    for (const [u, b] of Object.entries(V1)) await old.put(u, new Response(b));
+    net.publish(V2);
+    const v2 = worker(net.network, { version: 'v2', shell: SHELL2, caches });
+    await v2.install();
+    expect(net.served.sort()).toEqual([
+      './',
+      'assets/index-BBBBBBBB.js',
+      'icons/icon-192.png',
+      'privacy.html',
+    ]);
+    await v2.activate();
+    expect(await caches.keys()).toEqual(['nbbgm-v2']);
+  });
+
+  it('se un file non arriva l’installazione fallisce e resta la versione di prima; poi riprova', async () => {
+    const net = site();
+    const caches = new FakeCaches();
+    net.publish(V1);
+    const v1 = worker(net.network, { version: 'v1', shell: SHELL1, caches });
+    await v1.install();
+    await v1.activate();
+    net.publish(V2);
+    net.state.broken = key('./assets/index-BBBBBBBB.js');
+    const v2 = worker(net.network, { version: 'v2', shell: SHELL2, caches });
+    await expect(v2.install()).rejects.toThrow(/non scaricato/);
+    // La versione di prima è intera (i suoi file più le impronte)
+    expect(caches.all.get('nbbgm-v1')!.store.size).toBe(SHELL1.length + 1);
+    net.state.broken = null;
+    await v2.install();
+    await v2.activate();
+    expect(await caches.keys()).toEqual(['nbbgm-v2']);
+    expect(await asset(v2, './assets/index-BBBBBBBB.js')).toBe('console.log("index v2")');
   });
 });
 

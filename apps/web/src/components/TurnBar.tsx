@@ -5,17 +5,9 @@
 import { useCallback, useEffect, useState } from 'react';
 import { Link } from 'react-router';
 import { friendlyError } from '../lib/errors.ts';
-import {
-  barFor,
-  barStatus,
-  barView,
-  readyWarnings,
-  setReady,
-  subscribeTurn,
-  type Tone,
-} from '../lib/turns.ts';
+import { barFor, barFromTurn, barView, readyWarnings, setReady, type Tone } from '../lib/turns.ts';
+import { useTurn } from '../lib/turnStore.ts';
 import { useUnsaved } from '../lib/unsaved.ts';
-import { useAsync } from '../lib/useAsync.ts';
 import { refreshAppBadge } from '../lib/appBadge.ts';
 import { ReadyConfirm } from './ReadyConfirm.tsx';
 
@@ -29,11 +21,11 @@ const TONE: Record<Tone, string> = {
 };
 
 export function TurnBar({ leagueId, userId }: { leagueId: string; userId: string }) {
-  // Cambiando lega restano i dati di prima mentre arrivano i nuovi (la barra non sparisce), ma si usano solo se
-  // sono della lega attuale: niente turno vecchio, niente Pronto alla lega sbagliata
-  const loaded = useAsync(() => barStatus(leagueId, userId), [leagueId, userId], { keep: true });
-  const { reload } = loaded;
-  const data = barFor(loaded.data, leagueId);
+  // Stato del turno condiviso con la scheda e con le pagine (una lettura e un canale per lega). I dati sono sempre
+  // della lega aperta (barFor lo ricontrolla): niente turno vecchio, niente Pronto alla lega sbagliata
+  const turn = useTurn(leagueId, userId);
+  const { reload } = turn;
+  const data = turn.data ? barFor(barFromTurn(turn.data), leagueId) : null;
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [asking, setAsking] = useState(false);
@@ -43,8 +35,6 @@ export function TurnBar({ leagueId, userId }: { leagueId: string; userId: string
     setAsking(false);
     setError(null);
   }, [leagueId]);
-  // Tempo reale come la scheda del turno: Pronto, allenatori, avvisi e cambio di turno
-  useEffect(() => subscribeTurn(leagueId, reload), [leagueId, reload]);
   // Il numero sull'icona segue le decisioni aperte
   const decisions = data?.decisions.length;
   useEffect(() => {
@@ -83,9 +73,9 @@ export function TurnBar({ leagueId, userId }: { leagueId: string; userId: string
   }, [unsaved, toggle]);
 
   const view = data ? barView(data) : null;
-  // Dati di un'altra lega: un segnaposto della stessa altezza, senza pulsanti
+  // Mentre arrivano i dati (anche cambiando lega): un segnaposto della stessa altezza, senza pulsanti
   if (!view)
-    return loaded.data && !data ? (
+    return !turn.data && !turn.error ? (
       <div
         aria-hidden="true"
         className="mb-4 min-h-[3.75rem] rounded-xl border border-slate-200 bg-white dark:border-slate-700 dark:bg-slate-800"

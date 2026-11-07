@@ -1,103 +1,77 @@
 // Turno corrente: chi è pronto, chi ha l'allenatore, avvisi della propria squadra, Pronto e azioni del
-// commissario. Gli aggiornamenti arrivano in tempo reale (Supabase Realtime, con la RLS) e, per sicurezza,
+// commissario. Lo stato si legge in una volta con la funzione turn_status e lo condividono barra, scheda e pagine
+// (lib/turnStore.ts); gli aggiornamenti arrivano in tempo reale (Supabase Realtime, con la RLS) e, per sicurezza,
 // con una rilettura ogni 30 secondi.
 import { onResume } from './resume.ts';
 import { supabase } from './supabase.ts';
+import {
+  toAlert,
+  toDelegation,
+  toLastGame,
+  toRound,
+  toStates,
+  turnFromServer,
+  type AlertItem,
+  type AlertRow,
+  type Delegation,
+  type DelegationRow,
+  type LastGameRow,
+  type Readiness,
+  type RoundInfo,
+  type RoundRow,
+  type RoundTrouble,
+  type TurnStatus,
+  type TurnStatusRow,
+} from './turnStatus.ts';
+
+export { turnFromServer };
+export type {
+  AlertItem,
+  Delegation,
+  LastGame,
+  Readiness,
+  RoundInfo,
+  RoundTrouble,
+  TurnStatus,
+  TurnStatusRow,
+} from './turnStatus.ts';
 
 // onResume sta in un modulo a sé, che l'intestazione usa senza caricare il resto di questo file
 export { onResume };
 
-export interface RoundInfo {
-  id: string;
-  number: number;
-  kind: 'regular' | 'play-in' | 'playoffs' | 'offseason';
-  state: 'open' | 'closing' | 'done';
-  deadline: string | null;
-  createdAt: string;
-  forcedAt: string | null;
-  /** Inizio della chiusura (o dell'ultima ripresa) della simulazione. */
-  closingStartedAt: string | null;
+/**
+ * Stato del turno della lega per l'utente collegato, in una sola lettura (turn_status). Se il database non ha
+ * ancora la funzione (l'app si pubblica insieme alle migrazioni) lo ricava dalle tabelle, come prima.
+ */
+export async function loadTurn(leagueId: string, userId: string): Promise<TurnStatus> {
+  const { data, error } = await supabase.rpc('turn_status', { p_league: leagueId });
+  if (error?.code === 'PGRST202') return turnStatusFromTables(leagueId, userId);
+  if (error) throw error;
+  return turnFromServer(leagueId, data as TurnStatusRow | null);
 }
 
-/** Simulazione che non riesce: tentativi fatti e, dopo l'ultimo, quando il turno si è fermato. */
-export interface RoundTrouble {
-  attempts: number;
-  failedAt: string | null;
-}
-
-export interface Delegation {
-  teamId: string;
-  active: boolean;
-  untilRound: number | null;
-  untilAt: string | null;
-}
-
-export interface AlertItem {
-  id: string;
-  kind: string;
-  blocking: boolean;
-  payload: Record<string, unknown>;
-  createdAt: string;
-}
-
-export interface LastGame {
-  roundNumber: number;
-  homeTeamId: string;
-  awayTeamId: string;
-  homeScore: number;
-  awayScore: number;
-  overtimes: number;
-}
-
-export interface TurnStatus {
-  round: RoundInfo | null;
-  paused: boolean;
-  maxPaceSeconds: number;
-  /** Squadre con il Pronto premuto in questo turno. */
-  ready: Set<string>;
-  delegations: Delegation[];
-  /** Avvisi aperti della propria squadra (gli altri non si vedono). */
-  alerts: AlertItem[];
-  lastGame: LastGame | null;
-  /** In play-in e playoff le squadre con una partita nel turno; null in regular season (giocano tutte). */
-  playing: Set<string> | null;
-  /** A stagione finita, il campione. */
-  championId: string | null;
-  /** Solo per un turno in chiusura: tentativi di simulazione e stato fermo. */
-  trouble: RoundTrouble | null;
-  /** Squadra del manager collegato, se ne ha una. */
-  myTeamId: string | null;
-  /**
-   * Stato delle squadre umane calcolato dal server (round_readiness), con la regola che decide la chiusura del
-   * turno; null se il database non ha ancora la funzione.
-   */
-  teamStates: Map<string, Readiness> | null;
-}
-
-export async function turnStatus(leagueId: string, myTeamId: string | null): Promise<TurnStatus> {
-  const league = await supabase
-    .from('leagues')
-    .select(
-      'paused, max_pace_seconds, current_season_id, round:rounds!leagues_current_round(id, number, kind, state, deadline, created_at, forced_at, closing_started_at)',
-    )
-    .eq('id', leagueId)
-    .maybeSingle();
+/** Lo stesso stato dalle tabelle, con più letture: solo senza turn_status. */
+async function turnStatusFromTables(leagueId: string, userId: string): Promise<TurnStatus> {
+  const [league, team] = await Promise.all([
+    supabase
+      .from('leagues')
+      .select(
+        'paused, max_pace_seconds, current_season_id, round:rounds!leagues_current_round(id, number, kind, state, stage, deadline, created_at, forced_at, closing_started_at), draft:initial_drafts(state)',
+      )
+      .eq('id', leagueId)
+      .maybeSingle(),
+    supabase.from('teams').select('id').eq('league_id', leagueId).eq('owner_id', userId).maybeSingle(),
+  ]);
   if (league.error) throw league.error;
+  if (team.error) throw team.error;
   const l = league.data as unknown as {
     paused: boolean;
     max_pace_seconds: number;
     current_season_id: string | null;
-    round: {
-      id: string;
-      number: number;
-      kind: RoundInfo['kind'];
-      state: RoundInfo['state'];
-      deadline: string | null;
-      created_at: string;
-      forced_at: string | null;
-      closing_started_at: string | null;
-    } | null;
+    round: RoundRow | null;
+    draft: { state: string } | { state: string }[] | null;
   } | null;
+  const myTeamId = (team.data as { id: string } | null)?.id ?? null;
   const round = l?.round ?? null;
   const [flags, delegations, alerts, games, teamStates] = await Promise.all([
     round
@@ -156,63 +130,17 @@ export async function turnStatus(leagueId: string, myTeamId: string | null): Pro
     championId = (r.data as { winner_team_id: string | null } | null)?.winner_team_id ?? null;
   }
   const trouble = round?.state === 'closing' ? await roundTrouble(round.id) : null;
-  const g = (games.data ?? [])[0] as
-    | {
-        round_number: number;
-        home_team_id: string;
-        away_team_id: string;
-        home_score: number;
-        away_score: number;
-        overtimes: number | null;
-      }
-    | undefined;
+  const draft = Array.isArray(l?.draft) ? l?.draft[0] : l?.draft;
   return {
-    round: round && {
-      id: round.id,
-      number: round.number,
-      kind: round.kind,
-      state: round.state,
-      deadline: round.deadline,
-      createdAt: round.created_at,
-      forcedAt: round.forced_at,
-      closingStartedAt: round.closing_started_at,
-    },
+    leagueId,
+    round: round && toRound(round),
     paused: l?.paused ?? false,
     maxPaceSeconds: l?.max_pace_seconds ?? 60,
+    draftPending: draft != null && draft.state !== 'done',
     ready: new Set(((flags.data ?? []) as { team_id: string }[]).map((f) => f.team_id)),
-    delegations: (
-      (delegations.data ?? []) as {
-        team_id: string;
-        active: boolean;
-        until_round: number | null;
-        until_at: string | null;
-      }[]
-    ).map((d) => ({ teamId: d.team_id, active: d.active, untilRound: d.until_round, untilAt: d.until_at })),
-    alerts: (
-      (alerts.data ?? []) as {
-        id: string;
-        kind: string;
-        blocking: boolean;
-        payload: Record<string, unknown>;
-        created_at: string;
-      }[]
-    ).map((a) => ({
-      id: a.id,
-      kind: a.kind,
-      blocking: a.blocking,
-      payload: a.payload,
-      createdAt: a.created_at,
-    })),
-    lastGame: g
-      ? {
-          roundNumber: g.round_number,
-          homeTeamId: g.home_team_id,
-          awayTeamId: g.away_team_id,
-          homeScore: g.home_score,
-          awayScore: g.away_score,
-          overtimes: g.overtimes ?? 0,
-        }
-      : null,
+    delegations: ((delegations.data ?? []) as DelegationRow[]).map(toDelegation),
+    alerts: ((alerts.data ?? []) as AlertRow[]).map(toAlert),
+    lastGame: toLastGame((games.data ?? [])[0] as LastGameRow | undefined),
     playing,
     championId,
     trouble,
@@ -220,8 +148,6 @@ export async function turnStatus(leagueId: string, myTeamId: string | null): Pro
     teamStates,
   };
 }
-
-const READINESS: readonly Readiness[] = ['ready', 'coach', 'blocked', 'waiting', 'out'];
 
 /**
  * Stato delle squadre umane nel turno corrente, dal server. Null se il database non ha ancora round_readiness
@@ -231,11 +157,7 @@ async function serverReadiness(leagueId: string): Promise<Map<string, Readiness>
   const { data, error } = await supabase.rpc('round_readiness', { p_league: leagueId });
   if (error?.code === 'PGRST202') return null;
   if (error) throw error;
-  return new Map(
-    ((data ?? []) as { team_id: string; state: string }[])
-      .filter((r) => (READINESS as readonly string[]).includes(r.state))
-      .map((r) => [r.team_id, r.state as Readiness]),
-  );
+  return toStates((data ?? []) as { team_id: string; state: string }[]);
 }
 
 /**
@@ -277,16 +199,6 @@ export function coachActive(d: Delegation | undefined, roundNumber: number, now 
   if (d.untilAt !== null && now >= Date.parse(d.untilAt)) return false;
   return true;
 }
-
-/**
- * Stato di una squadra umana nel turno:
- *   ready     Pronto premuto
- *   coach     allenatore attivo, senza avvisi bloccanti: conta come pronta
- *   blocked   allenatore attivo ma con un avviso bloccante aperto: non è pronta finché il manager non risponde
- *   waiting   non pronta
- *   out       in play-in e playoff senza partita nel turno: non deve essere pronta
- */
-export type Readiness = 'ready' | 'coach' | 'blocked' | 'waiting' | 'out';
 
 /** La squadra conta come pronta per la chiusura del turno. */
 export const countsAsReady = (r: Readiness): boolean => r === 'ready' || r === 'coach';
@@ -409,7 +321,7 @@ export const channelName = (prefix: string, leagueId: string) => `${prefix}:${le
 /**
  * Ascolta in tempo reale turni, Pronto, allenatori e avvisi della lega; onChange si chiama a ogni modifica
  * (la RLS decide che cosa arriva), al ritorno in primo piano e ogni 30 secondi. Restituisce la funzione per
- * smettere di ascoltare.
+ * smettere di ascoltare. Lo usa lo stato del turno condiviso (lib/turnStore.ts): un solo ascolto per lega.
  */
 export function subscribeTurn(leagueId: string, onChange: () => void): () => void {
   const filter = `league_id=eq.${leagueId}`;
@@ -424,17 +336,6 @@ export function subscribeTurn(leagueId: string, onChange: () => void): () => voi
     stopResume();
     void supabase.removeChannel(channel);
   };
-}
-
-/** Turno corrente della lega, per capire se è cambiato. */
-export async function currentRoundId(leagueId: string): Promise<string | null> {
-  const { data, error } = await supabase
-    .from('leagues')
-    .select('current_round_id')
-    .eq('id', leagueId)
-    .maybeSingle();
-  if (error) throw error;
-  return (data?.current_round_id as string | null | undefined) ?? null;
 }
 
 /** Testo di un avviso per il manager. */
@@ -654,88 +555,26 @@ export interface BarStatus {
   decisions: { id: string; kind: string }[];
 }
 
-type BarRoundRow = Omit<NonNullable<BarStatus['round']>, 'closingStartedAt'> & {
-  closing_started_at: string | null;
-};
-
-export async function barStatus(leagueId: string, userId: string): Promise<BarStatus> {
-  const [league, team] = await Promise.all([
-    supabase
-      .from('leagues')
-      .select(
-        'paused, round:rounds!leagues_current_round(id, number, kind, state, stage, closing_started_at), draft:initial_drafts(state)',
-      )
-      .eq('id', leagueId)
-      .maybeSingle(),
-    supabase.from('teams').select('id').eq('league_id', leagueId).eq('owner_id', userId).maybeSingle(),
-  ]);
-  if (league.error) throw league.error;
-  if (team.error) throw team.error;
-  const l = league.data as unknown as {
-    paused: boolean;
-    round: BarRoundRow | null;
-    draft: { state: string } | { state: string }[] | null;
-  } | null;
-  const r = l?.round ?? null;
-  const round: BarStatus['round'] = r && {
-    id: r.id,
-    number: r.number,
-    kind: r.kind,
-    state: r.state,
-    stage: r.stage,
-    closingStartedAt: r.closing_started_at,
+/** Quanto serve alla barra dallo stato del turno condiviso con la scheda. */
+export function barFromTurn(status: TurnStatus, now = Date.now()): BarStatus {
+  const r = status.round;
+  return {
+    leagueId: status.leagueId,
+    round: r && {
+      id: r.id,
+      number: r.number,
+      kind: r.kind,
+      state: r.state,
+      stage: r.stage,
+      closingStartedAt: r.closingStartedAt,
+    },
+    paused: status.paused,
+    draftPending: status.draftPending,
+    trouble: status.trouble,
+    myTeamId: status.myTeamId,
+    myState: r && status.myTeamId ? readiness(status, status.myTeamId, now) : null,
+    decisions: status.alerts.filter((a) => a.blocking).map((a) => ({ id: a.id, kind: a.kind })),
   };
-  const myTeamId = (team.data as { id: string } | null)?.id ?? null;
-  const draft = Array.isArray(l?.draft) ? l?.draft[0] : l?.draft;
-  const base = {
-    leagueId,
-    round,
-    paused: l?.paused ?? false,
-    draftPending: draft != null && draft.state !== 'done',
-    trouble: round?.state === 'closing' ? await roundTrouble(round.id) : null,
-    myTeamId,
-  };
-  if (!round || !myTeamId) return { ...base, myState: null, decisions: [] };
-  const [alerts, states] = await Promise.all([
-    supabase
-      .from('alerts')
-      .select('id, kind')
-      .eq('team_id', myTeamId)
-      .eq('status', 'open')
-      .eq('blocking', true),
-    serverReadiness(leagueId),
-  ]);
-  if (alerts.error) throw alerts.error;
-  const decisions = (alerts.data ?? []) as { id: string; kind: string }[];
-  const fromServer = states?.get(myTeamId);
-  const myState =
-    fromServer ?? (await localReadiness(myTeamId, round.id, round.number, decisions.length > 0));
-  return { ...base, myState, decisions };
-}
-
-/** Senza round_readiness (database non ancora aggiornato): Pronto e allenatore della propria squadra. */
-async function localReadiness(
-  teamId: string,
-  roundId: string,
-  roundNumber: number,
-  blocked: boolean,
-): Promise<Readiness> {
-  const [flag, coach] = await Promise.all([
-    supabase.from('ready_flags').select('ready').eq('round_id', roundId).eq('team_id', teamId).maybeSingle(),
-    supabase
-      .from('coach_delegations')
-      .select('team_id, active, until_round, until_at')
-      .eq('team_id', teamId)
-      .maybeSingle(),
-  ]);
-  if ((flag.data as { ready: boolean } | null)?.ready) return 'ready';
-  const d = coach.data as { active: boolean; until_round: number | null; until_at: string | null } | null;
-  const active = coachActive(
-    d ? { teamId, active: d.active, untilRound: d.until_round, untilAt: d.until_at } : undefined,
-    roundNumber,
-  );
-  if (!active) return 'waiting';
-  return blocked ? 'blocked' : 'coach';
 }
 
 /**

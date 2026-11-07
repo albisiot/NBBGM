@@ -252,11 +252,66 @@ export function seasonStandings(
       awayScore: g.awayScore as number,
       overtimes: g.overtimes,
     }));
+  return standingsFromRecords(league, played);
+}
+
+/** Classifica dalle partite di regular season giocate. */
+export function standingsFromRecords(
+  league: Pick<LeagueDetail, 'id' | 'teams' | 'seasonYear'>,
+  played: readonly GameRecord[],
+): Record<Conference, StandingsLine[]> {
   return standingsTable(
     engineTeams(league.teams),
-    played,
+    [...played],
     standingsSeed(league.id, league.seasonYear ?? 2026),
   );
+}
+
+/** Colonne per la sola classifica: niente id, serie, tipo e supplementari (le partite sono di regular season). */
+export const STANDINGS_COLUMNS = 'round_number, home_team_id, away_team_id, home_score, away_score';
+
+type ResultRow = {
+  round_number: number;
+  home_team_id: string;
+  away_team_id: string;
+  home_score: number | null;
+  away_score: number | null;
+};
+
+/** Partite di regular season giocate, per la classifica (le righe senza punteggio restano fuori). */
+export function toRecords(rows: readonly ResultRow[]): GameRecord[] {
+  return rows
+    .filter((g) => g.home_score !== null && g.away_score !== null)
+    .map((g) => ({
+      turn: g.round_number,
+      phase: 'regular',
+      homeId: g.home_team_id,
+      awayId: g.away_team_id,
+      homeScore: g.home_score as number,
+      awayScore: g.away_score as number,
+      overtimes: 0,
+    }));
+}
+
+/**
+ * Partite di regular season giocate di una stagione, con le sole colonne della classifica (per lo Storico): circa la
+ * metà dei byte delle partite complete.
+ */
+export async function regularSeasonRecords(seasonId: string): Promise<GameRecord[]> {
+  const rows = await allPages(async (from, to) => {
+    const { data, error } = await supabase
+      .from('games')
+      .select(STANDINGS_COLUMNS)
+      .eq('season_id', seasonId)
+      .eq('kind', 'regular')
+      .not('home_score', 'is', null)
+      .order('round_number')
+      .order('id')
+      .range(from, to);
+    if (error) throw error;
+    return (data ?? []) as ResultRow[];
+  });
+  return toRecords(rows);
 }
 
 export interface PlayerSeason {

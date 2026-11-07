@@ -299,14 +299,26 @@ export interface PickInfo {
   protection: number | null;
 }
 
-export async function leaguePicks(leagueId: string): Promise<PickInfo[]> {
-  const { data, error } = await supabase
+/**
+ * Filtro PostgREST per le righe in cui la squadra compare in una delle colonne:
+ * "owner_team_id.eq.X,original_team_id.eq.X".
+ */
+export function involving(teamId: string, columns: readonly string[]): string {
+  return columns.map((c) => `${c}.eq.${teamId}`).join(',');
+}
+
+/**
+ * Scelte al draft future della lega; con teamId solo quelle che la squadra possiede o ha ceduto (la pagina della
+ * squadra non scarica le circa 400 della lega per mostrarne una trentina).
+ */
+export async function leaguePicks(leagueId: string, teamId?: string): Promise<PickInfo[]> {
+  let query = supabase
     .from('draft_picks')
     .select('id, draft_year, round, original_team_id, owner_team_id, protection, player_id')
     .eq('league_id', leagueId)
-    .is('player_id', null)
-    .order('draft_year')
-    .order('round');
+    .is('player_id', null);
+  if (teamId) query = query.or(involving(teamId, ['owner_team_id', 'original_team_id']));
+  const { data, error } = await query.order('draft_year').order('round');
   if (error) throw error;
   return (
     (data ?? []) as {

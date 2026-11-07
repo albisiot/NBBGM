@@ -50,10 +50,23 @@ export type MarketAction =
 
 const millions = (x: number) => `${(x / 1e6).toFixed(2).replace('.', ',')} mln`;
 const ids = (x: unknown): string[] => (Array.isArray(x) ? x.filter((v) => typeof v === 'string') : []);
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/**
+ * Giocatore dell'azione (offerta, taglio, rinnovo), o null. La Edge Function legge lo stato con
+ * public.market_state(lega, giocatore), che dà le abilità solo a lui: servono per la sua richiesta. Un id che non è
+ * un uuid non arriva al database (darebbe un errore di tipo): il controllo dice poi che il giocatore non c'è.
+ */
+export function actionPlayer(action: MarketAction): string | null {
+  const id = (action as { player_id?: unknown }).player_id;
+  return typeof id === 'string' && UUID.test(id) ? id : null;
+}
 
 /**
  * Controlla l'azione del manager userId. Restituisce la squadra, il turno e l'azione da scrivere con
- * market_write; lancia MarketError con un messaggio per il manager se l'azione non è valida.
+ * market_write; lancia MarketError con un messaggio per il manager se l'azione non è valida. rows può essere lo stato
+ * completo (league_state) o quello leggero di market_state con il giocatore dell'azione (actionPlayer): il risultato
+ * è lo stesso.
  */
 export function checkMarketAction(
   rows: LeagueStateRows,

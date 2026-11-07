@@ -2,6 +2,9 @@
 import { FunctionsHttpError } from '@supabase/supabase-js';
 import { supabase } from './supabase.ts';
 
+/** Memoria del browser con l'ultima lega aperta (l'elenco delle leghe la riapre). */
+export const LAST_LEAGUE_KEY = 'nbbgm:ultima-lega';
+
 export interface MyLeague {
   leagueId: string;
   name: string;

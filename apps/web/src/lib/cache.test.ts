@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { allPages, KeyedCache } from './cache.ts';
-import { seasonKey } from './useSeason.ts';
+import { clearSeasonCache, currentStandings, seasonKey } from './useSeason.ts';
 
 describe('KeyedCache', () => {
   it('stessa lega e stesso turno: una lettura sola', async () => {
@@ -67,6 +67,63 @@ describe('KeyedCache', () => {
     expect(cache.scopes()).toEqual(['c']);
     cache.clear();
     expect(cache.scopes()).toEqual([]);
+  });
+});
+
+describe('lettura già fatta (seconda analisi, prestazioni)', () => {
+  it('has dice se c’è la lettura di quell’ambito con quella chiave', async () => {
+    const cache = new KeyedCache<number>();
+    expect(cache.has('lega', 's1:t1')).toBe(false);
+    const pending = cache.get('lega', 's1:t1', async () => 1);
+    expect(cache.has('lega', 's1:t1')).toBe(true);
+    await pending;
+    expect(cache.has('lega', 's1:t2')).toBe(false);
+    expect(cache.has('altra', 's1:t1')).toBe(false);
+  });
+
+  it('classifica della pagina squadra: le sole partite giocate, una volta per turno', async () => {
+    clearSeasonCache();
+    const teams = (['AAA', 'BBB'] as const).map((code) => ({
+      id: code,
+      code,
+      fullName: code,
+      conference: 'East' as const,
+      division: 'Atlantic',
+    }));
+    const league = {
+      id: 'L',
+      teams,
+      seasonId: 's1',
+      roundId: 't1',
+      seasonYear: 2026,
+    } as unknown as Parameters<typeof currentStandings>[0];
+    let reads = 0;
+    const read = {
+      records: async () => {
+        reads++;
+        return [
+          {
+            turn: 0,
+            phase: 'regular' as const,
+            homeId: 'BBB',
+            awayId: 'AAA',
+            homeScore: 90,
+            awayScore: 99,
+            overtimes: 0,
+          },
+        ];
+      },
+    };
+    const first = await currentStandings(league, read);
+    expect(first.East.map((l) => [l.teamId, l.w, l.l, l.confRank])).toEqual([
+      ['AAA', 1, 0, 1],
+      ['BBB', 0, 1, 2],
+    ]);
+    await currentStandings(league, read);
+    expect(reads).toBe(1);
+    // Turno nuovo: si rilegge
+    await currentStandings({ ...league, roundId: 't2' }, read);
+    expect(reads).toBe(2);
   });
 });
 

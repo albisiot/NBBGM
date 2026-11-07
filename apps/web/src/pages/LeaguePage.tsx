@@ -7,9 +7,15 @@ import { LeagueAdmin } from '../components/LeagueAdmin.tsx';
 import { WelcomeCard } from '../components/Onboarding.tsx';
 import { TurnCard } from '../components/TurnCard.tsx';
 import { Button, Card, ErrorText, PageTitle, Spinner } from '../components/ui.tsx';
-import { LAST_LEAGUE_KEY } from '../components/Layout.tsx';
 import { useUserId } from '../lib/auth.tsx';
-import { deadlineLabel, leagueDetail, paceLabel, statusLabel, type LeagueTeam } from '../lib/leagues.ts';
+import {
+  deadlineLabel,
+  LAST_LEAGUE_KEY,
+  leagueDetail,
+  paceLabel,
+  statusLabel,
+  type LeagueTeam,
+} from '../lib/leagues.ts';
 import { useAsync } from '../lib/useAsync.ts';
 
 export function LeaguePage() {

@@ -6,9 +6,10 @@ import type { PGlite } from '@electric-sql/pglite';
 import { askingSalary, CONFIG_2026_27, minimumSalaryFor, nextConfig, Rng } from '@nbbgm/engine';
 import { randomUUID } from 'node:crypto';
 import { beforeAll, describe, expect, it } from 'vitest';
-import { checkMarketAction, type MarketAction } from '../../supabase/functions/_shared/market.ts';
+import type { MarketAction } from '../../supabase/functions/_shared/market.ts';
 import { leagueStateFromRows, type LeagueStateRows } from '../../supabase/functions/_shared/state.ts';
 import { advanceLeague } from '../../supabase/functions/_shared/turn.ts';
+import { checkedMarketAction } from '../src/db/marketCheck.ts';
 import { buildSeedSql, seedIds } from '../src/db/seed.ts';
 import { asUser, createTestDb, serviceRpc } from '../src/db/testdb.ts';
 import { quickGame } from '../src/quick-game.ts';
@@ -47,9 +48,9 @@ async function nextTurn() {
   return r;
 }
 
+/** Come la Edge Function market (stato leggero), controllando che lo stato completo dica lo stesso. */
 async function act(user: string, action: MarketAction) {
-  const rows = await rpc().rpc<LeagueStateRows>('league_state', { p_league: LEAGUE });
-  const c = checkMarketAction(rows, user, action);
+  const c = await checkedMarketAction(rpc(), LEAGUE, user, action);
   return rpc().rpc<{ id: string }>('market_write', {
     p_league: LEAGUE,
     p_round: c.roundId,

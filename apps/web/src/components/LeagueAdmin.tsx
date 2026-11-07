@@ -12,6 +12,7 @@ import {
   expelManager,
   freeTeam,
   inviteEmail,
+  LAST_LEAGUE_KEY,
   leaveLeague,
   listBans,
   listInvites,
@@ -27,7 +28,6 @@ import {
   type LeagueDetail,
 } from '../lib/leagues.ts';
 import { useAsync } from '../lib/useAsync.ts';
-import { LAST_LEAGUE_KEY } from './Layout.tsx';
 import { Button, Card, ConfirmButton, ErrorText, TextInput } from './ui.tsx';
 
 export function LeagueAdmin({

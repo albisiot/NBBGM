@@ -1,5 +1,6 @@
 // Tabellone di play-in e playoff. In regular season mostra chi ci andrebbe se la stagione finisse oggi; poi le
 // partite di play-in e le serie al meglio di 7, giro per giro, fino alla finale.
+import { useMemo } from 'react';
 import { useParams } from 'react-router';
 import { Card, ErrorText, PageTitle, Spinner, TeamCode } from '../components/ui.tsx';
 import { useUserId } from '../lib/auth.tsx';
@@ -15,14 +16,15 @@ export function PlayoffPage() {
   const { id = '' } = useParams();
   const userId = useUserId();
   const { data, error, loading } = useSeason(id);
+  // La classifica si ricalcola solo con partite nuove
+  const standings = useMemo(() => (data ? seasonStandings(data.league, data.games) : null), [data]);
 
   if (loading && !data) return <Spinner />;
   if (error) return <ErrorText>{error}</ErrorText>;
-  if (!data) return <ErrorText>Lega non trovata, oppure non ne fai parte.</ErrorText>;
+  if (!data || !standings) return <ErrorText>Lega non trovata, oppure non ne fai parte.</ErrorText>;
   const { league, games, series } = data;
   const team = new Map(league.teams.map((t) => [t.id, t]));
   const mine = league.teams.find((t) => t.ownerId === userId)?.id;
-  const standings = seasonStandings(league, games);
   const playIn = games.filter((g) => g.kind === 'play-in');
   const final = series.find((s) => s.round === 4);
   const champion = final?.winnerTeamId ? team.get(final.winnerTeamId) : null;

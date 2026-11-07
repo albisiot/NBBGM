@@ -1,11 +1,11 @@
 // Edge Function market: le azioni di mercato del manager (offerte agli svincolati, proposte e risposte agli
-// scambi, tagli e rinnovi). Controlla l'utente, legge lo stato della lega, controlla l'azione con il motore
-// (checkMarketAction) e la scrive con market_write, che la accetta solo a turno aperto. Si esegue tutto alla
-// chiusura del turno.
+// scambi, tagli e rinnovi). Controlla l'utente, legge lo stato della lega (market_state: solo quello che serve ai
+// controlli, circa un quinto di league_state), controlla l'azione con il motore (checkMarketAction) e la scrive con
+// market_write, che la accetta solo a turno aperto. Si esegue tutto alla chiusura del turno.
 //
 // POST { league_id, action }  ->  { id }
 import { createClient } from 'npm:@supabase/supabase-js@2.118.0';
-import { checkMarketAction, MarketError, type MarketAction } from '../_shared/market.ts';
+import { actionPlayer, checkMarketAction, MarketError, type MarketAction } from '../_shared/market.ts';
 import type { LeagueStateRows } from '../_shared/state.ts';
 
 const CORS = {
@@ -49,10 +49,14 @@ Deno.serve(async (req) => {
     if (!leagueId || typeof body?.action !== 'object' || body.action === null)
       return json({ error: 'Richiesta non valida' }, 400);
 
-    const { data: rows, error } = await admin.rpc('league_state', { p_league: leagueId });
+    const action = body.action as MarketAction;
+    const { data: rows, error } = await admin.rpc('market_state', {
+      p_league: leagueId,
+      p_player: actionPlayer(action),
+    });
     if (error) throw new Error(`Lettura della lega: ${error.message}`);
     if (!rows) return json({ error: 'Lega non trovata' }, 404);
-    const checked = checkMarketAction(rows as LeagueStateRows, auth.user.id, body.action as MarketAction);
+    const checked = checkMarketAction(rows as LeagueStateRows, auth.user.id, action);
     const { data, error: writeError } = await admin.rpc('market_write', {
       p_league: leagueId,
       p_round: checked.roundId,

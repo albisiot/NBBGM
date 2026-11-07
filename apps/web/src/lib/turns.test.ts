@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   alertText,
   barFor,
+  barFromTurn,
   barView,
   coachActive,
   countsAsReady,
@@ -16,19 +17,23 @@ import {
   roundStuck,
   roundTitle,
   timeLeft,
+  turnFromServer,
   type BarStatus,
   type TurnStatus,
+  type TurnStatusRow,
 } from './turns.ts';
 
 const NOW = Date.parse('2026-11-05T12:00:00Z');
 
 function status(over: Partial<TurnStatus> = {}): TurnStatus {
   return {
+    leagueId: 'L',
     round: {
       id: 'r',
       number: 4,
       kind: 'regular',
       state: 'open',
+      stage: null,
       deadline: null,
       createdAt: '2026-11-05T11:59:00Z',
       forcedAt: null,
@@ -36,6 +41,7 @@ function status(over: Partial<TurnStatus> = {}): TurnStatus {
     },
     paused: false,
     maxPaceSeconds: 60,
+    draftPending: false,
     ready: new Set(),
     delegations: [],
     alerts: [],
@@ -359,5 +365,106 @@ describe('prima di segnarsi pronti (seconda analisi)', () => {
     expect(w).toHaveLength(2);
     expect(w[0]).toMatch(/non salvate/);
     expect(readyWarnings([], { unsaved: true })).toHaveLength(1);
+  });
+});
+
+describe('stato del turno in una lettura (seconda analisi, prestazioni)', () => {
+  const row = (over: Partial<TurnStatusRow> = {}): TurnStatusRow => ({
+    paused: false,
+    max_pace_seconds: 120,
+    season_id: 's',
+    round: {
+      id: 'r',
+      number: 12,
+      kind: 'regular',
+      state: 'open',
+      stage: null,
+      deadline: null,
+      created_at: '2026-11-05T11:59:00Z',
+      forced_at: null,
+      closing_started_at: null,
+      attempts: 0,
+      failed_at: null,
+    },
+    draft_state: 'done',
+    my_team_id: 't',
+    ready: ['a'],
+    delegations: [{ team_id: 't', active: true, until_round: null, until_at: null }],
+    alerts: [
+      { id: 'x', kind: 'trade_offer', blocking: true, payload: {}, created_at: '2026-11-05T11:00:00Z' },
+      { id: 'y', kind: 'injury', blocking: false, payload: {}, created_at: '2026-11-05T10:00:00Z' },
+    ],
+    last_game: {
+      round_number: 11,
+      home_team_id: 't',
+      away_team_id: 'a',
+      home_score: 101,
+      away_score: 99,
+      overtimes: null,
+    },
+    readiness: [
+      { team_id: 'a', state: 'ready' },
+      { team_id: 't', state: 'blocked' },
+      { team_id: 'z', state: 'sconosciuto' },
+    ],
+    playing: [],
+    champion_id: 'c',
+    ...over,
+  });
+
+  it('la risposta di turn_status diventa lo stesso stato delle letture separate', () => {
+    const s = turnFromServer('L', row());
+    expect(s).toMatchObject({
+      leagueId: 'L',
+      paused: false,
+      maxPaceSeconds: 120,
+      draftPending: false,
+      myTeamId: 't',
+      round: { id: 'r', number: 12, stage: null, createdAt: '2026-11-05T11:59:00Z' },
+      lastGame: { homeScore: 101, overtimes: 0 },
+      // In regular season giocano tutte e il campione non c'è ancora
+      playing: null,
+      championId: null,
+      trouble: null,
+    });
+    expect([...s.ready]).toEqual(['a']);
+    expect(s.alerts.map((a) => a.id)).toEqual(['x', 'y']);
+    expect(s.delegations).toEqual([{ teamId: 't', active: true, untilRound: null, untilAt: null }]);
+    // Gli stati che l'app non conosce restano fuori
+    expect([...(s.teamStates ?? new Map())]).toEqual([
+      ['a', 'ready'],
+      ['t', 'blocked'],
+    ]);
+    expect(readiness(s, 't', NOW)).toBe('blocked');
+  });
+
+  it('play-in, offseason, turno in chiusura, draft iniziale e chi non è nella lega', () => {
+    const r = row().round!;
+    const playIn = turnFromServer('L', row({ round: { ...r, kind: 'play-in' }, playing: ['t', 'a'] }));
+    expect([...(playIn.playing ?? [])]).toEqual(['t', 'a']);
+    expect(turnFromServer('L', row({ round: { ...r, kind: 'offseason', stage: 'fa1' } }))).toMatchObject({
+      championId: 'c',
+      round: { stage: 'fa1' },
+    });
+    expect(
+      turnFromServer('L', row({ round: { ...r, state: 'closing', attempts: 2, failed_at: null } })).trouble,
+    ).toEqual({ attempts: 2, failedAt: null });
+    expect(turnFromServer('L', row({ draft_state: 'running' })).draftPending).toBe(true);
+    expect(turnFromServer('L', row({ draft_state: null })).draftPending).toBe(false);
+    expect(turnFromServer('L', null)).toMatchObject({ round: null, myTeamId: null, teamStates: null });
+  });
+
+  it('la barra si ricava dallo stesso stato della scheda: stato della squadra e decisioni bloccanti', () => {
+    const bar = barFromTurn(turnFromServer('L', row()), NOW);
+    expect(bar).toMatchObject({
+      leagueId: 'L',
+      round: { id: 'r', number: 12, stage: null },
+      myTeamId: 't',
+      myState: 'blocked',
+      decisions: [{ id: 'x', kind: 'trade_offer' }],
+    });
+    expect(barView(bar, NOW)).toMatchObject({ badge: { label: 'Da decidere' }, decisions: 1 });
+    // Senza squadra non c'è la barra
+    expect(barView(barFromTurn(turnFromServer('L', row({ my_team_id: null })), NOW), NOW)).toBeNull();
   });
 });

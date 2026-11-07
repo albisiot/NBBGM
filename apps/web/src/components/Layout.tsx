@@ -3,7 +3,7 @@ import { Suspense, useEffect, useRef } from 'react';
 import { Link, NavLink, Outlet, useLocation, useMatch, useNavigate } from 'react-router';
 import { useAuth, useUserId } from '../lib/auth.tsx';
 import { refreshAppBadge } from '../lib/appBadge.ts';
-import { myLeagues } from '../lib/leagues.ts';
+import { LAST_LEAGUE_KEY, myLeagues } from '../lib/leagues.ts';
 import { lazyPart } from '../lib/lazyPage.ts';
 import { navScrollDelta } from '../lib/navScroll.ts';
 import { watchPushSubscription } from '../lib/pushWatch.ts';
@@ -11,8 +11,6 @@ import { onResume } from '../lib/resume.ts';
 import { useAsync } from '../lib/useAsync.ts';
 import { Spinner } from './ui.tsx';
 import { UpdateBanner } from './UpdateBanner.tsx';
-
-export const LAST_LEAGUE_KEY = 'nbbgm:ultima-lega';
 
 // La barra del turno arriva a pezzi come le pagine: all'avvio (pagina d'accesso, elenco delle leghe) non serve
 const TurnBar = lazyPart(() => import('./TurnBar.tsx'), 'TurnBar');

@@ -24,14 +24,13 @@ import {
   roundError,
   setPaused,
   setReady,
-  subscribeTurn,
   timeLeft,
-  turnStatus,
   type AlertItem,
   type Readiness,
   type RoundPhase,
   type RoundTrouble,
 } from '../lib/turns.ts';
+import { useTurn } from '../lib/turnStore.ts';
 import { useUnsaved } from '../lib/unsaved.ts';
 import { useAsync } from '../lib/useAsync.ts';
 import { ReadyConfirm } from './ReadyConfirm.tsx';
@@ -96,19 +95,22 @@ export function TurnCard({
 }) {
   const mine = league.teams.find((t) => t.ownerId === userId) ?? null;
   const isCommissioner = league.commissionerId === userId;
-  const {
-    data: status,
-    error,
-    reload,
-  } = useAsync(() => turnStatus(league.id, mine?.id ?? null), [league.id, mine?.id]);
+  // Stato del turno condiviso con la barra delle altre pagine: in tempo reale, a ogni Pronto, allenatore, avviso o
+  // cambio di turno
+  const { data: status, error, reload } = useTurn(league.id, userId);
   const [busy, setBusy] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
   const [askReady, setAskReady] = useState(false);
   const unsaved = useUnsaved(league.id);
   const [now, setNow] = useState(() => Date.now());
 
-  // Tempo reale: a ogni Pronto, allenatore, avviso o cambio di turno si rilegge
-  useEffect(() => subscribeTurn(league.id, reload), [league.id, reload]);
+  // La propria squadra è cambiata (lasciata, liberata dal commissario): avvisi e stato sono di un'altra squadra
+  const myTeam = mine?.id ?? null;
+  const seenTeam = useRef(myTeam);
+  useEffect(() => {
+    if (seenTeam.current !== myTeam) reload();
+    seenTeam.current = myTeam;
+  }, [myTeam, reload]);
   // Il conto alla rovescia della scadenza
   useEffect(() => {
     const t = setInterval(() => setNow(Date.now()), 15_000);

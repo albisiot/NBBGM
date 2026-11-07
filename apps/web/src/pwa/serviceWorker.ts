@@ -1,5 +1,8 @@
 // Service worker di NBBGM: il testo di sw.js lo genera la build (vite.config.ts) con serviceWorkerSource. Le
 // regole che contano stanno in funzioni pure, copiate così come sono nel service worker e provate nei test:
+//   - a una versione nuova si scaricano solo i file cambiati: quelli con l'hash nel nome (assets/) che una cache di
+//     prima ha già, e gli altri con la stessa impronta del contenuto, si copiano dalla cache vecchia (precachePlan);
+//     poi la cache vecchia si cancella;
 //   - la pagina si chiede sempre alla rete senza la cache HTTP (cache: 'no-cache'): una pagina vecchia
 //     punterebbe a file della build precedente, che dopo l'aggiornamento non ci sono più;
 //   - come pagina dell'app (per aprirla senza rete) si salva solo la pagina dell'app vera: risposta 200, non
@@ -11,6 +14,47 @@
 //     aperte, che la salvano sul server.
 // Supabase e gli altri siti non passano mai dal service worker.
 import { PUSH_CHANGED_MESSAGE } from './messages.ts';
+
+/**
+ * Un file della cache: indirizzo relativo (./assets/index-AbC12345.js) e impronta del contenuto. rev null: il
+ * nome ha già l'hash del contenuto (i file della build in assets/), quindi lo stesso nome è lo stesso file.
+ */
+export interface ShellEntry {
+  url: string;
+  rev: string | null;
+}
+
+/** File della build con l'hash del contenuto nel nome (assets/nome-AbC12345.js): non cambiano mai. */
+export function isHashedAsset(fileName: string): boolean {
+  return /^assets\/.+-[A-Za-z0-9_-]{8,}\.(js|css|woff2?|png|svg|webp)$/.test(fileName);
+}
+
+/** Cache di una versione precedente: indirizzi (assoluti) e impronte dei file che non hanno l'hash nel nome. */
+export interface PreviousCache {
+  name: string;
+  urls: readonly string[];
+  revisions: Readonly<Record<string, string>>;
+}
+
+/**
+ * Da dove prendere ogni file della versione nuova: dalla cache di una versione precedente (from: il suo nome) se
+ * ha lo stesso file, altrimenti dalla rete (from null). Lo stesso file: stesso nome per i file con l'hash, stessa
+ * impronta per gli altri (le cache scritte prima di questa regola non hanno impronte: i loro file senza hash si
+ * riscaricano).
+ */
+export function precachePlan(
+  shell: readonly ShellEntry[],
+  previous: readonly PreviousCache[],
+  scope: string,
+): { url: string; from: string | null }[] {
+  return shell.map((e) => {
+    const href = new URL(e.url, scope).href;
+    const hit = previous.find(
+      (c) => c.urls.includes(href) && (e.rev === null || c.revisions[e.url] === e.rev),
+    );
+    return { url: e.url, from: hit ? hit.name : null };
+  });
+}
 
 /** Quanto serve di una Response per decidere se è la pagina dell'app. */
 export interface ResponseInfo {
@@ -95,25 +139,68 @@ export function vapidKeyBytes(key: string): number[] {
  * Testo di sw.js: versione della build (cambia a ogni pubblicazione), file da tenere in cache e chiave pubblica
  * VAPID (per rifare l'iscrizione quando il browser la cambia; vuota senza notifiche).
  */
-export function serviceWorkerSource(version: string, shell: readonly string[], vapidKey = ''): string {
+export function serviceWorkerSource(
+  version: string,
+  shell: readonly (ShellEntry | string)[],
+  vapidKey = '',
+): string {
+  const entries: ShellEntry[] = shell.map((e) => (typeof e === 'string' ? { url: e, rev: version } : e));
   return `// Service worker di NBBGM, generato in build (apps/web/src/pwa/serviceWorker.ts).
 const CACHE = 'nbbgm-${version}';
-const SHELL = ${JSON.stringify(shell)};
+const SHELL = ${JSON.stringify(entries)};
+const REVISIONS = './nbbgm-impronte.json';
 const VAPID_KEY = ${JSON.stringify(vapidKeyBytes(vapidKey))};
 const PUSH_CHANGED = ${JSON.stringify(PUSH_CHANGED_MESSAGE)};
 const isAppShellResponse = ${isAppShellResponse.toString()};
 const looksLikeAppShell = ${looksLikeAppShell.toString()};
 const notificationTarget = ${notificationTarget.toString()};
 const notificationFromPush = ${notificationFromPush.toString()};
+const precachePlan = ${precachePlan.toString()};
 
-// I file si scaricano senza la cache HTTP: una pagina vecchia di qualche minuto punterebbe alla build di prima
-self.addEventListener('install', (event) => {
-  event.waitUntil(
-    caches
-      .open(CACHE)
-      .then((c) => c.addAll(SHELL.map((url) => new Request(url, { cache: 'reload' }))))
-      .then(() => self.skipWaiting()),
+// Cache delle versioni precedenti, con indirizzi e impronte dei loro file
+async function previousCaches() {
+  const names = (await caches.keys()).filter((k) => k.startsWith('nbbgm-') && k !== CACHE);
+  return Promise.all(
+    names.map(async (name) => {
+      const cache = await caches.open(name);
+      const urls = (await cache.keys()).map((r) => r.url);
+      let revisions = {};
+      try {
+        const saved = await cache.match(REVISIONS);
+        revisions = saved ? await saved.json() : {};
+      } catch {
+        revisions = {};
+      }
+      return { name, urls, revisions };
+    }),
   );
+}
+
+// I file uguali si copiano dalle cache di prima, gli altri si scaricano senza la cache HTTP (una pagina vecchia di
+// qualche minuto punterebbe alla build di prima). Se un file non arriva l'installazione fallisce e il browser
+// riprova più tardi: intanto resta la versione di prima, intera
+async function precache() {
+  await caches.delete(CACHE);
+  const cache = await caches.open(CACHE);
+  const plan = precachePlan(SHELL, await previousCaches(), self.registration.scope);
+  await Promise.all(
+    plan.map(async (p) => {
+      if (p.from) {
+        const hit = await (await caches.open(p.from)).match(p.url);
+        if (hit) return cache.put(p.url, hit);
+      }
+      const response = await fetch(new Request(p.url, { cache: 'reload' }));
+      if (!response.ok) throw new Error('File non scaricato: ' + p.url);
+      return cache.put(p.url, response);
+    }),
+  );
+  const revisions = {};
+  for (const e of SHELL) if (e.rev !== null) revisions[e.url] = e.rev;
+  await cache.put(REVISIONS, new Response(JSON.stringify(revisions), { headers: { 'Content-Type': 'application/json' } }));
+}
+
+self.addEventListener('install', (event) => {
+  event.waitUntil(precache().then(() => self.skipWaiting()));
 });
 
 self.addEventListener('activate', (event) => {

@@ -9,16 +9,16 @@ import {
   defaultSeason,
   leagueFinals,
   leagueSeasons,
+  pastSeason,
   seasonLabel,
   seasonPlayers,
   type LeagueSeason,
   type SeasonPlayer,
 } from '../lib/history.ts';
 import { leagueDetail, type LeagueDetail, type LeagueTeam } from '../lib/leagues.ts';
-import { seasonGames, seasonStandings } from '../lib/results.ts';
 import { useAsync } from '../lib/useAsync.ts';
 import { useRoundChange } from '../lib/useRoundChange.ts';
-import { seasonRows } from '../lib/useSeason.ts';
+import { currentStandings } from '../lib/useSeason.ts';
 
 const LINK = 'font-semibold text-orange-700 hover:underline dark:text-orange-300';
 
@@ -100,13 +100,13 @@ export function HistoryPage() {
 }
 
 async function loadSeason(league: LeagueDetail, season: LeagueSeason) {
-  const [{ players, live }, games] = await Promise.all([
+  // Stagione finita: dalla memoria se già vista
+  if (!season.current || !league.seasonId) return { ...(await pastSeason(league, season)), live: false };
+  // Stagione in corso: la classifica del turno (dalla memoria se c'è), i giocatori cambiano a ogni turno
+  const [{ players, live }, standings] = await Promise.all([
     seasonPlayers(league.id, season),
-    season.current && league.seasonId
-      ? seasonRows({ ...league, seasonId: league.seasonId }).then((r) => r.games)
-      : seasonGames(season.id),
+    currentStandings({ ...league, seasonId: league.seasonId, seasonYear: season.year }),
   ]);
-  const standings = seasonStandings({ ...league, seasonYear: season.year }, games);
   return { players, live, standings };
 }
 

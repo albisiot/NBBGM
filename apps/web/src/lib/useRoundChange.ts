@@ -1,45 +1,28 @@
 // Pagine con i dati del turno (squadra, mercato, risultati, classifica): quando la lega passa al turno
-// successivo si rileggono, così nessuno decide guardando un turno vecchio. Il cambio arriva in tempo reale o, se
-// l'app era in background e gli eventi si sono persi, al ritorno in primo piano.
+// successivo si rileggono, così nessuno decide guardando un turno vecchio. Il cambio lo dice lo stato del turno
+// condiviso con la barra (lib/turnStore.ts): in tempo reale, ogni 30 secondi o al ritorno in primo piano, senza un
+// canale e una lettura in più per ogni pagina.
 import { useEffect, useRef } from 'react';
-import { supabase } from './supabase.ts';
-import { channelName, currentRoundId, onResume } from './turns.ts';
+import { useUserId } from './auth.tsx';
+import { roundChangeWatcher, turnKey, turnSource, turnStore } from './turnStore.ts';
 
 /** Chiama onChange quando cambia il turno corrente della lega. */
 export function useRoundChange(leagueId: string | undefined, onChange: () => void): void {
+  const userId = useUserId();
   const callback = useRef(onChange);
   useEffect(() => {
     callback.current = onChange;
   });
   useEffect(() => {
     if (!leagueId) return;
-    let alive = true;
-    let last: string | null | undefined;
+    const key = turnKey(leagueId, userId);
+    const changed = roundChangeWatcher();
     const check = () => {
-      currentRoundId(leagueId).then(
-        (id) => {
-          if (!alive) return;
-          if (last !== undefined && id !== last) callback.current();
-          last = id;
-        },
-        () => {
-          // Rete assente: si riprova al prossimo segnale
-        },
-      );
+      if (changed(turnStore.snapshot(key).data)) callback.current();
     };
+    const stop = turnStore.subscribe(key, turnSource(leagueId, userId), check);
+    // Dati già in memoria (la barra li ha letti): sono il turno di partenza
     check();
-    const channel = supabase.channel(channelName('pagina', leagueId));
-    channel.on(
-      'postgres_changes',
-      { event: '*', schema: 'public', table: 'rounds', filter: `league_id=eq.${leagueId}` },
-      check,
-    );
-    channel.subscribe();
-    const stopResume = onResume(check);
-    return () => {
-      alive = false;
-      stopResume();
-      void supabase.removeChannel(channel);
-    };
-  }, [leagueId]);
+    return stop;
+  }, [leagueId, userId]);
 }

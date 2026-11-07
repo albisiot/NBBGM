@@ -35,6 +35,11 @@ export class KeyedCache<T> {
     return value;
   }
 
+  /** C'è (o è in corso) la lettura dell'ambito con questa chiave. */
+  has(scope: string, key: string): boolean {
+    return this.entries.get(scope)?.key === key;
+  }
+
   /** Dimentica un ambito (o tutto). */
   clear(scope?: string): void {
     if (scope === undefined) this.entries.clear();

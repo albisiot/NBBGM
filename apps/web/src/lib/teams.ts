@@ -1,6 +1,6 @@
 // Pagina di una squadra qualsiasi della lega: rosa con overall, ruoli e contratti (pubblici), scelte al draft
 // possedute con protezioni e swap, record. Il bilancio resta riservato (team_balance): qui non si legge.
-import type { PickInfo } from './market.ts';
+import { involving, type PickInfo } from './market.ts';
 import { supabase } from './supabase.ts';
 
 export interface SwapInfo {
@@ -11,15 +11,18 @@ export interface SwapInfo {
   otherTeamId: string;
 }
 
-/** Swap ancora da decidere (dopo la lottery dell'anno si sa chi ha preso cosa). */
-export async function openSwaps(leagueId: string): Promise<SwapInfo[]> {
-  const { data, error } = await supabase
+/**
+ * Swap ancora da decidere (dopo la lottery dell'anno si sa chi ha preso cosa); con teamId solo quelli in cui c'è la
+ * squadra.
+ */
+export async function openSwaps(leagueId: string, teamId?: string): Promise<SwapInfo[]> {
+  let query = supabase
     .from('draft_swaps')
     .select('id, draft_year, round, holder_team_id, other_team_id')
     .eq('league_id', leagueId)
-    .is('result', null)
-    .order('draft_year')
-    .order('round');
+    .is('result', null);
+  if (teamId) query = query.or(involving(teamId, ['holder_team_id', 'other_team_id']));
+  const { data, error } = await query.order('draft_year').order('round');
   if (error) throw error;
   return (
     (data ?? []) as {

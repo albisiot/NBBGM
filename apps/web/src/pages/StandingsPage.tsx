@@ -1,7 +1,7 @@
 // Classifica di regular season per conference (1-6 ai playoff, 7-10 al play-in) o per division. È la stessa
 // classifica, spareggi compresi, che il server usa per il tabellone.
 import type { StandingsLine } from '@nbbgm/engine';
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { Link, useParams } from 'react-router';
 import { Card, ErrorText, PageTitle, Segmented, Spinner, TeamCode } from '../components/ui.tsx';
 import { useUserId } from '../lib/auth.tsx';
@@ -19,12 +19,13 @@ export function StandingsPage() {
   const userId = useUserId();
   const [view, setView] = useState<'conference' | 'division'>('conference');
   const { data, error, loading } = useSeason(id);
+  // La classifica si ricalcola solo con partite nuove, non a ogni cambio di vista
+  const table = useMemo(() => (data ? seasonStandings(data.league, data.games) : null), [data]);
 
   if (loading && !data) return <Spinner />;
   if (error) return <ErrorText>{error}</ErrorText>;
-  if (!data) return <ErrorText>Lega non trovata, oppure non ne fai parte.</ErrorText>;
+  if (!data || !table) return <ErrorText>Lega non trovata, oppure non ne fai parte.</ErrorText>;
   const { league, games } = data;
-  const table = seasonStandings(league, games);
   const team = new Map(league.teams.map((t) => [t.id, t]));
   const mine = league.teams.find((t) => t.ownerId === userId)?.id;
   const played = games.filter((g) => g.kind === 'regular' && g.homeScore !== null).length;

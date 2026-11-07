@@ -9,6 +9,7 @@ import { beforeAll, describe, expect, it } from 'vitest';
 import { checkMarketAction, type MarketAction } from '../../supabase/functions/_shared/market.ts';
 import type { LeagueStateRows } from '../../supabase/functions/_shared/state.ts';
 import { advanceLeague } from '../../supabase/functions/_shared/turn.ts';
+import { checkedMarketAction, marketState } from '../src/db/marketCheck.ts';
 import { buildSeedSql, seedIds } from '../src/db/seed.ts';
 import { asUser, createTestDb, serviceRpc } from '../src/db/testdb.ts';
 import { quickGame } from '../src/quick-game.ts';
@@ -27,10 +28,9 @@ let db: PGlite;
 let initialBalance: Map<string, number>;
 const rpc = () => serviceRpc(db);
 
-/** Come la Edge Function market. */
+/** Come la Edge Function market (stato leggero di market_state), controllando che lo stato completo dica lo stesso. */
 async function act(user: string, action: MarketAction): Promise<string> {
-  const rows = await rpc().rpc<LeagueStateRows>('league_state', { p_league: LEAGUE });
-  const c = checkMarketAction(rows, user, action);
+  const c = await checkedMarketAction(rpc(), LEAGUE, user, action);
   const r = await rpc().rpc<{ id: string }>('market_write', {
     p_league: LEAGUE,
     p_round: c.roundId,
@@ -248,6 +248,41 @@ describe('scambi', () => {
   });
 });
 
+describe('lettura leggera per le azioni di mercato (seconda analisi, prestazioni)', () => {
+  it('market_state pesa meno di un quarto di league_state e dà le abilità solo al giocatore dell’azione', async () => {
+    const [mine] = await standard(BOS);
+    const action: MarketAction = { kind: 'release', player_id: mine!.id };
+    const full = JSON.stringify(await rpc().rpc<LeagueStateRows>('league_state', { p_league: LEAGUE }));
+    const light = await marketState(rpc(), LEAGUE, action);
+    const bytes = JSON.stringify(light).length;
+    console.info(
+      `league_state ${(full.length / 1024).toFixed(0)} KB, market_state ${(bytes / 1024).toFixed(0)} KB`,
+    );
+    expect(bytes).toBeLessThan(full.length / 4);
+    expect(light.games).toEqual([]);
+    expect(light.league.seed).toBe('');
+    const withRatings = light.players.filter((p) => p.ratings);
+    expect(withRatings.map((p) => p.id)).toEqual([mine!.id]);
+    // Senza svincolati, salvo quello dell'azione
+    expect(light.players.every((p) => p.team_id !== null)).toBe(true);
+    // Senza giocatore (scambi, ritiri): nessuna abilità
+    const trade = await marketState(rpc(), LEAGUE, { kind: 'withdraw_bid', bid_id: randomUUID() });
+    expect(trade.players.some((p) => p.ratings)).toBe(false);
+  });
+
+  it('un id che non è un uuid non arriva al database: il giocatore non c’è', async () => {
+    await expect(
+      act(ANNA, { kind: 'bid', player_id: 'non-un-uuid', salary: 1_000_000, years: 1 }),
+    ).rejects.toThrow(/non è svincolato/);
+  });
+
+  it('market_state la chiama solo il server', async () => {
+    await expect(
+      asUser(db, ANNA, (tx) => tx.query('select public.market_state($1)', [LEAGUE])),
+    ).rejects.toThrow(/permission denied/);
+  });
+});
+
 describe('tagli, rinnovi e svincolati', () => {
   it('il taglio lascia lo stipendio residuo a bilancio; il rinnovo allunga il contratto', async () => {
     const mine = await standard(BOS);
@@ -329,7 +364,7 @@ describe('tagli, rinnovi e svincolati', () => {
     const ask = inSeasonAsk(state, p);
     expect(ask).toBe(minimumSalaryFor(state.config, p.yearsInLeague));
     // La cifra mostrata dall'app (arrotondata ai 10.000 $, anche per difetto) vale come la richiesta esatta
-    const rows = await rpc().rpc<LeagueStateRows>('league_state', { p_league: LEAGUE });
+    const rows = await marketState(rpc(), LEAGUE, { kind: 'bid', player_id: weak, salary: ask, years: 1 });
     for (const shown of [Math.round(Number((ask / 1e6).toFixed(2)) * 1e6), ask - 5_000, ask + 5_000]) {
       const c = checkMarketAction(rows, BRUNO, { kind: 'bid', player_id: weak, salary: shown, years: 1 });
       expect(c.write).toMatchObject({ salaries: [ask] });

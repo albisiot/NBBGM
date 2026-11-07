@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import type { PickInfo } from './market.ts';
+import { involving, type PickInfo } from './market.ts';
 import { contractSummary, teamPayroll, teamPicks, teamSwaps, type SwapInfo } from './teams.ts';
 
 const pick = (over: Partial<PickInfo>): PickInfo => ({
@@ -39,6 +39,15 @@ describe('pagina di una squadra', () => {
     const r = teamSwaps([w('1', 'A', 'B'), w('2', 'C', 'A'), w('3', 'B', 'C')], 'A');
     expect(r.held.map((x) => x.id)).toEqual(['1']);
     expect(r.given.map((x) => x.id)).toEqual(['2']);
+  });
+
+  it('scelte e swap si chiedono solo per la squadra (filtro sulle colonne in cui compare)', () => {
+    expect(involving('t1', ['owner_team_id', 'original_team_id'])).toBe(
+      'owner_team_id.eq.t1,original_team_id.eq.t1',
+    );
+    expect(involving('t1', ['holder_team_id', 'other_team_id'])).toBe(
+      'holder_team_id.eq.t1,other_team_id.eq.t1',
+    );
   });
 
   it('monte stipendi senza i two-way, con i residui dei tagliati', () => {
