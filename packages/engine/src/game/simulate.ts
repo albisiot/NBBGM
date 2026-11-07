@@ -23,6 +23,11 @@ interface SimPlayer {
   subOut: number;
   subIn: number;
   injured: boolean;
+  /**
+   * Infortunato rimasto nello slot perché non c'era nessuno per sostituirlo: non gioca più, la squadra resta in 4
+   * (o meno). Non tira, non passa, non difende, non prende rimbalzi e non accumula minuti.
+   */
+  absent: boolean;
   formOff: number;
   formDef: number;
   sizeF: number;
@@ -65,6 +70,28 @@ interface Side {
   possessions: number;
   lastSubCheck: number;
   zones: Record<Zone, { m: number; a: number }>;
+}
+
+/** Giocatori minimi in campo: sotto, chi si infortuna senza sostituto continua (come per la FIBA, che con meno di 2 dà la partita persa). */
+const MIN_PRESENT = 2;
+
+/** Difesa di una squadra che gioca in meno di 5. */
+const SHORTHANDED_DEFENSE = 0.85;
+
+/** In campo e in grado di giocare (senza gli assenti). */
+function present(side: Side): SimPlayer[] {
+  return side.court.filter((sp) => !sp.absent);
+}
+
+/**
+ * I due lunghi (slot 4 e 5) che proteggono il ferro e aiutano, senza gli assenti; se mancano entrambi, chi c'è
+ * (con fallback: false niente, per le stoppate dove il marcatore c'è già).
+ */
+function insideDefenders(side: Side, fallback = true): SimPlayer[] {
+  const bigs = [side.court[3] as SimPlayer, side.court[4] as SimPlayer];
+  if (!bigs[0]?.absent && !bigs[1]?.absent) return bigs;
+  const left = bigs.filter((b) => !b.absent);
+  return left.length > 0 || !fallback ? left : present(side);
 }
 
 interface ShotPlan {
@@ -211,6 +238,7 @@ class GameSim {
         subOut: Math.max(this.P.subEnergyFloor, this.P.subEnergy - this.P.longSubOutStep * extra),
         subIn: Math.max(this.P.returnEnergyFloor, this.P.returnEnergy - this.P.longSubInStep * extra),
         injured: false,
+        absent: false,
         formOff,
         formDef,
         sizeF: ((p.heightCm + 0.5 * (p.wingspanCm - p.heightCm)) / 203) ** 4,
@@ -308,8 +336,10 @@ class GameSim {
 
   private jumpBall(): boolean {
     const reach = (s: Side) => {
-      const c = s.court[4] as SimPlayer;
-      return c.p.heightCm + c.p.ratings.vertical / 4;
+      const center = s.court[4] as SimPlayer;
+      const jump = (c: SimPlayer) => c.p.heightCm + c.p.ratings.vertical / 4;
+      if (!center.absent) return jump(center);
+      return Math.max(...present(s).map(jump));
     };
     return this.rng.chance(1 / (1 + Math.exp((reach(this.away) - reach(this.home)) / 6)));
   }
@@ -361,7 +391,7 @@ class GameSim {
         this.intensity(side, 0.9, 1.15) *
         (side.setup.tactics.pace === 'fast' ? 1.08 : side.setup.tactics.pace === 'slow' ? 0.94 : 1);
       for (const sp of side.players) {
-        if (sp.slot >= 0) {
+        if (sp.slot >= 0 && !sp.absent) {
           sp.line.seconds += dt;
           sp.energy = Math.max(0, sp.energy - (P.energyDrain * sp.staminaF * drainF * dt) / 60);
           this.rollInjury(sp, side, dt);
@@ -460,7 +490,19 @@ class GameSim {
       const eligible = bench.filter(
         (c) => forced || c.energy >= c.subIn || (late && side.closers.has(c) && c.energy >= 55),
       );
-      if (eligible.length === 0) continue;
+      if (eligible.length === 0) {
+        // Infortunato senza nessuno per sostituirlo: esce lo stesso e la squadra resta in 4 (o meno), finché in
+        // campo restano almeno MIN_PRESENT giocatori. Chi ha 6 falli invece resta, come nella NBA.
+        if (cur.injured && !cur.absent && present(side).length > MIN_PRESENT) {
+          cur.absent = true;
+          this.event(
+            side,
+            [cur.p.id],
+            `${cur.p.lastName} esce: nessuno può sostituirlo, si gioca in ${present(side).length}`,
+          );
+        }
+        continue;
+      }
       const wantOut =
         forced ||
         this.foulTrouble(cur) ||
@@ -473,6 +515,7 @@ class GameSim {
         continue;
       best.slot = slot;
       cur.slot = -1;
+      cur.absent = false;
       side.court[slot] = best;
       this.event(side, [best.p.id, cur.p.id], `Entra ${best.p.lastName}, esce ${cur.p.lastName}`);
     }
@@ -504,6 +547,7 @@ class GameSim {
       const cur = side.court[bestSlot] as SimPlayer;
       c.slot = bestSlot;
       cur.slot = -1;
+      cur.absent = false;
       side.court[bestSlot] = c;
       this.event(side, [c.p.id, cur.p.id], `Entra ${c.p.lastName}, esce ${cur.p.lastName}`);
     }
@@ -531,9 +575,11 @@ class GameSim {
         // Qualche secondo per arrivare al fallo, lasciandone almeno uno sul cronometro
         this.advance(Math.min(this.rng.int(2, 4), Math.max(0, this.clock - 1)));
         const target = off.court[
-          this.rng.weightedIndex(off.court.map((sp) => (100 - this.r(sp, 'freeThrow')) ** 2))
+          this.rng.weightedIndex(
+            off.court.map((sp) => (sp.absent ? 0 : (100 - this.r(sp, 'freeThrow')) ** 2)),
+          )
         ] as SimPlayer;
-        const fouler = this.rng.pick(def.court);
+        const fouler = this.rng.pick(present(def));
         const bonus = this.commitFoul(def, fouler, target, 'fallo sistematico');
         if (bonus) {
           // Con il rimbalzo offensivo sull'ultimo libero il possesso continua: chi è sotto fa di nuovo fallo
@@ -593,9 +639,11 @@ class GameSim {
       const pressure =
         def.court.reduce(
           (a, d) =>
-            a +
-            (0.5 * this.r(d, 'steal', 'def') + 0.5 * this.r(d, 'passLaneReading', 'def')) *
-              (0.85 + (0.3 * d.p.tendencies.steal) / 100),
+            d.absent
+              ? a
+              : a +
+                (0.5 * this.r(d, 'steal', 'def') + 0.5 * this.r(d, 'passLaneReading', 'def')) *
+                  (0.85 + (0.3 * d.p.tendencies.steal) / 100),
           0,
         ) / 5;
       const pTo =
@@ -606,14 +654,16 @@ class GameSim {
       if (this.rng.chance(pTo)) return this.turnover(off, def, handler);
 
       // Fallo lontano dal tiro
-      const hardness = def.court.reduce((a, d) => a + d.p.tendencies.hardFoul, 0) / 5;
+      const hardness = def.court.reduce((a, d) => (d.absent ? a : a + d.p.tendencies.hardFoul), 0) / 5;
       if (
         this.rng.chance(
           P.nonShootingFoulBase * this.intensity(def, 0.9, 1.15) * (0.8 + (0.4 * hardness) / 100),
         )
       ) {
         const fouler = def.court[
-          this.rng.weightedIndex(def.court.map((d) => d.p.tendencies.hardFoul + d.p.tendencies.steal))
+          this.rng.weightedIndex(
+            def.court.map((d) => (d.absent ? 0 : d.p.tendencies.hardFoul + d.p.tendencies.steal)),
+          )
         ] as SimPlayer;
         if (this.commitFoul(def, fouler, handler, 'fallo')) {
           // Rimbalzo offensivo sull'ultimo libero: stesso possesso, con 14 secondi
@@ -684,7 +734,7 @@ class GameSim {
 
   private transitionChance(side: Side, base: number): number {
     const pace = side.setup.tactics.pace;
-    const speed = side.court.reduce((a, sp) => a + this.r(sp, 'speed'), 0) / 5;
+    const speed = side.court.reduce((a, sp) => (sp.absent ? a : a + this.r(sp, 'speed')), 0) / 5;
     return base * (pace === 'fast' ? 1.35 : pace === 'slow' ? 0.7 : 1) * (0.7 + (0.6 * speed) / 100);
   }
 
@@ -716,8 +766,8 @@ class GameSim {
   private pickHandler(off: Side): SimPlayer {
     return off.court[
       this.rng.weightedIndex(
-        off.court.map(
-          (sp) => this.usage(sp) * ((this.r(sp, 'ballHandle') + this.r(sp, 'passVision')) / 130) ** 2,
+        off.court.map((sp) =>
+          sp.absent ? 0 : this.usage(sp) * ((this.r(sp, 'ballHandle') + this.r(sp, 'passVision')) / 130) ** 2,
         ),
       )
     ] as SimPlayer;
@@ -725,7 +775,9 @@ class GameSim {
 
   // ------------------------------------------------------------ scelta del tiro
   private planShot(off: Side, def: Side, transition: boolean, goal: ShotGoal): ShotPlan {
-    const shooter = off.court[this.rng.weightedIndex(off.court.map((sp) => this.usage(sp)))] as SimPlayer;
+    const shooter = off.court[
+      this.rng.weightedIndex(off.court.map((sp) => (sp.absent ? 0 : this.usage(sp))))
+    ] as SimPlayer;
     if (transition) {
       const three = this.rng.chance(0.27 * (0.5 + shooter.p.tendencies.three / 100));
       if (three)
@@ -858,7 +910,7 @@ class GameSim {
           };
         }
         if (k === 1) return this.drivePlan(off, def, shooter, A.drive, true);
-        const mates = off.court.filter((sp) => sp !== shooter);
+        const mates = off.court.filter((sp) => sp !== shooter && !sp.absent);
         if (k === 2) {
           const roller = mates[
             this.rng.weightedIndex(
@@ -911,14 +963,14 @@ class GameSim {
     const P = this.P;
     let helper: SimPlayer | null = null;
     if (canHelp) {
-      const bigs = [def.court[3] as SimPlayer, def.court[4] as SimPlayer];
+      const bigs = insideDefenders(def);
       const h = bigs.reduce((a, b) =>
         this.r(b, 'helpDefense', 'def') > this.r(a, 'helpDefense', 'def') ? b : a,
       );
       const zoneF = def.setup.tactics.defense === 'zone' ? 1.15 : 1;
       if (this.rng.chance(P.helpChance * (this.r(h, 'helpDefense', 'def') / 65) * zoneF)) {
         if (this.rng.chance(P.kickOutChance * (this.r(shooter, 'passVision') / 70))) {
-          const mates = off.court.filter((sp) => sp !== shooter);
+          const mates = off.court.filter((sp) => sp !== shooter && !sp.absent);
           const kick = mates[
             this.rng.weightedIndex(mates.map((sp) => (this.r(sp, 'threePoint') / 70) ** 3))
           ] as SimPlayer;
@@ -990,18 +1042,23 @@ class GameSim {
     const inside = zone === 'rim' || zone === 'short';
     const valueOf = (d: SimPlayer) => this.defenseValue(d, zone);
     // Vicino a canestro conta anche il miglior protettore del ferro, non solo il marcatore
-    const rimGuard = () => Math.max(valueOf(def.court[3] as SimPlayer), valueOf(def.court[4] as SimPlayer));
+    const rimGuard = () => Math.max(...insideDefenders(def).map(valueOf));
+    // In 4 (o meno) si difende peggio: qualcuno resta sempre libero
+    const short = def.court.some((d) => d.absent) ? SHORTHANDED_DEFENSE : 1;
     if (def.setup.tactics.defense === 'zone') {
-      const group = inside ? def.court.slice(3) : def.court.slice(0, 3);
+      let group = (inside ? def.court.slice(3) : def.court.slice(0, 3)).filter((d) => !d.absent);
+      if (group.length === 0) group = present(def);
       const avg = group.reduce((a, d) => a + valueOf(d), 0) / group.length;
       const d = group[this.rng.weightedIndex(group.map((g) => valueOf(g)))] as SimPlayer;
-      return { d, value: avg * (inside ? 1.03 : 0.97) };
+      return { d, value: avg * (inside ? 1.03 : 0.97) * short };
     }
-    const d = def.court[shooter.slot] as SimPlayer;
+    // Senza il suo marcatore (assente) sul tiratore arriva il migliore di chi c'è
+    const marker = def.court[shooter.slot] as SimPlayer;
+    const d = marker.absent ? present(def).reduce((a, b) => (valueOf(b) > valueOf(a) ? b : a)) : marker;
     const value = inside
       ? (1 - this.P.rimProtectionShare) * valueOf(d) + this.P.rimProtectionShare * rimGuard()
       : valueOf(d);
-    return { d, value };
+    return { d, value: value * short };
   }
 
   private shoot(
@@ -1062,9 +1119,7 @@ class GameSim {
 
     // Stoppata: vicino a canestro è lei a causare l'errore. Può stoppare il marcatore, chi aiuta o il lungo vicino.
     if (zone === 'rim' || zone === 'short') {
-      const candidates = plan.helper
-        ? [plan.helper, d]
-        : [d, def.court[3] as SimPlayer, def.court[4] as SimPlayer];
+      const candidates = plan.helper ? [plan.helper, d] : [d, ...insideDefenders(def, false)];
       const blockPower = (b: SimPlayer) => {
         const reach = clamp((b.p.wingspanCm - b.p.heightCm + 10) / 15, 0.6, 1.5) * b.sizeF ** 0.5;
         return (this.r(b, 'block', 'def') / 70) ** 1.6 * (0.7 + (0.6 * b.p.tendencies.block) / 100) * reach;
@@ -1113,7 +1168,7 @@ class GameSim {
     let passer = plan.passer;
     if (this.rng.chance(plan.assistP)) {
       if (!passer) {
-        const mates = off.court.filter((sp) => sp !== shooter);
+        const mates = off.court.filter((sp) => sp !== shooter && !sp.absent);
         passer = mates[
           this.rng.weightedIndex(
             mates.map(
@@ -1137,8 +1192,8 @@ class GameSim {
   private score(off: Side, def: Side, sp: SimPlayer, points: number): void {
     sp.line.pts += points;
     off.score += points;
-    for (const c of off.court) c.line.plusMinus += points;
-    for (const c of def.court) c.line.plusMinus -= points;
+    for (const c of off.court) if (!c.absent) c.line.plusMinus += points;
+    for (const c of def.court) if (!c.absent) c.line.plusMinus -= points;
   }
 
   /** Registra un fallo; restituisce true se manda in lunetta per il bonus. */
@@ -1182,7 +1237,7 @@ class GameSim {
     const norm = (key: RatingKey) =>
       key === 'offensiveRebound' ? P.reboundMeans.offensive : P.reboundMeans.defensive;
     const strength = (sp: SimPlayer, key: RatingKey) =>
-      (this.r(sp, key) / norm(key)) * sp.sizeF * (0.8 + (0.4 * sp.p.ratings.hustle) / 100);
+      sp.absent ? 0 : (this.r(sp, key) / norm(key)) * sp.sizeF * (0.8 + (0.4 * sp.p.ratings.hustle) / 100);
     const O = off.court.reduce((a, sp) => a + strength(sp, 'offensiveRebound'), 0);
     const D = def.court.reduce((a, sp) => a + strength(sp, 'defensiveRebound'), 0);
     const base = P.offensiveReboundBase * factor;
@@ -1215,11 +1270,11 @@ class GameSim {
   private turnover(off: Side, def: Side, handler: SimPlayer): { side: Side; transition: boolean } {
     const P = this.P;
     handler.line.tov++;
-    const stealLean = def.court.reduce((a, d) => a + d.p.tendencies.steal, 0) / 5;
+    const stealLean = def.court.reduce((a, d) => (d.absent ? a : a + d.p.tendencies.steal), 0) / 5;
     if (this.rng.chance(P.liveBallTurnoverShare * (0.8 + (0.4 * stealLean) / 100))) {
       const stealer = def.court[
         this.rng.weightedIndex(
-          def.court.map((d) => (this.r(d, 'steal', 'def') * d.p.tendencies.steal) ** 1.5),
+          def.court.map((d) => (d.absent ? 0 : (this.r(d, 'steal', 'def') * d.p.tendencies.steal) ** 1.5)),
         )
       ] as SimPlayer;
       stealer.line.stl++;

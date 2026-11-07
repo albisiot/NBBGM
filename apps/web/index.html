@@ -3,7 +3,11 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
-    <meta name="theme-color" content="#ea580c" />
+    <!-- Colore della barra del browser e di sistema: arancione nel tema chiaro, quello dell'intestazione nello scuro -->
+    <meta name="theme-color" content="#ea580c" media="(prefers-color-scheme: light)" />
+    <meta name="theme-color" content="#0f172a" media="(prefers-color-scheme: dark)" />
+    <!-- Campi, barre di scorrimento e fondo del browser seguono il tema del sistema, come le pagine -->
+    <meta name="color-scheme" content="light dark" />
     <meta name="description" content="Il manageriale di basket a turni da giocare con gli amici." />
     <!-- PWA: installabile dalla home del telefono -->
     <link rel="manifest" href="./manifest.webmanifest" />

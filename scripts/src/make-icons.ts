@@ -1,7 +1,10 @@
 // pnpm icons: disegna le icone della PWA (palla da basket su fondo scuro) in PNG, senza dipendenze: ogni pixel
 // si calcola dalla geometria, con 4x4 campioni per l'antialiasing, e il PNG si scrive con zlib di Node.
 // Scrive in apps/web/public/icons: icon-192.png, icon-512.png, maskable-512.png (Android ritaglia un cerchio o un
-// quadrato arrotondato: la palla sta nell'80% centrale), apple-touch-icon.png (180, iPhone).
+// quadrato arrotondato: la palla sta nell'80% centrale), apple-touch-icon.png (180, iPhone) e badge-96.png,
+// l'icona delle notifiche nella barra di stato di Android: Android ne usa solo la trasparenza e la disegna in
+// bianco, quindi un'icona opaca diventa un quadrato bianco. Il badge è la palla bianca su fondo trasparente, con
+// le cuciture vuote (più larghe, perché si vede a 24 dp).
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { deflateSync } from 'node:zlib';
@@ -13,11 +16,10 @@ const BALL: Rgb = [234, 88, 12]; // orange-600
 const BALL_LIGHT: Rgb = [249, 115, 22]; // orange-500
 const SEAM: Rgb = [28, 25, 23]; // stone-900
 
-/** Colore del punto (x, y) in coordinate da -1 a 1, con la palla di raggio r. */
-function shade(x: number, y: number, r: number): Rgb {
+/** Dove cade il punto (x, y), in coordinate da -1 a 1: fuori dalla palla di raggio r, su una cucitura (spessa w) o sulla palla. */
+function region(x: number, y: number, r: number, w: number): 'out' | 'seam' | 'ball' {
   const d = Math.hypot(x, y);
-  if (d > r) return BACKGROUND;
-  const w = r * 0.045; // spessore delle cuciture
+  if (d > r) return 'out';
   const seam =
     Math.abs(x) < w ||
     Math.abs(y) < w ||
@@ -25,7 +27,14 @@ function shade(x: number, y: number, r: number): Rgb {
     Math.abs(Math.hypot(x - r * 1.55, y) - r * 1.12) < w ||
     Math.abs(Math.hypot(x + r * 1.55, y) - r * 1.12) < w ||
     d > r - w * 1.1;
-  if (seam) return SEAM;
+  return seam ? 'seam' : 'ball';
+}
+
+/** Colore del punto (x, y) in coordinate da -1 a 1, con la palla di raggio r. */
+function shade(x: number, y: number, r: number): Rgb {
+  const where = region(x, y, r, r * 0.045);
+  if (where === 'out') return BACKGROUND;
+  if (where === 'seam') return SEAM;
   // Luce dall'alto a sinistra
   const t = Math.max(0, Math.min(1, 0.5 - (x + y) / (2.6 * r)));
   return BALL.map((c, i) => Math.round(c + (BALL_LIGHT[i]! - c) * t)) as Rgb;
@@ -52,7 +61,30 @@ function render(size: number, ballRadius: number): Buffer {
   return png(size, size, raw);
 }
 
-// ---------------------------------------------------------------- PNG (RGB, 8 bit)
+/** Badge delle notifiche: bianco, con la trasparenza data dalla palla senza le cuciture (RGBA). */
+function renderBadge(size: number, ballRadius: number): Buffer {
+  const S = 4;
+  const row = size * 4 + 1;
+  const raw = Buffer.alloc(size * row);
+  for (let py = 0; py < size; py++) {
+    raw[py * row] = 0;
+    for (let px = 0; px < size; px++) {
+      let inside = 0;
+      for (let sy = 0; sy < S; sy++)
+        for (let sx = 0; sx < S; sx++) {
+          const x = ((px + (sx + 0.5) / S) / size) * 2 - 1;
+          const y = ((py + (sy + 0.5) / S) / size) * 2 - 1;
+          if (region(x, y, ballRadius, ballRadius * 0.08) === 'ball') inside++;
+        }
+      const o = py * row + 1 + px * 4;
+      raw[o] = raw[o + 1] = raw[o + 2] = 255;
+      raw[o + 3] = Math.round((255 * inside) / (S * S));
+    }
+  }
+  return png(size, size, raw, true);
+}
+
+// ---------------------------------------------------------------- PNG (RGB o RGBA, 8 bit)
 
 const CRC_TABLE = Array.from({ length: 256 }, (_, n) => {
   let c = n;
@@ -75,12 +107,12 @@ function chunk(type: string, data: Buffer): Buffer {
   return Buffer.concat([len, body, crc]);
 }
 
-function png(width: number, height: number, raw: Buffer): Buffer {
+function png(width: number, height: number, raw: Buffer, alpha = false): Buffer {
   const header = Buffer.alloc(13);
   header.writeUInt32BE(width, 0);
   header.writeUInt32BE(height, 4);
   header[8] = 8; // bit per canale
-  header[9] = 2; // RGB
+  header[9] = alpha ? 6 : 2; // RGBA o RGB
   return Buffer.concat([
     Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
     chunk('IHDR', header),
@@ -102,3 +134,5 @@ for (const [name, size, r] of icons) {
   writeFileSync(join(out, name), render(size, r));
   console.log(`${name} (${size}x${size})`);
 }
+writeFileSync(join(out, 'badge-96.png'), renderBadge(96, 0.94));
+console.log('badge-96.png (96x96, bianco su trasparente)');

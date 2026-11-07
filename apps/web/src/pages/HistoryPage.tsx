@@ -119,7 +119,11 @@ function SeasonDetail({
   season: LeagueSeason;
   mine: string | undefined;
 }) {
-  const { data, error, loading } = useAsync(() => loadSeason(league, season), [league.id, season.id]);
+  // La stagione in corso si rilegge a ogni turno nuovo (corsa ai premi e classifica attuale); le passate no
+  const { data, error, loading } = useAsync(
+    () => loadSeason(league, season),
+    [league.id, season.id, season.current ? league.roundId : null],
+  );
   if (loading && !data) return <Spinner />;
   if (error) return <ErrorText>{error}</ErrorText>;
   if (!data) return null;

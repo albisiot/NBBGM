@@ -46,41 +46,65 @@ type Row = {
   created_at: string;
 };
 
+/** Ultima riga letta (nell'ordine della cronaca): la pagina dopo parte da qui. */
+export interface ChronicleCursor {
+  /** created_at così come arriva dal database (microsecondi compresi: passando da Date si perderebbero). */
+  createdAt: string;
+  id: number;
+}
+
+export interface ChroniclePage {
+  entries: ChronicleEntry[];
+  more: boolean;
+  /** Dove riprendere con "Mostra altri" (null se non ci sono righe). */
+  cursor: ChronicleCursor | null;
+}
+
 /**
- * Una pagina di cronaca (from = quante righe sono già state lette). more dice se ce ne sono altre: si chiede
- * una riga in più del necessario.
+ * Filtro PostgREST (or) per le righe che vengono dopo il cursore nell'ordine della cronaca, (created_at, id) dal
+ * più recente: più vecchie, o della stessa ora con id più piccolo. La data va tra virgolette (ha ":" e "+").
+ */
+export function afterCursor(c: ChronicleCursor): string {
+  const at = JSON.stringify(c.createdAt);
+  return `created_at.lt.${at},and(created_at.eq.${at},id.lt.${Math.trunc(c.id)})`;
+}
+
+/**
+ * Una pagina di cronaca: le prime righe, o quelle dopo il cursore della pagina prima. Paginazione per chiave e
+ * non per posizione: le transazioni che arrivano nel frattempo (per esempio durante il draft iniziale dal vivo,
+ * senza cambio di turno) non fanno ripetere righe già lette. more dice se ce ne sono altre: si chiede una riga
+ * in più del necessario.
  */
 export async function chroniclePage(
   leagueId: string,
   filter: ChronicleFilter,
-  from = 0,
+  after: ChronicleCursor | null = null,
   size = CHRONICLE_PAGE,
-): Promise<{ entries: ChronicleEntry[]; more: boolean }> {
+): Promise<ChroniclePage> {
   const query = (withTeams: boolean) => {
     // Colonne scritte come stringa qualsiasi: i tipi di supabase-js non le ricavano da un testo composto
     const columns: string = `id, season_year, round_number, type, text, created_at${withTeams ? ', team_codes' : ''}`;
     let q = supabase.from('transactions').select(columns).eq('league_id', leagueId);
     if (filter.types.length > 0) q = q.in('type', [...filter.types]);
     if (withTeams && filter.team) q = q.contains('team_codes', [filter.team]);
+    if (after) q = q.or(afterCursor(after));
     return q
       .order('created_at', { ascending: false })
       .order('id', { ascending: false })
-      .range(from, from + size);
+      .limit(size + 1);
   };
   let res = await query(true);
-  let rows: Row[];
   // Database non ancora aggiornato (l'app si pubblica insieme alle migrazioni): senza la colonna delle squadre
-  // si filtra sul testo
-  if (res.error?.code === '42703') {
+  // si filtra sul testo, dopo aver preso la pagina (il cursore resta quello dell'ultima riga letta)
+  const legacy = res.error?.code === '42703';
+  if (legacy) {
     res = await query(false);
     if (res.error) throw res.error;
-    rows = ((res.data ?? []) as unknown as Row[]).filter(
-      (r) => !filter.team || mentions(r.text, filter.team),
-    );
-  } else {
-    if (res.error) throw res.error;
-    rows = (res.data ?? []) as unknown as Row[];
-  }
+  } else if (res.error) throw res.error;
+  let rows = (res.data ?? []) as unknown as Row[];
+  const page = rows.slice(0, size);
+  const last = page[page.length - 1];
+  if (legacy && filter.team) rows = page.filter((r) => mentions(r.text, filter.team ?? ''));
   return {
     entries: rows.slice(0, size).map((r) => ({
       id: r.id,
@@ -91,8 +115,18 @@ export async function chroniclePage(
       teamCodes: r.team_codes ?? [],
       createdAt: r.created_at,
     })),
-    more: rows.length > size,
+    more: (res.data ?? []).length > size,
+    cursor: last ? { createdAt: last.created_at, id: last.id } : null,
   };
+}
+
+/** Righe nuove in fondo a quelle già mostrate, senza doppioni (le chiavi di React restano uniche). */
+export function appendEntries(
+  shown: readonly ChronicleEntry[],
+  next: readonly ChronicleEntry[],
+): ChronicleEntry[] {
+  const ids = new Set(shown.map((e) => e.id));
+  return [...shown, ...next.filter((e) => !ids.has(e.id))];
 }
 
 /** Il testo cita la sigla come parola intera (come il trigger del database). */

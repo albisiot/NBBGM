@@ -2,6 +2,7 @@
 // gli avvisi della propria squadra e, per il commissario, forza l'avanzamento e pausa.
 import { useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router';
+import { refreshAppBadge } from '../lib/appBadge.ts';
 import { friendlyError } from '../lib/errors.ts';
 import type { LeagueDetail } from '../lib/leagues.ts';
 import {
@@ -12,13 +13,15 @@ import {
   MAX_ROUND_ATTEMPTS,
   MEMBER_REOPEN_HOURS,
   memberReopenAt,
+  PHASE_LABEL,
   readiness,
   readinessNote,
+  readyAction,
   readyWarnings,
   reopenRound,
+  roundPhase,
   roundTitle,
   roundError,
-  roundStuck,
   setPaused,
   setReady,
   subscribeTurn,
@@ -26,12 +29,13 @@ import {
   turnStatus,
   type AlertItem,
   type Readiness,
+  type RoundPhase,
   type RoundTrouble,
 } from '../lib/turns.ts';
 import { useUnsaved } from '../lib/unsaved.ts';
 import { useAsync } from '../lib/useAsync.ts';
 import { ReadyConfirm } from './ReadyConfirm.tsx';
-import { Button, Card, ErrorText } from './ui.tsx';
+import { Button, Card, ConfirmButton, ErrorText } from './ui.tsx';
 
 const BADGE: Record<Readiness, { label: string; className: string }> = {
   ready: { label: 'Pronto', className: 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-100' },
@@ -48,6 +52,16 @@ const BADGE: Record<Readiness, { label: string; className: string }> = {
     label: 'Non gioca',
     className: 'border border-slate-200 text-slate-600 dark:border-slate-600 dark:text-slate-300',
   },
+};
+
+// Colore dello stato del turno (la stessa fase della barra in cima alle altre pagine)
+const PHASE_CLASS: Record<RoundPhase, string> = {
+  draft: 'bg-slate-200 text-slate-700 dark:bg-slate-700 dark:text-slate-200',
+  failed: 'bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-100',
+  late: 'bg-orange-100 text-orange-800 dark:bg-orange-900 dark:text-orange-100',
+  closing: 'bg-orange-100 text-orange-800 dark:bg-orange-900 dark:text-orange-100',
+  paused: 'bg-slate-200 text-slate-700 dark:bg-slate-700 dark:text-slate-200',
+  open: 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-100',
 };
 
 const LINK = 'font-semibold text-orange-700 hover:underline dark:text-orange-300';
@@ -89,7 +103,6 @@ export function TurnCard({
   } = useAsync(() => turnStatus(league.id, mine?.id ?? null), [league.id, mine?.id]);
   const [busy, setBusy] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
-  const [confirmForce, setConfirmForce] = useState(false);
   const [askReady, setAskReady] = useState(false);
   const unsaved = useUnsaved(league.id);
   const [now, setNow] = useState(() => Date.now());
@@ -108,6 +121,11 @@ export function TurnCard({
     if (roundId && lastRound.current && roundId !== lastRound.current) onRoundChange();
     lastRound.current = roundId;
   }, [roundId, onRoundChange]);
+  // Il numero sull'icona dell'app segue le decisioni aperte (anche qui, dove la barra del turno non c'è)
+  const decisions = status?.alerts.filter((a) => a.blocking).length;
+  useEffect(() => {
+    if (decisions !== undefined) refreshAppBadge();
+  }, [decisions]);
 
   if (error) return <ErrorText>{error}</ErrorText>;
   if (!status?.round) return null;
@@ -129,12 +147,15 @@ export function TurnCard({
   );
   const champion = status.championId ? league.teams.find((t) => t.id === status.championId) : null;
   const code = (id: string) => league.teams.find((t) => t.id === id)?.code ?? '?';
-  const stuck = roundStuck(round, status.trouble, now);
+  // Stato del turno e Pronto: la stessa regola della barra in cima alle altre pagine
+  const phase = roundPhase(round, { trouble: status.trouble, paused: status.paused, draftPending }, now);
+  const stuck = phase === 'failed' || phase === 'late';
+  const action = mine ? readyAction(phase, myState) : null;
+  const playing = phase === 'open' || phase === 'paused';
   const warnings = readyWarnings(
     status.alerts.filter((a) => a.blocking),
     { unsaved: unsaved !== null, coach: myState === 'coach' || myState === 'blocked' },
   );
-  const failed = stuck && status.trouble?.failedAt != null;
 
   async function run(action: () => Promise<unknown>) {
     setBusy(true);
@@ -160,26 +181,8 @@ export function TurnCard({
             <p className="text-sm text-slate-500 dark:text-slate-400">Turno</p>
             <p className="text-xl font-semibold">{title}</p>
           </div>
-          <span
-            className={`rounded-full px-3 py-1 text-xs font-semibold ${
-              failed
-                ? 'bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-100'
-                : !open
-                  ? 'bg-orange-100 text-orange-800 dark:bg-orange-900 dark:text-orange-100'
-                  : status.paused
-                    ? 'bg-slate-200 text-slate-700 dark:bg-slate-700 dark:text-slate-200'
-                    : 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-100'
-            }`}
-          >
-            {failed
-              ? 'Turno bloccato'
-              : stuck
-                ? 'Simulazione in ritardo'
-                : !open
-                  ? 'Simulazione in corso…'
-                  : status.paused
-                    ? 'Lega in pausa'
-                    : 'Aperto'}
+          <span className={`rounded-full px-3 py-1 text-xs font-semibold ${PHASE_CLASS[phase]}`}>
+            {PHASE_LABEL[phase]}
           </span>
         </div>
 
@@ -285,12 +288,12 @@ export function TurnCard({
           )}
         </div>
 
-        {mine && open && myState === 'out' && (
+        {mine && playing && myState === 'out' && (
           <p className="text-sm text-slate-600 dark:text-slate-300">
             La tua squadra non gioca in questo turno: non devi fare nulla.
           </p>
         )}
-        {mine && open && myState !== 'out' && (
+        {mine && action && (
           <div className="space-y-2">
             {(myState === 'coach' || myState === 'blocked') && (
               <p className="text-sm text-sky-800 dark:text-sky-200">
@@ -301,17 +304,17 @@ export function TurnCard({
             )}
             <Button
               className="w-full sm:w-auto"
-              variant={myState === 'ready' ? 'secondary' : 'primary'}
+              variant={action === 'unready' ? 'secondary' : 'primary'}
               disabled={busy}
               onClick={() => {
                 // Prima di segnarsi pronti: che cosa succede alle decisioni aperte se il turno si chiude
-                if (myState !== 'ready' && warnings.length > 0) setAskReady(true);
-                else void run(() => setReady(mine.id, myState !== 'ready', round.id));
+                if (action === 'ready' && warnings.length > 0) setAskReady(true);
+                else void run(() => setReady(mine.id, action === 'ready', round.id));
               }}
             >
-              {myState === 'ready' ? 'Non sono più pronto' : 'Sono pronto'}
+              {action === 'unready' ? 'Non sono più pronto' : 'Sono pronto'}
             </Button>
-            {askReady && myState !== 'ready' && warnings.length > 0 && (
+            {askReady && action === 'ready' && warnings.length > 0 && (
               <ReadyConfirm
                 warnings={warnings}
                 leagueId={league.id}
@@ -336,19 +339,16 @@ export function TurnCard({
           </div>
         )}
 
-        {isCommissioner && open && !draftPending && (
+        {isCommissioner && playing && (
           <div className="flex flex-wrap gap-2 border-t border-slate-100 pt-3 dark:border-slate-700">
-            <Button
+            <ConfirmButton
               variant="secondary"
               disabled={busy || round.forcedAt !== null}
-              onClick={() => {
-                if (!confirmForce) return setConfirmForce(true);
-                setConfirmForce(false);
-                void run(() => forceRound(league.id));
-              }}
+              confirmLabel="Confermi? Si gioca subito"
+              onConfirm={() => void run(() => forceRound(league.id))}
             >
-              {confirmForce ? 'Confermi? Si gioca subito' : 'Forza l’avanzamento'}
-            </Button>
+              Forza l’avanzamento
+            </ConfirmButton>
             <Button
               variant="ghost"
               disabled={busy}
@@ -370,7 +370,12 @@ export function TurnCard({
               alert={a}
               leagueId={league.id}
               disabled={busy || !open}
-              onAnswer={() => void run(() => answerAlert(a.id))}
+              onAnswer={() =>
+                void run(async () => {
+                  await answerAlert(a.id);
+                  refreshAppBadge();
+                })
+              }
             />
           ))}
         </Card>
@@ -408,13 +413,7 @@ function StuckRound({
     () => (isCommissioner ? roundError(leagueId) : Promise.resolve(null)),
     [leagueId, isCommissioner, trouble?.attempts, trouble?.failedAt],
   );
-  const [confirm, setConfirm] = useState<'same' | 'new' | null>(null);
   const [withdraw, setWithdraw] = useState(false);
-  const click = (choice: 'same' | 'new') => {
-    if (confirm !== choice) return setConfirm(choice);
-    setConfirm(null);
-    onReopen(choice === 'new', withdraw);
-  };
   return (
     <div className="space-y-2 rounded-lg border border-red-300 bg-red-50 p-3 text-sm dark:border-red-800 dark:bg-red-950">
       <p className="font-semibold text-red-800 dark:text-red-100">
@@ -456,12 +455,22 @@ function StuckRound({
       )}
       {canReopen && (
         <div className="flex flex-wrap gap-2">
-          <Button variant="secondary" disabled={busy} onClick={() => click('same')}>
-            {confirm === 'same' ? 'Confermi? Il turno si riapre' : 'Riapri il turno'}
-          </Button>
-          <Button variant="ghost" disabled={busy} onClick={() => click('new')}>
-            {confirm === 'new' ? 'Confermi? Risultati diversi' : 'Riapri con una simulazione nuova'}
-          </Button>
+          <ConfirmButton
+            variant="secondary"
+            disabled={busy}
+            confirmLabel="Confermi? Il turno si riapre"
+            onConfirm={() => onReopen(false, withdraw)}
+          >
+            Riapri il turno
+          </ConfirmButton>
+          <ConfirmButton
+            variant="ghost"
+            disabled={busy}
+            confirmLabel="Confermi? Risultati diversi"
+            onConfirm={() => onReopen(true, withdraw)}
+          >
+            Riapri con una simulazione nuova
+          </ConfirmButton>
         </div>
       )}
     </div>

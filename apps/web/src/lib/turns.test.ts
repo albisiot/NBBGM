@@ -1,14 +1,18 @@
 import { describe, expect, it } from 'vitest';
 import {
   alertText,
+  barFor,
   barView,
   coachActive,
   countsAsReady,
   MEMBER_REOPEN_HOURS,
   memberReopenAt,
+  PHASE_LABEL,
   readiness,
   readinessNote,
+  readyAction,
   readyWarnings,
+  roundPhase,
   roundStuck,
   roundTitle,
   timeLeft,
@@ -201,11 +205,20 @@ describe('turno fermo in chiusura', () => {
 });
 
 describe('barra del turno', () => {
-  const round = { id: 'r', number: 12, kind: 'regular', state: 'open' as const, stage: null };
+  const round = {
+    id: 'r',
+    number: 12,
+    kind: 'regular',
+    state: 'open' as const,
+    stage: null,
+    closingStartedAt: null,
+  };
   const bar = (over: Partial<BarStatus> = {}): BarStatus => ({
+    leagueId: 'L',
     round,
     paused: false,
     draftPending: false,
+    trouble: null,
     myTeamId: 't',
     myState: 'waiting',
     decisions: [],
@@ -246,16 +259,78 @@ describe('barra del turno', () => {
   });
 
   it('simulazione in corso e draft iniziale: niente pulsante', () => {
-    expect(barView(bar({ round: { ...round, state: 'closing' } }))).toMatchObject({
-      badge: { label: 'Simulazione…' },
+    const closing = { ...round, state: 'closing' as const, closingStartedAt: new Date(NOW).toISOString() };
+    expect(barView(bar({ round: closing }), NOW)).toMatchObject({
+      badge: { label: 'Simulazione in corso…' },
       action: null,
     });
-    expect(barView(bar({ draftPending: true }))).toMatchObject({ title: 'Draft iniziale', action: null });
+    expect(barView(bar({ draftPending: true }))).toMatchObject({
+      title: 'Giornata 13 di 82',
+      badge: { label: 'Draft in corso' },
+      action: null,
+    });
+  });
+
+  it('turno bloccato dopo l’ultimo tentativo: lo dice anche la barra, non "simulazione in corso" per sempre', () => {
+    const closing = {
+      ...round,
+      state: 'closing' as const,
+      closingStartedAt: new Date(NOW - 60 * 60_000).toISOString(),
+    };
+    const failed = bar({ round: closing, trouble: { attempts: 3, failedAt: new Date(NOW).toISOString() } });
+    expect(barView(failed, NOW)).toMatchObject({
+      badge: { label: 'Turno bloccato', tone: 'red' },
+      action: null,
+    });
+    // In chiusura da più di 5 minuti senza blocco: in ritardo
+    expect(barView(bar({ round: closing, trouble: { attempts: 1, failedAt: null } }), NOW)).toMatchObject({
+      badge: { label: 'Simulazione in ritardo' },
+    });
+  });
+
+  it('dati di un’altra lega: la barra non li usa', () => {
+    expect(barFor(bar(), 'L')).not.toBeNull();
+    expect(barFor(bar(), 'M')).toBeNull();
+    expect(barFor(null, 'L')).toBeNull();
   });
 
   it('senza turno o senza squadra la barra non c’è', () => {
     expect(barView(bar({ round: null }))).toBeNull();
     expect(barView(bar({ myTeamId: null }))).toBeNull();
+  });
+});
+
+describe('fase del turno, uguale per barra e scheda', () => {
+  const open = { state: 'open' as const, closingStartedAt: null };
+  const opts = { trouble: null, paused: false, draftPending: false };
+
+  it('aperto, in pausa, draft iniziale', () => {
+    expect(roundPhase(open, opts, NOW)).toBe('open');
+    expect(roundPhase(open, { ...opts, paused: true }, NOW)).toBe('paused');
+    // Il draft iniziale viene prima della pausa: il turno non parte comunque
+    expect(roundPhase(open, { ...opts, paused: true, draftPending: true }, NOW)).toBe('draft');
+  });
+
+  it('in chiusura: in corso, in ritardo, bloccato', () => {
+    const closing = (min: number) => ({
+      state: 'closing' as const,
+      closingStartedAt: new Date(NOW - min * 60_000).toISOString(),
+    });
+    expect(roundPhase(closing(1), opts, NOW)).toBe('closing');
+    expect(roundPhase(closing(6), opts, NOW)).toBe('late');
+    const failed = { attempts: 3, failedAt: new Date(NOW).toISOString() };
+    expect(roundPhase(closing(1), { ...opts, trouble: failed }, NOW)).toBe('failed');
+    expect(PHASE_LABEL.failed).toBe('Turno bloccato');
+  });
+
+  it('Pronto solo con il turno aperto (anche in pausa), non durante il draft iniziale né per chi non gioca', () => {
+    expect(readyAction('open', 'waiting')).toBe('ready');
+    expect(readyAction('paused', 'blocked')).toBe('ready');
+    expect(readyAction('open', 'ready')).toBe('unready');
+    expect(readyAction('open', 'out')).toBeNull();
+    expect(readyAction('open', null)).toBeNull();
+    for (const phase of ['draft', 'failed', 'late', 'closing'] as const)
+      expect(readyAction(phase, 'waiting')).toBeNull();
   });
 });
 

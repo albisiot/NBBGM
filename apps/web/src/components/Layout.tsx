@@ -1,14 +1,16 @@
 // Intestazione con il selettore delle leghe e il profilo, il menu della lega aperta, poi la pagina.
-import { Suspense, useEffect } from 'react';
-import { Link, NavLink, Outlet, useMatch, useNavigate } from 'react-router';
+import { Suspense, useEffect, useRef } from 'react';
+import { Link, NavLink, Outlet, useLocation, useMatch, useNavigate } from 'react-router';
 import { useAuth, useUserId } from '../lib/auth.tsx';
 import { refreshAppBadge } from '../lib/appBadge.ts';
 import { myLeagues } from '../lib/leagues.ts';
 import { lazyPart } from '../lib/lazyPage.ts';
+import { navScrollDelta } from '../lib/navScroll.ts';
 import { watchPushSubscription } from '../lib/pushWatch.ts';
 import { onResume } from '../lib/resume.ts';
 import { useAsync } from '../lib/useAsync.ts';
 import { Spinner } from './ui.tsx';
+import { UpdateBanner } from './UpdateBanner.tsx';
 
 export const LAST_LEAGUE_KEY = 'nbbgm:ultima-lega';
 
@@ -72,6 +74,7 @@ export function Layout() {
           </Link>
         </div>
         {current && <LeagueNav id={current} />}
+        <UpdateBanner />
       </header>
       <main className="mx-auto max-w-4xl pt-6 pr-[max(1rem,env(safe-area-inset-right))] pb-[max(1.5rem,env(safe-area-inset-bottom))] pl-[max(1rem,env(safe-area-inset-left))]">
         {/* Le pagine arrivano a pezzi (lib/lazyPage.ts): intanto l'intestazione resta e sotto si vede il caricamento */}
@@ -101,8 +104,18 @@ const LEAGUE_LINKS: { to: string; label: string }[] = [
 ];
 
 function LeagueNav({ id }: { id: string }) {
+  const nav = useRef<HTMLElement>(null);
+  const { pathname } = useLocation();
+  // La voce della pagina aperta in vista (su telefono il menu scorre): solo il menu, non la pagina
+  useEffect(() => {
+    const el = nav.current;
+    const active = el?.querySelector('[aria-current="page"]');
+    if (!el || !active) return;
+    const delta = navScrollDelta(el.getBoundingClientRect(), active.getBoundingClientRect());
+    if (delta !== 0) el.scrollLeft += delta;
+  }, [pathname, id]);
   return (
-    <nav aria-label="Menu della lega" className="mx-auto max-w-4xl overflow-x-auto px-2">
+    <nav ref={nav} aria-label="Menu della lega" className="mx-auto max-w-4xl overflow-x-auto px-2">
       <ul className="flex gap-1 text-sm">
         {LEAGUE_LINKS.map((l) => (
           <li key={l.to}>

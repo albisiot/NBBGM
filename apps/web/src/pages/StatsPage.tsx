@@ -9,6 +9,7 @@ import { leagueDetail } from '../lib/leagues.ts';
 import { leagueSeasons, seasonLabel, seasonPlayers } from '../lib/history.ts';
 import { perGame, type PlayerSeason } from '../lib/results.ts';
 import { useAsync } from '../lib/useAsync.ts';
+import { useRoundChange } from '../lib/useRoundChange.ts';
 
 type SortKey = 'pts' | 'reb' | 'ast' | 'stl' | 'blk' | 'tov' | 'min' | 'g' | 'fgPct' | 'tpPct' | 'ftPct';
 
@@ -39,7 +40,7 @@ export function StatsPage() {
   const [minGames, setMinGames] = useState(true);
   const [search, setSearch] = useSearchParams();
   const wanted = Number(search.get('stagione')) || null;
-  const { data, error, loading } = useAsync(async () => {
+  const { data, error, loading, reload } = useAsync(async () => {
     const league = await leagueDetail(id);
     if (!league) return { league, players: [], seasons: [], year: null };
     const seasons = await leagueSeasons(id, league.seasonId);
@@ -53,6 +54,8 @@ export function StatsPage() {
       players: players.map((p) => perGame(p.id, p.teamId, p.name, p.role, { ...p.stats })),
     };
   }, [id, wanted]);
+  // Turno nuovo: le medie della stagione in corso cambiano
+  useRoundChange(id, reload);
 
   const rows = useMemo(() => {
     if (!data) return [];

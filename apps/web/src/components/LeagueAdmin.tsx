@@ -1,7 +1,7 @@
 // Gestione della lega nella sua pagina: il commissario cambia scadenza dei turni e ritmo con gli allenatori,
 // libera le squadre dei manager, li espelle, passa il ruolo a un altro manager o elimina la lega; cambia il codice
 // invito, invita gli amici per email e toglie i bandi. Gli altri possono lasciare la lega. Le azioni distruttive
-// chiedono conferma.
+// chiedono conferma con un secondo tocco entro 5 secondi (ConfirmButton).
 import { useState, type FormEvent } from 'react';
 import { useNavigate } from 'react-router';
 import { friendlyError } from '../lib/errors.ts';
@@ -28,9 +28,7 @@ import {
 } from '../lib/leagues.ts';
 import { useAsync } from '../lib/useAsync.ts';
 import { LAST_LEAGUE_KEY } from './Layout.tsx';
-import { Button, Card, ErrorText, TextInput } from './ui.tsx';
-
-type Pending = { teamId: string; action: 'free' | 'expel' } | null;
+import { Button, Card, ConfirmButton, ErrorText, TextInput } from './ui.tsx';
 
 export function LeagueAdmin({
   league,
@@ -46,11 +44,8 @@ export function LeagueAdmin({
   const managers = league.teams.filter((t) => t.ownerId !== null && t.ownerId !== userId);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [pending, setPending] = useState<Pending>(null);
-  const [confirmLeave, setConfirmLeave] = useState(false);
   const [typedName, setTypedName] = useState('');
   const [heir, setHeir] = useState('');
-  const [confirmHeir, setConfirmHeir] = useState(false);
 
   async function run(action: () => Promise<void>, after: () => void) {
     setBusy(true);
@@ -75,11 +70,8 @@ export function LeagueAdmin({
     navigate('/', { replace: true });
   };
 
-  function teamAction(teamId: string, action: 'free' | 'expel') {
-    if (pending?.teamId !== teamId || pending.action !== action) return setPending({ teamId, action });
-    setPending(null);
+  const teamAction = (teamId: string, action: 'free' | 'expel') =>
     void run(() => (action === 'free' ? freeTeam(teamId) : expelManager(teamId)), onChange);
-  }
 
   if (!isCommissioner)
     return (
@@ -88,17 +80,14 @@ export function LeagueAdmin({
         <p className="text-sm text-slate-600 dark:text-slate-300">
           La tua squadra torna al bot. Potrai rientrare con il codice invito, prendendo una squadra libera.
         </p>
-        <Button
+        <ConfirmButton
           variant="secondary"
           disabled={busy}
-          onClick={() => {
-            if (!confirmLeave) return setConfirmLeave(true);
-            setConfirmLeave(false);
-            void run(() => leaveLeague(league.id), goHome);
-          }}
+          confirmLabel="Confermi? Esci dalla lega"
+          onConfirm={() => void run(() => leaveLeague(league.id), goHome)}
         >
-          {confirmLeave ? 'Confermi? Esci dalla lega' : 'Lascia la lega'}
-        </Button>
+          Lascia la lega
+        </ConfirmButton>
         <ErrorText>{error}</ErrorText>
       </Card>
     );
@@ -132,14 +121,22 @@ export function LeagueAdmin({
                     <span className="truncate">{t.ownerName ?? 'Manager'}</span>
                   </span>
                   <span className="flex gap-2">
-                    <Button variant="secondary" disabled={busy} onClick={() => teamAction(t.id, 'free')}>
-                      {pending?.teamId === t.id && pending.action === 'free' ? 'Confermi?' : 'Libera'}
-                    </Button>
-                    <Button variant="ghost" disabled={busy} onClick={() => teamAction(t.id, 'expel')}>
-                      {pending?.teamId === t.id && pending.action === 'expel'
-                        ? 'Confermi l’espulsione?'
-                        : 'Espelli'}
-                    </Button>
+                    <ConfirmButton
+                      variant="secondary"
+                      disabled={busy}
+                      confirmLabel={`Confermi? ${t.code} torna al bot`}
+                      onConfirm={() => teamAction(t.id, 'free')}
+                    >
+                      Libera
+                    </ConfirmButton>
+                    <ConfirmButton
+                      variant="ghost"
+                      disabled={busy}
+                      confirmLabel="Confermi l’espulsione?"
+                      onConfirm={() => teamAction(t.id, 'expel')}
+                    >
+                      Espelli
+                    </ConfirmButton>
                   </span>
                 </li>
               ))}
@@ -157,14 +154,7 @@ export function LeagueAdmin({
           </p>
           <label className="block text-sm">
             Nuovo commissario
-            <select
-              className={SELECT}
-              value={heir}
-              onChange={(e) => {
-                setHeir(e.target.value);
-                setConfirmHeir(false);
-              }}
-            >
+            <select className={SELECT} value={heir} onChange={(e) => setHeir(e.target.value)}>
               <option value="">Scegli un manager</option>
               {managers.map((t) => (
                 <option key={t.id} value={t.ownerId ?? ''}>
@@ -173,17 +163,16 @@ export function LeagueAdmin({
               ))}
             </select>
           </label>
-          <Button
+          {/* Un altro manager scelto: si chiede di nuovo la conferma (key) */}
+          <ConfirmButton
+            key={heir}
             variant="secondary"
             disabled={busy || heir === ''}
-            onClick={() => {
-              if (!confirmHeir) return setConfirmHeir(true);
-              setConfirmHeir(false);
-              void run(() => transferCommissioner(league.id, heir), onChange);
-            }}
+            confirmLabel="Confermi? Non sarai più commissario"
+            onConfirm={() => void run(() => transferCommissioner(league.id, heir), onChange)}
           >
-            {confirmHeir ? 'Confermi? Non sarai più commissario' : 'Passa il ruolo'}
-          </Button>
+            Passa il ruolo
+          </ConfirmButton>
         </div>
       )}
 
@@ -224,8 +213,6 @@ function Invitations({ league, onChange }: { league: LeagueDetail; onChange: () 
   const [email, setEmail] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [confirmCode, setConfirmCode] = useState(false);
-  const [confirmUnban, setConfirmUnban] = useState<string | null>(null);
 
   async function run(action: () => Promise<unknown>, after: () => void) {
     setBusy(true);
@@ -293,17 +280,14 @@ function Invitations({ league, onChange }: { league: LeagueDetail; onChange: () 
         </ul>
       )}
       <div className="space-y-1">
-        <Button
+        <ConfirmButton
           variant="secondary"
           disabled={busy}
-          onClick={() => {
-            if (!confirmCode) return setConfirmCode(true);
-            setConfirmCode(false);
-            void run(() => regenerateInviteCode(league.id), onChange);
-          }}
+          confirmLabel="Confermi? Il codice di adesso non varrà più"
+          onConfirm={() => void run(() => regenerateInviteCode(league.id), onChange)}
         >
-          {confirmCode ? 'Confermi? Il codice di adesso non varrà più' : 'Cambia il codice invito'}
-        </Button>
+          Cambia il codice invito
+        </ConfirmButton>
         <p className="text-xs text-slate-500 dark:text-slate-400">
           Con il codice nuovo il link vecchio non funziona più: chi è uscito dalla lega non rientra senza il
           codice nuovo.
@@ -316,17 +300,14 @@ function Invitations({ league, onChange }: { league: LeagueDetail; onChange: () 
             {(bans.data ?? []).map((b) => (
               <li key={b.userId} className="flex items-center justify-between gap-2 py-1">
                 <span className="min-w-0 truncate">{b.name}</span>
-                <Button
+                <ConfirmButton
                   variant="ghost"
                   disabled={busy}
-                  onClick={() => {
-                    if (confirmUnban !== b.userId) return setConfirmUnban(b.userId);
-                    setConfirmUnban(null);
-                    void run(() => unbanManager(league.id, b.userId), bans.reload);
-                  }}
+                  confirmLabel="Confermi? Potrà rientrare"
+                  onConfirm={() => void run(() => unbanManager(league.id, b.userId), bans.reload)}
                 >
-                  {confirmUnban === b.userId ? 'Confermi? Potrà rientrare' : 'Togli il bando'}
-                </Button>
+                  Togli il bando
+                </ConfirmButton>
               </li>
             ))}
           </ul>

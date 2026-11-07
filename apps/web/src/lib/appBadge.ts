@@ -29,15 +29,40 @@ export async function openDecisionsCount(): Promise<number> {
   return count ?? 0;
 }
 
-let pending: Promise<void> | null = null;
-
-/** Rilegge le decisioni aperte e aggiorna il numero (una lettura alla volta). */
-export function refreshAppBadge(): void {
-  if (!(navigator as BadgeNavigator).setAppBadge || pending) return;
-  pending = openDecisionsCount()
-    .then((n) => setBadge(n))
-    .catch(() => undefined)
-    .finally(() => {
-      pending = null;
+/**
+ * Aggiornamenti del numero in fila: una lettura alla volta, e una richiesta arrivata durante una lettura non si
+ * perde ma ne fa partire un'altra subito dopo (le richieste arrivate nel frattempo valgono tutte come una). Così
+ * l'ultimo numero scritto viene da una lettura partita dopo l'ultima richiesta: mai un numero vecchio.
+ */
+export function badgeRefresher(read: () => Promise<number>, write: (n: number) => void): () => Promise<void> {
+  let running: Promise<void> | null = null;
+  let again = false;
+  const loop = async () => {
+    do {
+      again = false;
+      try {
+        write(await read());
+      } catch {
+        // Rete assente: il numero resta com'era fino al prossimo aggiornamento
+      }
+    } while (again);
+  };
+  return () => {
+    if (running) {
+      again = true;
+      return running;
+    }
+    running = loop().finally(() => {
+      running = null;
     });
+    return running;
+  };
+}
+
+const refresh = badgeRefresher(openDecisionsCount, (n) => setBadge(n));
+
+/** Rilegge le decisioni aperte e aggiorna il numero sull'icona. */
+export function refreshAppBadge(): void {
+  if (!(navigator as BadgeNavigator).setAppBadge) return;
+  void refresh();
 }

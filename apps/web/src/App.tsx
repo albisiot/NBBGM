@@ -13,7 +13,6 @@ import {
 import { ErrorBoundary, ErrorScreen } from './components/ErrorBoundary.tsx';
 import { Layout } from './components/Layout.tsx';
 import { ErrorText, Spinner } from './components/ui.tsx';
-import { UpdateBanner } from './components/UpdateBanner.tsx';
 import { AuthProvider, useAuth } from './lib/auth.tsx';
 import { lazyPage } from './lib/lazyPage.ts';
 import { configured } from './lib/supabase.ts';
@@ -104,14 +103,12 @@ export function App() {
         </ErrorText>
       </main>
     );
+  // L'avviso di una versione nuova sta nell'intestazione (Layout): fuori dalle pagine dell'app si ricarica a mano
   return (
-    <>
-      <ErrorBoundary>
-        <AuthProvider>
-          <RouterProvider router={appRouter()} />
-        </AuthProvider>
-      </ErrorBoundary>
-      <UpdateBanner />
-    </>
+    <ErrorBoundary>
+      <AuthProvider>
+        <RouterProvider router={appRouter()} />
+      </AuthProvider>
+    </ErrorBoundary>
   );
 }

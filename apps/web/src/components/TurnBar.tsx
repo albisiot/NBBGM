@@ -5,26 +5,44 @@
 import { useCallback, useEffect, useState } from 'react';
 import { Link } from 'react-router';
 import { friendlyError } from '../lib/errors.ts';
-import { barStatus, barView, readyWarnings, setReady, subscribeTurn, type BarView } from '../lib/turns.ts';
+import {
+  barFor,
+  barStatus,
+  barView,
+  readyWarnings,
+  setReady,
+  subscribeTurn,
+  type Tone,
+} from '../lib/turns.ts';
 import { useUnsaved } from '../lib/unsaved.ts';
 import { useAsync } from '../lib/useAsync.ts';
 import { refreshAppBadge } from '../lib/appBadge.ts';
 import { ReadyConfirm } from './ReadyConfirm.tsx';
 
-const TONE: Record<BarView['badge']['tone'], string> = {
+const TONE: Record<Tone, string> = {
   green: 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-100',
   sky: 'bg-sky-100 text-sky-800 dark:bg-sky-900 dark:text-sky-100',
   amber: 'bg-amber-100 text-amber-900 dark:bg-amber-900 dark:text-amber-100',
   slate: 'bg-slate-100 text-slate-700 dark:bg-slate-700 dark:text-slate-200',
   orange: 'bg-orange-100 text-orange-800 dark:bg-orange-900 dark:text-orange-100',
+  red: 'bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-100',
 };
 
 export function TurnBar({ leagueId, userId }: { leagueId: string; userId: string }) {
-  const { data, reload } = useAsync(() => barStatus(leagueId, userId), [leagueId, userId], { keep: true });
+  // Cambiando lega restano i dati di prima mentre arrivano i nuovi (la barra non sparisce), ma si usano solo se
+  // sono della lega attuale: niente turno vecchio, niente Pronto alla lega sbagliata
+  const loaded = useAsync(() => barStatus(leagueId, userId), [leagueId, userId], { keep: true });
+  const { reload } = loaded;
+  const data = barFor(loaded.data, leagueId);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [asking, setAsking] = useState(false);
   const unsaved = useUnsaved(leagueId);
+  // Un'altra lega: niente conferme o errori rimasti da quella di prima
+  useEffect(() => {
+    setAsking(false);
+    setError(null);
+  }, [leagueId]);
   // Tempo reale come la scheda del turno: Pronto, allenatori, avvisi e cambio di turno
   useEffect(() => subscribeTurn(leagueId, reload), [leagueId, reload]);
   // Il numero sull'icona segue le decisioni aperte
@@ -65,7 +83,14 @@ export function TurnBar({ leagueId, userId }: { leagueId: string; userId: string
   }, [unsaved, toggle]);
 
   const view = data ? barView(data) : null;
-  if (!view) return null;
+  // Dati di un'altra lega: un segnaposto della stessa altezza, senza pulsanti
+  if (!view)
+    return loaded.data && !data ? (
+      <div
+        aria-hidden="true"
+        className="mb-4 min-h-[3.75rem] rounded-xl border border-slate-200 bg-white dark:border-slate-700 dark:bg-slate-800"
+      />
+    ) : null;
   const warnings =
     view.action === 'ready' && data
       ? readyWarnings(data.decisions, {

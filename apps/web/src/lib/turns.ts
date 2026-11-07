@@ -260,7 +260,11 @@ export const MAX_ROUND_ATTEMPTS = 3;
 export const STUCK_AFTER_MS = 5 * 60_000;
 
 /** Turno in chiusura che non si è chiuso: fermo dopo l'ultimo tentativo o in chiusura da più di 5 minuti. */
-export function roundStuck(round: RoundInfo, trouble: RoundTrouble | null, now = Date.now()): boolean {
+export function roundStuck(
+  round: Pick<RoundInfo, 'state' | 'closingStartedAt'>,
+  trouble: RoundTrouble | null,
+  now = Date.now(),
+): boolean {
   if (round.state !== 'closing') return false;
   if (trouble?.failedAt) return true;
   return round.closingStartedAt !== null && now - Date.parse(round.closingStartedAt) > STUCK_AFTER_MS;
@@ -570,14 +574,79 @@ export function roundTitle(kind: string, number: number, stage: string | null): 
   return label ? `Offseason · ${label}` : 'Offseason';
 }
 
+// ---------------------------------------------------------------- fase del turno, per barra e scheda
+
+/**
+ * Fase del turno come la mostrano la barra in cima alle pagine e la scheda nella pagina della lega: le due la
+ * ricavano da qui, così dicono la stessa cosa.
+ *   draft     il draft iniziale non è finito: il primo turno parte dopo (il server non lo chiude prima)
+ *   failed    simulazione fallita all'ultimo tentativo: il turno è fermo finché qualcuno non lo riapre
+ *   late      in chiusura da più di 5 minuti: il server riprova
+ *   closing   simulazione in corso
+ *   paused    lega in pausa (il Pronto si può dare e togliere)
+ *   open      turno aperto
+ */
+export type RoundPhase = 'draft' | 'failed' | 'late' | 'closing' | 'paused' | 'open';
+
+export function roundPhase(
+  round: Pick<RoundInfo, 'state' | 'closingStartedAt'>,
+  opts: { trouble: RoundTrouble | null; paused: boolean; draftPending: boolean },
+  now = Date.now(),
+): RoundPhase {
+  if (round.state !== 'open') {
+    if (opts.trouble?.failedAt) return 'failed';
+    return roundStuck(round, opts.trouble, now) ? 'late' : 'closing';
+  }
+  if (opts.draftPending) return 'draft';
+  return opts.paused ? 'paused' : 'open';
+}
+
+export const PHASE_LABEL: Record<RoundPhase, string> = {
+  draft: 'Draft in corso',
+  failed: 'Turno bloccato',
+  late: 'Simulazione in ritardo',
+  closing: 'Simulazione in corso…',
+  paused: 'Lega in pausa',
+  open: 'Aperto',
+};
+
+export type Tone = 'green' | 'sky' | 'amber' | 'slate' | 'orange' | 'red';
+
+export const PHASE_TONE: Record<RoundPhase, Tone> = {
+  draft: 'slate',
+  failed: 'red',
+  late: 'orange',
+  closing: 'orange',
+  paused: 'slate',
+  open: 'green',
+};
+
+/** Pulsante del Pronto: segnarsi pronti, togliere il Pronto o niente (turno non aperto, draft, non si gioca). */
+export function readyAction(phase: RoundPhase, state: Readiness | null): 'ready' | 'unready' | null {
+  if (phase !== 'open' && phase !== 'paused') return null;
+  if (state === null || state === 'out') return null;
+  return state === 'ready' ? 'unready' : 'ready';
+}
+
 // ---------------------------------------------------------------- barra del turno su ogni pagina della lega
 
 /** Quanto serve alla barra in cima alle pagine della lega: poche letture, senza partite né tabellone. */
 export interface BarStatus {
-  round: { id: string; number: number; kind: string; state: RoundInfo['state']; stage: string | null } | null;
+  /** Lega a cui si riferiscono i dati: cambiando lega la barra non agisce sui dati di quella di prima. */
+  leagueId: string;
+  round: {
+    id: string;
+    number: number;
+    kind: string;
+    state: RoundInfo['state'];
+    stage: string | null;
+    closingStartedAt: string | null;
+  } | null;
   paused: boolean;
   /** Il draft iniziale non è ancora finito: il primo turno parte dopo. */
   draftPending: boolean;
+  /** Solo per un turno in chiusura: tentativi di simulazione e stato fermo. */
+  trouble: RoundTrouble | null;
   myTeamId: string | null;
   /** Stato della propria squadra nel turno (come lo conta il server per la chiusura). */
   myState: Readiness | null;
@@ -585,12 +654,16 @@ export interface BarStatus {
   decisions: { id: string; kind: string }[];
 }
 
+type BarRoundRow = Omit<NonNullable<BarStatus['round']>, 'closingStartedAt'> & {
+  closing_started_at: string | null;
+};
+
 export async function barStatus(leagueId: string, userId: string): Promise<BarStatus> {
   const [league, team] = await Promise.all([
     supabase
       .from('leagues')
       .select(
-        'paused, round:rounds!leagues_current_round(id, number, kind, state, stage), draft:initial_drafts(state)',
+        'paused, round:rounds!leagues_current_round(id, number, kind, state, stage, closing_started_at), draft:initial_drafts(state)',
       )
       .eq('id', leagueId)
       .maybeSingle(),
@@ -600,16 +673,26 @@ export async function barStatus(leagueId: string, userId: string): Promise<BarSt
   if (team.error) throw team.error;
   const l = league.data as unknown as {
     paused: boolean;
-    round: BarStatus['round'];
+    round: BarRoundRow | null;
     draft: { state: string } | { state: string }[] | null;
   } | null;
-  const round = l?.round ?? null;
+  const r = l?.round ?? null;
+  const round: BarStatus['round'] = r && {
+    id: r.id,
+    number: r.number,
+    kind: r.kind,
+    state: r.state,
+    stage: r.stage,
+    closingStartedAt: r.closing_started_at,
+  };
   const myTeamId = (team.data as { id: string } | null)?.id ?? null;
   const draft = Array.isArray(l?.draft) ? l?.draft[0] : l?.draft;
   const base = {
+    leagueId,
     round,
     paused: l?.paused ?? false,
     draftPending: draft != null && draft.state !== 'done',
+    trouble: round?.state === 'closing' ? await roundTrouble(round.id) : null,
     myTeamId,
   };
   if (!round || !myTeamId) return { ...base, myState: null, decisions: [] };
@@ -655,32 +738,40 @@ async function localReadiness(
   return blocked ? 'blocked' : 'coach';
 }
 
+/**
+ * I dati della barra solo se sono della lega che si sta guardando. Mentre si caricano quelli di un'altra lega
+ * (per esempio toccando la notifica di un'altra lega) la barra non mostra il turno di prima e non manda il
+ * Pronto alla lega sbagliata.
+ */
+export function barFor(data: BarStatus | null, leagueId: string): BarStatus | null {
+  return data !== null && data.leagueId === leagueId ? data : null;
+}
+
 export interface BarView {
   title: string;
   /** Stato da mostrare accanto al turno. */
-  badge: { label: string; tone: 'green' | 'sky' | 'amber' | 'slate' | 'orange' };
+  badge: { label: string; tone: Tone };
   /** Pulsante: segnarsi pronti, togliere il Pronto o niente. */
   action: 'ready' | 'unready' | null;
   decisions: number;
 }
 
-/** Che cosa mostra la barra del turno. */
-export function barView(s: BarStatus): BarView | null {
+/** Che cosa mostra la barra del turno: la fase del turno come la scheda, poi lo stato della propria squadra. */
+export function barView(s: BarStatus, now = Date.now()): BarView | null {
   if (!s.round || !s.myTeamId) return null;
   const decisions = s.decisions.length;
   const title = roundTitle(s.round.kind, s.round.number, s.round.stage);
-  if (s.round.state !== 'open')
-    return { title, badge: { label: 'Simulazione…', tone: 'orange' }, action: null, decisions };
-  if (s.draftPending)
-    return { title: 'Draft iniziale', badge: { label: 'In corso', tone: 'slate' }, action: null, decisions };
+  const phase = roundPhase(s.round, s, now);
+  const action = readyAction(phase, s.myState);
+  if (phase !== 'open' && phase !== 'paused')
+    return { title, badge: { label: PHASE_LABEL[phase], tone: PHASE_TONE[phase] }, action, decisions };
   const state = s.myState ?? 'waiting';
   const badge: BarView['badge'] = {
     ready: { label: 'Pronto', tone: 'green' as const },
     coach: { label: 'Allenatore', tone: 'sky' as const },
     blocked: { label: 'Da decidere', tone: 'amber' as const },
-    waiting: { label: s.paused ? 'Lega in pausa' : 'Non pronto', tone: 'slate' as const },
+    waiting: { label: phase === 'paused' ? 'Lega in pausa' : 'Non pronto', tone: 'slate' as const },
     out: { label: 'Non gioca', tone: 'slate' as const },
   }[state];
-  const action = state === 'out' ? null : state === 'ready' ? 'unready' : 'ready';
   return { title, badge, action, decisions };
 }

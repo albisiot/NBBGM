@@ -13,6 +13,7 @@ import { leagueDetail } from '../lib/leagues.ts';
 import { draftProspects, liteOf, playersLite } from '../lib/roster.ts';
 import { supabase } from '../lib/supabase.ts';
 import { useAsync } from '../lib/useAsync.ts';
+import { useRoundChange } from '../lib/useRoundChange.ts';
 
 interface Slot {
   pickNo: number;
@@ -70,7 +71,7 @@ async function saveDraftList(teamId: string, leagueId: string, ids: string[]): P
 export function AnnualDraftPage() {
   const { id = '' } = useParams();
   const userId = useUserId();
-  const { data, error, loading } = useAsync(async () => {
+  const { data, error, loading, reload } = useAsync(async () => {
     const league = await leagueDetail(id);
     if (!league?.seasonYear) return null;
     const draftYear = league.seasonYear + 1;
@@ -86,6 +87,8 @@ export function AnnualDraftPage() {
     if (picked.length > 0) for (const [pid, p] of await playersLite(picked)) players.set(pid, p);
     return { league, draftYear, mine, order, prospects, players, list };
   }, [id, userId]);
+  // Alla chiusura del turno del draft la lista non si cambia più e arrivano le scelte fatte: si rilegge tutto
+  useRoundChange(id, reload);
   const [list, setList] = useState<string[] | null>(null);
   const [saveError, setSaveError] = useState<string | null>(null);
   // Un'altra lega: si riparte dalla lista salvata
@@ -126,7 +129,7 @@ export function AnnualDraftPage() {
   const byId = new Map(prospects.map((p) => [p.id, p]));
 
   function update(next: string[]) {
-    if (!saver) return;
+    if (!saver || !editable) return;
     setList(next);
     setSaveError(null);
     void saver.save(next);

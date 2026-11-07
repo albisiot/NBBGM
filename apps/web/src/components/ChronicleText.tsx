@@ -37,7 +37,7 @@ export function ChronicleText({
 /** Ultime notizie della lega (senza draft e opzioni), con il link alla cronaca completa. */
 export function LatestNews({ leagueId, codes }: { leagueId: string; codes: string[] }) {
   const { data } = useAsync(
-    () => chroniclePage(leagueId, { types: NEWS_TYPES, team: null }, 0, 5),
+    () => chroniclePage(leagueId, { types: NEWS_TYPES, team: null }, null, 5),
     [leagueId],
   );
   if (!data || data.entries.length === 0) return null;

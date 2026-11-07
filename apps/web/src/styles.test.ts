@@ -21,3 +21,18 @@ describe('campi a 16 px su telefono', () => {
     expect(block).toContain("[type='radio']");
   });
 });
+
+describe('colori del tema scuro (seconda analisi)', () => {
+  const html = readFileSync(new URL('../index.html', import.meta.url), 'utf8');
+
+  it('barra del browser e controlli seguono il tema del sistema', () => {
+    expect(html).toContain(
+      '<meta name="theme-color" content="#ea580c" media="(prefers-color-scheme: light)" />',
+    );
+    // Nel tema scuro il colore dell'intestazione (slate-900)
+    expect(html).toContain(
+      '<meta name="theme-color" content="#0f172a" media="(prefers-color-scheme: dark)" />',
+    );
+    expect(html).toContain('<meta name="color-scheme" content="light dark" />');
+  });
+});

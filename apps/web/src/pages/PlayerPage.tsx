@@ -10,7 +10,7 @@ import {
 } from '@nbbgm/engine';
 import { useState } from 'react';
 import { useParams } from 'react-router';
-import { Button, Card, ErrorText, PageTitle, Spinner } from '../components/ui.tsx';
+import { Button, Card, ConfirmButton, ErrorText, PageTitle, Spinner } from '../components/ui.tsx';
 import { useUserId } from '../lib/auth.tsx';
 import { formatSalary } from '../lib/draft.ts';
 import { friendlyError } from '../lib/errors.ts';
@@ -267,7 +267,6 @@ function OwnPlayerMarket({
   onDone: () => void;
 }) {
   const [busy, setBusy] = useState(false);
-  const [confirm, setConfirm] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const residual = p.contractType === 'two-way' ? 0 : p.salaries.reduce((a, b) => a + b, 0);
   const lastYear = p.contractType !== 'two-way' && p.salaries.length === 1;
@@ -279,7 +278,6 @@ function OwnPlayerMarket({
     setMessage(null);
     try {
       await marketAction(leagueId, action);
-      setConfirm(false);
       onDone();
     } catch (e) {
       setMessage(friendlyError(e));
@@ -310,13 +308,14 @@ function OwnPlayerMarket({
       ) : (
         marketOpen && (
           <div className="space-y-1">
-            <Button
+            <ConfirmButton
               variant="secondary"
               disabled={busy}
-              onClick={() => (confirm ? void run({ kind: 'release', player_id: p.id }) : setConfirm(true))}
+              confirmLabel="Confermi il taglio?"
+              onConfirm={() => void run({ kind: 'release', player_id: p.id })}
             >
-              {confirm ? 'Confermi il taglio?' : 'Taglia'}
-            </Button>
+              Taglia
+            </ConfirmButton>
             <p className="text-xs text-slate-500 dark:text-slate-400">
               {residual
                 ? `Lo stipendio residuo (${millions(residual)} in tutto) resta a tuo carico, sul cap e sul bilancio, fino alla scadenza.`

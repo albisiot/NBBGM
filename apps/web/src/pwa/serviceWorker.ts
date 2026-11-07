@@ -63,7 +63,8 @@ export function notificationFromPush(
       tag,
       renotify: d.renotify !== false,
       icon: new URL('icons/icon-192.png', scope).href,
-      badge: new URL('icons/icon-192.png', scope).href,
+      // Icona della barra di stato di Android: monocromatica e trasparente (Android ne usa solo la trasparenza)
+      badge: new URL('icons/badge-96.png', scope).href,
       data: { url: notificationTarget(d.url, scope) },
     },
     badge: typeof d.badge === 'number' && d.badge >= 0 ? Math.floor(d.badge) : null,

@@ -61,6 +61,9 @@ export function applyGameToPlayers(state: LeagueState, result: GameResult, regul
   for (const inj of result.injuries) {
     const p = byId.get(inj.playerId);
     if (!p) continue;
+    // Chi era già infortunato (con la rosa cortissima gioca anche lui, vedi gamePlayers) tiene lo stop più lungo:
+    // un infortunio nuovo e leggero non accorcia quello di prima
+    if (p.injury && p.injury.gamesRemaining >= inj.games) continue;
     p.injury = { bodyPart: inj.bodyPart, severity: inj.severity, gamesRemaining: inj.games };
   }
 }

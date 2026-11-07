@@ -29,7 +29,8 @@ export function Button({
 
 /**
  * Pulsante da toccare due volte per le azioni che non si annullano con un tocco: il primo chiede conferma
- * (confirmLabel), il secondo esegue. Dopo qualche secondo senza conferma torna com'era.
+ * (confirmLabel), il secondo esegue. Dopo 5 secondi senza conferma torna com'era. Il cambio di etichetta lo
+ * annuncia ai lettori di schermo una regione nascosta, sempre presente (confirmAnnouncement).
  */
 export function ConfirmButton({
   confirmLabel,
@@ -48,20 +49,31 @@ export function ConfirmButton({
     return () => clearTimeout(t);
   }, [armed]);
   return (
-    <Button
-      {...props}
-      onClick={() => {
-        if (!armed) return setArmed(true);
-        setArmed(false);
-        onConfirm();
-      }}
-    >
-      {armed ? confirmLabel : children}
-    </Button>
+    <>
+      <Button
+        {...props}
+        onClick={() => {
+          if (!armed) return setArmed(true);
+          setArmed(false);
+          onConfirm();
+        }}
+      >
+        {armed ? confirmLabel : children}
+      </Button>
+      {/* Fuori dal flusso (sr-only è absolute): non sposta i pulsanti vicini */}
+      <span role="status" className="sr-only">
+        {confirmAnnouncement(armed, confirmLabel)}
+      </span>
+    </>
   );
 }
 
-const CONFIRM_MS = 5000;
+export const CONFIRM_MS = 5000;
+
+/** Che cosa sentono i lettori di schermo quando il pulsante chiede conferma (niente quando torna com'era). */
+export function confirmAnnouncement(armed: boolean, confirmLabel: string): string {
+  return armed ? `${confirmLabel} Tocca di nuovo entro ${CONFIRM_MS / 1000} secondi per confermare.` : '';
+}
 
 export function TextInput({
   label,
@@ -204,45 +216,54 @@ export interface ToastMessage {
   text: string;
 }
 
-/** Secondi per cui resta un messaggio di conferma; gli errori restano finché non si chiudono. */
+/** Millisecondi per cui resta un messaggio di conferma. */
 export const TOAST_MS = 6000;
+
+/** Gli errori restano di più, ma non coprono per sempre il fondo della pagina: si chiudono anche prima. */
+export const TOAST_ERROR_MS = 15000;
+
+/** Per quanto resta un messaggio prima di chiudersi da solo. */
+export const toastDuration = (m: ToastMessage): number => (m.ok ? TOAST_MS : TOAST_ERROR_MS);
 
 /**
  * Esito di un'azione in un avviso fisso in basso, visibile in qualunque punto della pagina (su telefono il
- * pulsante premuto può essere molto più in basso dell'inizio della pagina). Il contenitore resta sempre nella
- * pagina perché i lettori di schermo annuncino i messaggi nuovi.
+ * pulsante premuto può essere molto più in basso dell'inizio della pagina). I contenitori restano sempre nella
+ * pagina perché i lettori di schermo annuncino i messaggi nuovi: le conferme con calma (status), gli errori
+ * subito (alert).
  */
 export function Toast({ message, onClose }: { message: ToastMessage | null; onClose: () => void }) {
   useEffect(() => {
-    if (!message?.ok) return;
-    const t = setTimeout(onClose, TOAST_MS);
+    if (!message) return;
+    const t = setTimeout(onClose, toastDuration(message));
     return () => clearTimeout(t);
   }, [message, onClose]);
-  return (
+  const card = (m: ToastMessage) => (
     <div
-      role="status"
-      aria-live="polite"
-      className="pointer-events-none fixed inset-x-0 bottom-0 z-40 flex justify-center px-3 pb-[max(0.75rem,env(safe-area-inset-bottom))]"
+      className={`pointer-events-auto flex w-full max-w-lg items-center gap-2 rounded-xl py-1 pr-1 pl-4 text-sm shadow-lg ring-1 ${
+        m.ok
+          ? 'bg-green-50 text-green-900 ring-green-200 dark:bg-green-950 dark:text-green-50 dark:ring-green-800'
+          : 'bg-red-50 text-red-800 ring-red-200 dark:bg-red-950 dark:text-red-100 dark:ring-red-800'
+      }`}
     >
-      {message && (
-        <div
-          className={`pointer-events-auto flex w-full max-w-lg items-center gap-2 rounded-xl py-1 pr-1 pl-4 text-sm shadow-lg ring-1 ${
-            message.ok
-              ? 'bg-green-50 text-green-900 ring-green-200 dark:bg-green-950 dark:text-green-50 dark:ring-green-800'
-              : 'bg-red-50 text-red-800 ring-red-200 dark:bg-red-950 dark:text-red-100 dark:ring-red-800'
-          }`}
-        >
-          <p className="min-w-0 flex-1 py-2">{message.text}</p>
-          <button
-            type="button"
-            aria-label="Chiudi il messaggio"
-            onClick={onClose}
-            className="inline-flex size-11 shrink-0 items-center justify-center rounded-lg hover:bg-black/5 dark:hover:bg-white/10"
-          >
-            ✕
-          </button>
-        </div>
-      )}
+      <p className="min-w-0 flex-1 py-2">{m.text}</p>
+      <button
+        type="button"
+        aria-label="Chiudi il messaggio"
+        onClick={onClose}
+        className="inline-flex size-11 shrink-0 items-center justify-center rounded-lg hover:bg-black/5 dark:hover:bg-white/10"
+      >
+        ✕
+      </button>
+    </div>
+  );
+  return (
+    <div className="pointer-events-none fixed inset-x-0 bottom-0 z-40 flex flex-col items-center px-3 pb-[max(0.75rem,env(safe-area-inset-bottom))]">
+      <div role="status" aria-live="polite" className="flex w-full justify-center">
+        {message?.ok && card(message)}
+      </div>
+      <div role="alert" className="flex w-full justify-center">
+        {message && !message.ok && card(message)}
+      </div>
     </div>
   );
 }

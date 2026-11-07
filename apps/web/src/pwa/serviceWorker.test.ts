@@ -164,7 +164,7 @@ describe('notifiche push nel service worker', () => {
         tag: 'nbbgm-L',
         renotify: false,
         icon: `${SCOPE}icons/icon-192.png`,
-        badge: `${SCOPE}icons/icon-192.png`,
+        badge: `${SCOPE}icons/badge-96.png`,
         data: { url: `${SCOPE}#/lega/L` },
       },
       badge: 2,
@@ -315,5 +315,34 @@ describe('iscrizione cambiata dal browser (seconda analisi)', () => {
     const keyless = changeWorker('');
     await keyless.fire({ oldSubscription: { options: { applicationServerKey: old } } });
     expect(keyless.subscribed[0]!.applicationServerKey).toBe(old);
+  });
+});
+
+describe('icona delle notifiche nella barra di stato (seconda analisi)', () => {
+  it('è monocromatica e trasparente: Android ne usa solo la trasparenza', async () => {
+    const { inflateSync } = await import('node:zlib');
+    const png = readFileSync(new URL('../../public/icons/badge-96.png', import.meta.url));
+    // IHDR: 96x96, 8 bit, tipo 6 (RGBA)
+    expect(png.readUInt32BE(16)).toBe(96);
+    expect(png.readUInt32BE(20)).toBe(96);
+    expect(png[24]).toBe(8);
+    expect(png[25]).toBe(6);
+    let idat = Buffer.alloc(0);
+    for (let i = 8; i < png.length;) {
+      const n = png.readUInt32BE(i);
+      if (png.toString('ascii', i + 4, i + 8) === 'IDAT')
+        idat = Buffer.concat([idat, png.subarray(i + 8, i + 8 + n)]);
+      i += 12 + n;
+    }
+    const raw = inflateSync(idat);
+    const row = 96 * 4 + 1;
+    const alpha = (x: number, y: number) => raw[y * row + 1 + x * 4 + 3];
+    // Angoli trasparenti (fuori dalla palla), la palla piena, la cucitura centrale vuota
+    expect(alpha(0, 0)).toBe(0);
+    expect(alpha(95, 95)).toBe(0);
+    expect(alpha(38, 34)).toBe(255);
+    expect(alpha(48, 20)).toBe(0);
+    // Tutto bianco: il colore lo decide Android
+    for (let y = 0; y < 96; y++) for (let x = 0; x < 96; x++) expect(raw[y * row + 1 + x * 4]).toBe(255);
   });
 });

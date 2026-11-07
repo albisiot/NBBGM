@@ -5,10 +5,12 @@ import { useParams, useSearchParams } from 'react-router';
 import { ChronicleText } from '../components/ChronicleText.tsx';
 import { Button, Card, ErrorText, PageTitle, Spinner } from '../components/ui.tsx';
 import {
+  appendEntries,
   CHRONICLE_TYPES,
   chroniclePage,
   groupChronicle,
   TYPE_LABEL,
+  type ChronicleCursor,
   type ChronicleEntry,
 } from '../lib/chronicle.ts';
 import { friendlyError } from '../lib/errors.ts';
@@ -28,8 +30,13 @@ export function ChroniclePage() {
     [id, typesKey, team],
   );
   useRoundChange(id, reload);
-  // Pagine in più chieste con "Mostra altri", per gli stessi filtri
-  const [extra, setExtra] = useState<{ of: unknown; entries: ChronicleEntry[]; more: boolean } | null>(null);
+  // Pagine in più chieste con "Mostra altri", per gli stessi filtri: ognuna riparte dall'ultima riga letta
+  const [extra, setExtra] = useState<{
+    of: unknown;
+    entries: ChronicleEntry[];
+    more: boolean;
+    cursor: ChronicleCursor | null;
+  } | null>(null);
   const [busy, setBusy] = useState(false);
   const [moreError, setMoreError] = useState<string | null>(null);
   useEffect(() => setExtra(null), [data]);
@@ -43,18 +50,22 @@ export function ChroniclePage() {
   const toggleType = (t: string) =>
     set('tipi', (types.includes(t) ? types.filter((x) => x !== t) : [...types, t]).join(','));
 
-  const entries = [...(data?.entries ?? []), ...(extra?.of === data ? extra.entries : [])];
-  const more = extra?.of === data ? extra.more : (data?.more ?? false);
+  const mine = extra?.of === data ? extra : null;
+  const entries = appendEntries(data?.entries ?? [], mine?.entries ?? []);
+  const more = mine ? mine.more : (data?.more ?? false);
+  const cursor = mine ? mine.cursor : (data?.cursor ?? null);
 
   async function loadMore() {
+    if (!cursor) return;
     setBusy(true);
     setMoreError(null);
     try {
-      const page = await chroniclePage(id, { types, team }, entries.length);
+      const page = await chroniclePage(id, { types, team }, cursor);
       setExtra({
         of: data,
-        entries: [...(extra?.of === data ? extra.entries : []), ...page.entries],
+        entries: appendEntries(mine?.entries ?? [], page.entries),
         more: page.more,
+        cursor: page.cursor ?? cursor,
       });
     } catch (e) {
       setMoreError(friendlyError(e));
