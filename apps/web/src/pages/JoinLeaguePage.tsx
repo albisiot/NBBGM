@@ -2,9 +2,10 @@
 import { useEffect, useState, type FormEvent } from 'react';
 import { Link, useNavigate, useParams } from 'react-router';
 import { TeamPicker } from '../components/TeamPicker.tsx';
-import { Button, Card, ErrorText, PageTitle, TextInput } from '../components/ui.tsx';
+import { Button, Card, ErrorText, Kicker, PageTitle, SectionTitle, TextInput } from '../components/ui.tsx';
 import { friendlyError, normalizeInviteCode } from '../lib/errors.ts';
 import { joinLeague, previewLeague, type LeaguePreview } from '../lib/leagues.ts';
+import { TEXT_LINK } from '../lib/linkStyles.ts';
 
 export function JoinLeaguePage() {
   const params = useParams();
@@ -71,7 +72,7 @@ export function JoinLeaguePage() {
               maxLength={12}
               onChange={(e) => setCode(normalizeInviteCode(e.target.value))}
               placeholder="AB3K7Q"
-              className="font-mono tracking-widest uppercase"
+              className="font-titolo text-lg tracking-[0.3em] uppercase"
             />
           </div>
           <Button type="submit" disabled={busy || code.length < 6}>
@@ -83,9 +84,9 @@ export function JoinLeaguePage() {
 
       {preview && preview.already_member && (
         <Card>
-          <p className="text-sm">
+          <p className="text-[0.95rem]">
             Sei già in <strong>{preview.name}</strong>.{' '}
-            <Link className="font-semibold text-rosso-600 underline" to={`/lega/${preview.league_id}`}>
+            <Link className={TEXT_LINK} to={`/lega/${preview.league_id}`}>
               Vai alla lega
             </Link>
           </p>
@@ -94,22 +95,29 @@ export function JoinLeaguePage() {
 
       {preview && !preview.already_member && (
         <form onSubmit={join} className="space-y-4">
-          <Card>
-            <h2 className="text-lg font-semibold">{preview.name}</h2>
-            <p className="text-sm text-stampa-600 dark:text-stampa-300">
-              Commissario: {preview.commissioner || '—'} · {preview.teams.filter((t) => !t.taken).length}{' '}
-              squadre libere
-            </p>
-            <h3 className="mt-4 mb-3 text-sm font-medium text-stampa-700 dark:text-stampa-200">
-              Scegli la tua squadra
-            </h3>
+          <Card className="space-y-3">
+            <div className="space-y-0.5">
+              <Kicker>La lega</Kicker>
+              <h2 className="text-2xl leading-tight font-bold">{preview.name}</h2>
+              <p className="text-[0.875rem] text-stampa-600 italic dark:text-stampa-300">
+                Commissario: {preview.commissioner || '—'} · {preview.teams.filter((t) => !t.taken).length}{' '}
+                squadre libere
+              </p>
+            </div>
+            <SectionTitle aside={team ?? undefined}>Scegli la tua squadra</SectionTitle>
             <TeamPicker
               value={team}
               onChange={setTeam}
               taken={preview.teams.filter((t) => t.taken).map((t) => t.code)}
             />
           </Card>
-          <Button type="submit" className="w-full sm:w-auto" disabled={busy || !team}>
+          {/* L'azione principale della pagina: il pulsante rosso */}
+          <Button
+            type="submit"
+            variant="accent"
+            className="min-h-12 w-full sm:w-auto"
+            disabled={busy || !team}
+          >
             {busy ? 'Entro…' : 'Entra nella lega'}
           </Button>
         </form>

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { leagueLive, liveBadges, type LeagueLiveRow } from './leaguesLive.ts';
+import { leagueLive, type LeagueLiveRow } from './leaguesLive.ts';
 
 const NOW = Date.parse('2026-11-07T12:00:00Z');
 
@@ -27,13 +27,12 @@ const row = (over: Partial<LeagueLiveRow> = {}): LeagueLiveRow => ({
   ...over,
 });
 
-const labels = (r: LeagueLiveRow) => liveBadges(leagueLive(r, NOW)).map((b) => b.label);
+const live = (r: LeagueLiveRow) => leagueLive(r, NOW);
 
 describe('stato dal vivo nell’elenco delle leghe', () => {
   it('tocca a te, umani pronti (Pronto o allenatore) sul totale, decisioni aperte', () => {
     const l = leagueLive(row({ decisions: 2 }), NOW);
     expect(l).toMatchObject({ phase: 'open', myState: 'waiting', ready: 2, humans: 3, decisions: 2 });
-    expect(labels(row({ decisions: 2 }))).toEqual(['Tocca a te', 'Pronti 2/3', '2 decisioni']);
   });
 
   it('allenatore fermo da un avviso: tocca a te; pronto o allenatore: niente "tocca a te"', () => {
@@ -44,15 +43,17 @@ describe('stato dal vivo nell’elenco delle leghe', () => {
         { team_id: 'LAL', state: 'ready' },
       ],
     });
-    expect(labels(blocked)).toEqual(['Tocca a te', 'Pronti 1/2', '1 decisione']);
-    expect(labels(row({ readiness: [{ team_id: 'BOS', state: 'ready' }] }))).toEqual([
-      'Pronto',
-      'Pronti 1/1',
-    ]);
-    expect(labels(row({ readiness: [{ team_id: 'BOS', state: 'coach' }] }))).toEqual([
-      'Allenatore',
-      'Pronti 1/1',
-    ]);
+    expect(live(blocked)).toMatchObject({ myState: 'blocked', ready: 1, humans: 2, decisions: 1 });
+    expect(live(row({ readiness: [{ team_id: 'BOS', state: 'ready' }] }))).toMatchObject({
+      myState: 'ready',
+      ready: 1,
+      humans: 1,
+    });
+    expect(live(row({ readiness: [{ team_id: 'BOS', state: 'coach' }] }))).toMatchObject({
+      myState: 'coach',
+      ready: 1,
+      humans: 1,
+    });
   });
 
   it('in play-in e playoff chi non gioca non conta tra gli umani', () => {
@@ -65,14 +66,12 @@ describe('stato dal vivo nell’elenco delle leghe', () => {
       ],
     });
     expect(leagueLive(r, NOW)).toMatchObject({ myState: 'out', ready: 1, humans: 2 });
-    expect(labels(r)).toEqual(['Non gioca', 'Pronti 1/2']);
   });
 
   it('stato della lega: pausa, draft iniziale, simulazione, ritardo, turno bloccato', () => {
-    expect(labels(row({ paused: true }))[0]).toBe('Lega in pausa');
     // In pausa il Pronto si dà lo stesso: si vede ancora che tocca a te
-    expect(labels(row({ paused: true }))).toContain('Tocca a te');
-    expect(labels(row({ draft_state: 'running' }))).toEqual(['Draft in corso']);
+    expect(live(row({ paused: true }))).toMatchObject({ phase: 'paused', myState: 'waiting' });
+    expect(live(row({ draft_state: 'running' })).phase).toBe('draft');
     const closing = (startedMinAgo: number, failed: string | null) =>
       row({
         round: {
@@ -83,13 +82,13 @@ describe('stato dal vivo nell’elenco delle leghe', () => {
           failed_at: failed,
         },
       });
-    expect(labels(closing(1, null))).toEqual(['Simulazione in corso…']);
-    expect(labels(closing(10, null))).toEqual(['Simulazione in ritardo']);
-    expect(labels(closing(10, new Date(NOW).toISOString()))).toEqual(['Turno bloccato']);
+    expect(live(closing(1, null)).phase).toBe('closing');
+    expect(live(closing(10, null)).phase).toBe('late');
+    expect(live(closing(10, new Date(NOW).toISOString())).phase).toBe('failed');
   });
 
-  it('senza turno niente etichette; stati sconosciuti ignorati', () => {
-    expect(labels(row({ round: null, decisions: 0 }))).toEqual([]);
+  it('senza turno nessuna fase; stati sconosciuti ignorati', () => {
+    expect(live(row({ round: null, decisions: 0 })).phase).toBeNull();
     const l = leagueLive(row({ readiness: [{ team_id: 'BOS', state: 'boh' }] }), NOW);
     expect(l).toMatchObject({ myState: null, humans: 0 });
   });

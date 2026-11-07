@@ -1,4 +1,5 @@
-// Riepilogo del turno da condividere, nella scheda del turno. In due tocchi: il primo legge i dati (lib/summary.ts,
+// Riepilogo del turno da condividere, sotto il titolo della pagina della lega (l'ultima partita della propria
+// squadra). In due tocchi: il primo legge i dati (lib/summary.ts,
 // che arriva a pezzi con il motore) e mostra il testo; il secondo lo manda al pannello di condivisione del sistema o
 // agli appunti. Safari su iPhone apre il pannello solo subito dopo un tocco, non alla fine di un caricamento.
 import { useCallback, useState } from 'react';
@@ -21,9 +22,10 @@ export function SharePreview({
   onResult: (r: ShareResult) => void;
 }) {
   const canShare = typeof navigator.share === 'function';
+  // Il testo come un ritaglio di giornale: filetto pieno sopra, a filo intorno
   return (
-    <div className="space-y-2 rounded-lg border border-stampa-200 p-3 dark:border-stampa-700">
-      <pre className="font-sans text-sm break-words whitespace-pre-wrap">{text}</pre>
+    <div className="space-y-3 border border-t-4 border-stampa-900 bg-stampa-25 p-3 dark:border-stampa-300 dark:bg-stampa-800">
+      <pre className="font-serif text-[0.95rem] leading-relaxed break-words whitespace-pre-wrap">{text}</pre>
       <div className="flex flex-wrap gap-2">
         {canShare && <Button onClick={() => void shareText(text, title).then(onResult)}>Condividi</Button>}
         <Button

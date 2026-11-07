@@ -5,7 +5,7 @@
 import { overall } from '@nbbgm/engine';
 import { useEffect, useMemo, useState } from 'react';
 import { Link, useParams } from 'react-router';
-import { Button, Card, ErrorText, PageTitle, Spinner, TeamCode } from '../components/ui.tsx';
+import { Button, ErrorText, PageTitle, SectionTitle, Spinner } from '../components/ui.tsx';
 import { useUserId } from '../lib/auth.tsx';
 import { annualListToSave } from '../lib/draft.ts';
 import { friendlyError } from '../lib/errors.ts';
@@ -13,8 +13,12 @@ import { latestSaver } from '../lib/latestSaver.ts';
 import { leagueDetail } from '../lib/leagues.ts';
 import { draftProspects, liteOf, playersLite } from '../lib/roster.ts';
 import { supabase } from '../lib/supabase.ts';
+import { INK_LINK, NOTE } from '../lib/tabellino.ts';
 import { useAsync } from '../lib/useAsync.ts';
 import { useRoundChange } from '../lib/useRoundChange.ts';
+
+/** Riga di un elenco del draft: filetto sottile sotto, niente dopo l'ultima. */
+const LIST_ROW = 'border-b border-stampa-200 last:border-b-0 dark:border-stampa-700';
 
 interface Slot {
   pickNo: number;
@@ -147,7 +151,7 @@ export function AnnualDraftPage() {
     return (
       <div className="space-y-4">
         <PageTitle>Draft {draftYear}</PageTitle>
-        <p className="text-sm text-stampa-600 dark:text-stampa-300">
+        <p className={NOTE}>
           L’ordine del draft si decide alla fine della stagione, dopo la finale: lottery per le 14 squadre
           fuori dai playoff, poi l’ordine inverso di classifica.
         </p>
@@ -155,7 +159,7 @@ export function AnnualDraftPage() {
     );
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-6">
       <PageTitle
         sub={
           done
@@ -167,42 +171,59 @@ export function AnnualDraftPage() {
       </PageTitle>
 
       {!done && mine && (
-        <Card className="space-y-2 !p-4">
-          <h2 className="font-semibold">La tua lista</h2>
+        <section className="space-y-2">
+          <SectionTitle aside={`${current.length} ${current.length === 1 ? 'prospetto' : 'prospetti'}`}>
+            La tua lista
+          </SectionTitle>
           {current.length === 0 && (
-            <p className="text-sm text-stampa-500 dark:text-stampa-400">
+            <p className={NOTE}>
               Vuota: sceglierà il server il migliore per i ruoli scoperti. Aggiungi i prospetti dall’elenco
               qui sotto.
             </p>
           )}
-          <ol className="space-y-1 text-sm">
+          <ol className="text-sm">
             {current.map((pid, i) => {
               const p = byId.get(pid);
               return (
-                <li key={pid} className="flex items-center gap-2">
-                  <span className="w-6 text-right text-xs text-stampa-500 dark:text-stampa-400">{i + 1}</span>
+                <li key={pid} className={`flex min-h-11 items-center gap-2 ${LIST_ROW}`}>
+                  <span className="w-6 text-right font-titolo text-stampa-600 tabular-nums dark:text-stampa-300">
+                    {i + 1}
+                  </span>
                   <span className="min-w-0 flex-1 truncate">
-                    {p ? `${p.firstName} ${p.lastName}` : 'Non più disponibile'}
+                    <span className="font-semibold">
+                      {p ? `${p.firstName} ${p.lastName}` : 'Non più disponibile'}
+                    </span>
                     {p && (
-                      <span className="ml-1 text-xs text-stampa-500 dark:text-stampa-400">
+                      <i className="ml-1.5 text-[0.8125rem] text-stampa-600 dark:text-stampa-300">
                         {p.role} · {p.age} anni · pot. {p.scoutedPotential}
-                      </span>
+                      </i>
                     )}
                   </span>
                   {editable && (
                     <>
-                      <Button variant="ghost" disabled={i === 0} onClick={() => move(i, -1)} aria-label="Su">
+                      <Button
+                        variant="ghost"
+                        className="min-w-11 px-2 no-underline disabled:opacity-40"
+                        disabled={i === 0}
+                        onClick={() => move(i, -1)}
+                        aria-label="Su"
+                      >
                         ↑
                       </Button>
                       <Button
                         variant="ghost"
+                        className="min-w-11 px-2 no-underline disabled:opacity-40"
                         disabled={i === current.length - 1}
                         onClick={() => move(i, 1)}
                         aria-label="Giù"
                       >
                         ↓
                       </Button>
-                      <Button variant="ghost" onClick={() => void update(current.filter((x) => x !== pid))}>
+                      <Button
+                        variant="ghost"
+                        className="px-2"
+                        onClick={() => void update(current.filter((x) => x !== pid))}
+                      >
                         Togli
                       </Button>
                     </>
@@ -212,70 +233,81 @@ export function AnnualDraftPage() {
             })}
           </ol>
           {saveError && <ErrorText>{saveError}</ErrorText>}
-        </Card>
+        </section>
       )}
 
-      <div className="grid gap-4 md:grid-cols-2">
-        <Card className="!p-4">
-          <h2 className="mb-2 font-semibold">Ordine delle scelte</h2>
-          <ol className="max-h-[32rem] divide-y divide-stampa-100 overflow-y-auto text-sm dark:divide-stampa-700">
+      <div className="grid gap-6 md:grid-cols-2">
+        <section className="space-y-2">
+          <SectionTitle>Ordine delle scelte</SectionTitle>
+          <ol className="max-h-[32rem] overflow-y-auto text-sm">
             {order.map((s) => {
               const owner = team.get(s.teamId);
+              const own = s.teamId === mine?.id;
               const picked = s.playerId ? players.get(s.playerId) : null;
               return (
                 <li
                   key={s.pickNo}
-                  className={`flex items-center gap-2 py-1 ${s.teamId === mine?.id ? 'font-semibold' : ''}`}
+                  className={`flex items-center gap-2 py-1.5 ${LIST_ROW} ${own ? 'bg-stampa-25 font-semibold dark:bg-stampa-800' : ''}`}
                 >
-                  <span className="w-10 text-right font-mono text-xs text-stampa-500 dark:text-stampa-400">
+                  <span className="w-10 text-right font-titolo text-stampa-600 tabular-nums dark:text-stampa-300">
                     {s.round}.{String(s.number).padStart(2, '0')}
                   </span>
-                  <TeamCode code={owner?.code ?? '?'} strong={s.teamId === mine?.id} />
+                  <b
+                    className={`w-9 shrink-0 font-titolo font-semibold ${own ? 'text-rosso-700 dark:text-rosso-300' : ''}`}
+                  >
+                    {owner?.code ?? '?'}
+                  </b>
                   <span className="min-w-0 flex-1 truncate">
                     {picked ? (
-                      <Link to={`/lega/${league.id}/giocatore/${s.playerId}`} className="hover:underline">
+                      <Link to={`/lega/${league.id}/giocatore/${s.playerId}`} className={INK_LINK}>
                         {picked.name}{' '}
-                        <span className="text-xs text-stampa-500 dark:text-stampa-400">{picked.role}</span>
+                        <i className="text-[0.8125rem] text-stampa-600 dark:text-stampa-300">{picked.role}</i>
                       </Link>
                     ) : (
-                      <span className="text-stampa-500 dark:text-stampa-400">da scegliere</span>
+                      <i className="text-[0.8125rem] text-stampa-600 dark:text-stampa-300">da scegliere</i>
                     )}
                   </span>
                   {s.originalTeamId !== s.teamId && (
-                    <span className="text-xs text-stampa-500 dark:text-stampa-400">
+                    <i className="shrink-0 pr-1 text-[0.8125rem] text-stampa-600 dark:text-stampa-300">
                       da {team.get(s.originalTeamId)?.code}
-                    </span>
+                    </i>
                   )}
                 </li>
               );
             })}
           </ol>
-        </Card>
+        </section>
 
         {!done && (
-          <Card className="!p-4">
-            <h2 className="mb-2 font-semibold">Prospetti</h2>
-            <p className="mb-2 text-xs text-stampa-500 dark:text-stampa-400">
-              Il potenziale è una stima, come la vedono anche i bot.
-            </p>
-            <ul className="max-h-[32rem] divide-y divide-stampa-100 overflow-y-auto text-sm dark:divide-stampa-700">
+          <section className="space-y-2">
+            <SectionTitle>Prospetti</SectionTitle>
+            <p className={NOTE}>Il potenziale è una stima, come la vedono anche i bot.</p>
+            <ul className="max-h-[32rem] overflow-y-auto text-sm">
               {prospects.map((p) => {
                 const inList = current.includes(p.id);
                 return (
-                  <li key={p.id} className="flex items-center gap-2 py-1.5">
-                    <span className="w-8 text-center font-mono text-xs">{overall(p)}</span>
+                  <li key={p.id} className={`flex min-h-11 items-center gap-2 py-1 ${LIST_ROW}`}>
+                    <span
+                      className="w-8 text-center font-titolo text-base font-semibold tabular-nums"
+                      title="Overall"
+                    >
+                      {overall(p)}
+                    </span>
                     <Link
                       to={`/lega/${league.id}/giocatore/${p.id}`}
-                      className="min-w-0 flex-1 truncate hover:underline"
+                      className={`min-w-0 flex-1 truncate ${INK_LINK}`}
                     >
-                      {p.firstName} {p.lastName}
-                      <span className="ml-1 text-xs text-stampa-500 dark:text-stampa-400">
-                        {p.role} · {p.age} anni · pot. {p.scoutedPotential} · {p.archetype}
+                      <span className="font-semibold">
+                        {p.firstName} {p.lastName}
                       </span>
+                      <i className="ml-1.5 text-[0.8125rem] text-stampa-600 dark:text-stampa-300">
+                        {p.role} · {p.age} anni · pot. {p.scoutedPotential} · {p.archetype}
+                      </i>
                     </Link>
                     {editable && mine && (
                       <Button
                         variant={inList ? 'ghost' : 'secondary'}
+                        className="px-3"
                         onClick={() =>
                           void update(inList ? current.filter((x) => x !== p.id) : [...current, p.id])
                         }
@@ -287,7 +319,7 @@ export function AnnualDraftPage() {
                 );
               })}
             </ul>
-          </Card>
+          </section>
         )}
       </div>
     </div>

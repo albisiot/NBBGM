@@ -1,17 +1,21 @@
-// Mercato della propria squadra: svincolati (offerte a busta chiusa), scambi (proposte ricevute e inviate, nuova
-// proposta con giocatori, scelte protette e swap) e bilancio. Tutto si esegue alla chiusura del turno.
+// Mercato della propria squadra, nello stile Edicola: sezioni a filetto (svincolati, scambi, giocatori sul mercato,
+// rinnovi nel loro turno, bilancio). Svincolati con offerte a busta chiusa, scambi (proposte ricevute e inviate, nuova
+// proposta con giocatori, scelte protette, swap e l'anteprima prima → dopo), giocatori sul mercato e bilancio. Tutto
+// si esegue alla chiusura del turno.
 import { MAX_PROTECTION, overall, TRADE_DEADLINE_TURN, type SeasonConfig } from '@nbbgm/engine';
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { Link, useParams, useSearchParams } from 'react-router';
 import {
   Button,
-  Card,
   ConfirmButton,
   ErrorText,
-  PageTitle,
-  Segmented,
+  Kicker,
+  Leader,
+  SectionTitle,
   Spinner,
+  Tag,
   TeamCode,
+  TextInput,
   Toast,
   type ToastMessage,
 } from '../components/ui.tsx';
@@ -60,6 +64,7 @@ import {
   type PickInfo,
   type TradeOffer,
 } from '../lib/market.ts';
+import { bidTone, mln1, pickName, sameQuery, selectedSalary } from '../lib/marketView.ts';
 import {
   freeAgentPlayers,
   liteOf,
@@ -74,15 +79,35 @@ import { botTradeBlock, tradeBlock } from '../lib/tradeBlock.ts';
 import { tradePreview, type TradePreview } from '../lib/tradePreview.ts';
 import { LeagueBlock, MyBlock, PreviewCard } from '../components/TradeBlock.tsx';
 import { TeamNeedsCard } from '../components/TeamNeedsCard.tsx';
+import {
+  BAD,
+  BOX,
+  FIELD,
+  FIELD_LABEL,
+  FilterSelect,
+  GHOST_LINK,
+  META,
+  NOTE,
+  OvrBox,
+  RULE,
+  Strip,
+  SubTitle,
+} from '../components/inkParts.tsx';
 import { compareWith } from '../lib/compare.ts';
 import { SKILL_LABEL, skillOf, type SkillKey } from '../lib/skills.ts';
 import { useAsync } from '../lib/useAsync.ts';
 import { useRoundChange } from '../lib/useRoundChange.ts';
 
-type Tab = 'svincolati' | 'scambi' | 'rinnovi' | 'bilancio';
+type Tab = 'svincolati' | 'scambi' | 'sul-mercato' | 'rinnovi' | 'bilancio';
 
-const SELECT =
-  'min-h-11 min-w-0 rounded-lg border border-stampa-300 bg-stampa-25 px-2 text-sm dark:border-stampa-600 dark:bg-stampa-800';
+/** Nome delle sezioni: nel menu a filetto e come titolo della pagina. */
+const TAB_LABEL: Record<Tab, string> = {
+  svincolati: 'Svincolati',
+  scambi: 'Scambi',
+  'sul-mercato': 'Sul mercato',
+  rinnovi: 'Rinnovi',
+  bilancio: 'Bilancio',
+};
 
 /** Dati del turno: rosa, svincolati, scelte, bilancio cambiano solo alla chiusura del turno. */
 interface MarketBase {
@@ -141,8 +166,7 @@ async function loadLive(
 export function MarketPage() {
   const { id = '' } = useParams();
   const userId = useUserId();
-  const [search, setSearch] = useSearchParams();
-  const tab = (search.get('tab') as Tab | null) ?? 'svincolati';
+  const [search] = useSearchParams();
   const {
     data: loaded,
     error,
@@ -211,48 +235,97 @@ export function MarketPage() {
   const offseason = data.league.roundKind === 'offseason';
   const renewals = offseason && data.league.roundStage === 'renewals';
   const signing = regular || data.faRound !== null;
+  const tabs: Tab[] = [
+    'svincolati',
+    'scambi',
+    'sul-mercato',
+    ...(renewals ? ['rinnovi' as Tab] : []),
+    'bilancio',
+  ];
+  const asked = search.get('tab') as Tab | null;
+  const tab: Tab = asked && tabs.includes(asked) ? asked : 'svincolati';
+  // Proposte ricevute da decidere: il numero accanto a Scambi
+  const toDecide = data.offers.filter((o) => o.toTeamId === data.me.id && o.status === 'pending').length;
 
   return (
-    <div className="space-y-4">
-      <PageTitle sub="Offerte, scambi, tagli e rinnovi si eseguono alla chiusura del turno.">
-        Mercato
-      </PageTitle>
+    <div className="space-y-5">
+      <header>
+        <Kicker>Il mercato</Kicker>
+        <h1 className="text-3xl leading-tight font-bold">{TAB_LABEL[tab]}</h1>
+        <p className="mt-1 text-sm text-stampa-600 italic dark:text-stampa-300">
+          Offerte, scambi, tagli e rinnovi si eseguono alla chiusura del turno.
+        </p>
+      </header>
+      <MarketTabs leagueId={data.league.id} tabs={tabs} current={tab} toDecide={toDecide} />
       <FinanceSummary data={data} />
-      <Segmented
-        label="Sezione"
-        value={tab}
-        onChange={(t) => setSearch({ tab: t }, { replace: true })}
-        options={[
-          { label: 'Svincolati', value: 'svincolati' },
-          { label: 'Scambi', value: 'scambi' },
-          ...(renewals ? [{ label: 'Rinnovi', value: 'rinnovi' as Tab }] : []),
-          { label: 'Bilancio', value: 'bilancio' },
-        ]}
-      />
       {!regular && !offseason && tab !== 'bilancio' && (
-        <p className="text-sm text-stampa-600 dark:text-stampa-300">
+        <p className="text-sm text-stampa-600 italic dark:text-stampa-300">
           Durante play-in e playoff il mercato è chiuso (gli scambi si fermano dopo la giornata{' '}
           {TRADE_DEADLINE_TURN + 1} e riaprono nell’offseason).
         </p>
       )}
       {tab === 'svincolati' && !signing && (
-        <p className="text-sm text-stampa-600 dark:text-stampa-300">
+        <p className="text-sm text-stampa-600 italic dark:text-stampa-300">
           Gli svincolati si firmano in regular season e nei quattro turni di free agency dell’offseason.
         </p>
       )}
       {data.faRound !== null && (
-        <p className="text-sm text-stampa-600 dark:text-stampa-300">
+        <p className="text-sm text-stampa-600 italic dark:text-stampa-300">
           Free agency, turno {data.faRound + 1} di 4: anche i bot fanno le loro offerte, e le richieste
           scendono di turno in turno. Fino a 21 giocatori in rosa nell’offseason; contratti e cap sono già
           quelli della prossima stagione.
         </p>
       )}
-      {tab === 'rinnovi' && renewals && <Renewals data={data} busy={busy} run={run} />}
+      {tab === 'rinnovi' && <Renewals data={data} busy={busy} run={run} />}
       {tab === 'svincolati' && <FreeAgents data={data} busy={busy} run={run} />}
-      {tab === 'scambi' && <Trades data={data} busy={busy} run={run} notify={setMessage} />}
+      {tab === 'scambi' && <Trades data={data} busy={busy} run={run} />}
+      {tab === 'sul-mercato' && <OnTheBlock data={data} notify={setMessage} />}
       {tab === 'bilancio' && <Ledger data={data} />}
       <Toast message={message} onClose={closeMessage} />
     </div>
+  );
+}
+
+/** Le sezioni del mercato come un menu a filetto: quella aperta con il filetto pieno sotto. */
+function MarketTabs({
+  leagueId,
+  tabs,
+  current,
+  toDecide,
+}: {
+  leagueId: string;
+  tabs: Tab[];
+  current: Tab;
+  toDecide: number;
+}) {
+  return (
+    // Su telefono stretto (con i Rinnovi) il menu scorre in orizzontale, non la pagina
+    <nav aria-label="Sezioni del mercato" className="relative overflow-x-auto">
+      <ul className="flex min-w-max gap-4 border-b border-stampa-900 sm:gap-5 dark:border-stampa-100">
+        {tabs.map((t) => (
+          <li key={t}>
+            <Link
+              to={`/lega/${leagueId}/mercato?tab=${t}`}
+              replace
+              aria-current={t === current ? 'page' : undefined}
+              className={`-mb-px flex min-h-11 items-center gap-1.5 border-b-[3px] font-titolo text-[0.8125rem] tracking-wide uppercase sm:text-sm sm:tracking-wider ${
+                t === current
+                  ? 'border-stampa-900 font-semibold text-stampa-900 dark:border-stampa-100 dark:text-stampa-50'
+                  : 'border-transparent font-medium text-stampa-700 hover:text-stampa-900 dark:text-stampa-300 dark:hover:text-stampa-50'
+              }`}
+            >
+              {TAB_LABEL[t]}
+              {t === 'scambi' && toDecide > 0 && (
+                <span className="bg-rosso-600 px-1.5 text-xs text-white dark:bg-rosso-500">
+                  {toDecide}
+                  <span className="sr-only"> da decidere</span>
+                </span>
+              )}
+            </Link>
+          </li>
+        ))}
+      </ul>
+    </nav>
   );
 }
 
@@ -261,43 +334,47 @@ function FinanceSummary({ data }: { data: MarketData }) {
   const twoWay = roster.filter((p) => p.contractType === 'two-way').length;
   const standard = roster.length - twoWay;
   const tax = projectedTax(config, finance);
-  const items: { label: string; value: string; warn?: boolean }[] = [
-    { label: 'Saldo', value: millions(finance.balance), warn: finance.balance < 0 },
-    { label: 'Monte stipendi', value: millions(finance.payroll) },
-    {
-      label: 'Spazio sotto il cap',
-      value: finance.payroll < config.salaryCap ? millions(config.salaryCap - finance.payroll) : 'nessuno',
-    },
-    {
-      label: tax > 0 ? 'Luxury tax stimata' : 'Margine dalla tassa',
-      value: tax > 0 ? millions(tax) : millions(config.luxuryTax - finance.payroll),
-      warn: tax > 0,
-    },
-    { label: 'Rosa', value: `${standard}/15 · two-way ${twoWay}/3`, warn: standard < 13 },
-  ];
   return (
-    <Card className="!p-4">
-      <dl className="grid grid-cols-2 gap-3 text-sm sm:grid-cols-5">
-        {items.map((i) => (
-          <div key={i.label}>
-            <dt className="text-xs text-stampa-500 dark:text-stampa-400">{i.label}</dt>
-            <dd className={`font-semibold ${i.warn ? 'text-red-600 dark:text-red-400' : ''}`}>{i.value}</dd>
-          </div>
-        ))}
-      </dl>
+    <div className="space-y-2">
+      <Strip
+        cols="sm:grid-cols-5"
+        items={[
+          { label: 'Saldo', value: millions(finance.balance), bad: finance.balance < 0 },
+          { label: 'Monte stipendi', value: millions(finance.payroll) },
+          {
+            label: 'Spazio sotto il cap',
+            value:
+              finance.payroll < config.salaryCap ? millions(config.salaryCap - finance.payroll) : 'nessuno',
+            note: finance.payroll < config.salaryCap ? undefined : 'firmi solo al minimo',
+          },
+          {
+            label: tax > 0 ? 'Luxury tax stimata' : 'Margine dalla tassa',
+            value: tax > 0 ? millions(tax) : millions(config.luxuryTax - finance.payroll),
+            bad: tax > 0,
+          },
+          {
+            label: 'Rosa',
+            value: `${standard}/15 · two-way ${twoWay}/3`,
+            bad: standard < 13,
+            wide: true,
+          },
+        ]}
+      />
       {finance.balance < 0 && (
-        <p className="mt-2 text-xs text-red-600 dark:text-red-400">
+        <p className={`text-[0.8125rem] italic ${BAD}`}>
           Con il saldo negativo si firmano svincolati solo fino al monte stipendi minimo (oltre, solo al
           minimo per restare a 13) e non si fanno scambi che aumentano il monte stipendi.
         </p>
       )}
-    </Card>
+    </div>
   );
 }
 
 type Run = (action: MarketAction, ok: string) => Promise<boolean>;
 
 // ---------------------------------------------------------------- svincolati
+
+const ROLES = ['PG', 'SG', 'SF', 'PF', 'C'];
 
 function FreeAgents({ data, busy, run }: { data: MarketData; busy: boolean; run: Run }) {
   const [query, setQuery] = useState<FreeAgentQuery>(DEFAULT_FA_QUERY);
@@ -321,167 +398,204 @@ function FreeAgents({ data, busy, run }: { data: MarketData; busy: boolean; run:
     setQuery((x) => ({ ...x, ...q }));
     setShown(FA_PAGE);
   };
-  const filtersOn = JSON.stringify(query) !== JSON.stringify(DEFAULT_FA_QUERY);
+  const filtersOn = !sameQuery(query, DEFAULT_FA_QUERY);
   const pending = data.bids.filter((b) => b.status === 'pending');
   const recent = data.bids.filter((b) => b.status !== 'pending' && b.status !== 'withdrawn').slice(0, 8);
+  const offered = new Set(pending.map((b) => b.playerId));
   const name = (pid: string) => data.players.get(pid)?.name ?? 'Giocatore';
 
   const skill = query.sort.startsWith('skill:') ? (query.sort.slice(6) as SkillKey) : null;
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-5">
+      {(pending.length > 0 || recent.length > 0) && (
+        <section className="space-y-1">
+          <SectionTitle aside={pending.length ? `${pending.length} in corso` : undefined}>
+            Le tue offerte
+          </SectionTitle>
+          <ul>
+            {[...pending, ...recent].map((b) => {
+              const tone = bidTone(b.status);
+              return (
+                <li
+                  key={b.id}
+                  className={`flex flex-wrap items-center justify-between gap-x-2 py-1.5 ${RULE}`}
+                >
+                  <span className="min-w-0">
+                    <span className="font-bold">{name(b.playerId)}</span>{' '}
+                    <span className={META}>
+                      · {b.salaries.length} {b.salaries.length === 1 ? 'anno' : 'anni'},{' '}
+                      {millions(b.salaries[0] ?? 0)} il primo
+                    </span>
+                    <span
+                      className={`block text-[0.8125rem] italic ${
+                        tone === 'red'
+                          ? BAD
+                          : tone === 'ink'
+                            ? 'font-semibold'
+                            : 'text-stampa-600 dark:text-stampa-300'
+                      }`}
+                    >
+                      {BID_STATUS[b.status]}
+                    </span>
+                  </span>
+                  {b.status === 'pending' && (
+                    <Button
+                      variant="ghost"
+                      disabled={busy}
+                      aria-label={`Ritira l’offerta per ${name(b.playerId)}`}
+                      onClick={() => void run({ kind: 'withdraw_bid', bid_id: b.id }, 'Offerta ritirata.')}
+                    >
+                      Ritira
+                    </Button>
+                  )}
+                </li>
+              );
+            })}
+          </ul>
+        </section>
+      )}
+
       <TeamNeedsCard
         leagueId={data.league.id}
         roundId={data.league.roundId}
         roster={data.roster}
-        onPick={(q) => change({ ...DEFAULT_FA_QUERY, ...q })}
+        query={query}
+        onPick={(q) => change(q ? { ...DEFAULT_FA_QUERY, ...q } : DEFAULT_FA_QUERY)}
       />
-      {(pending.length > 0 || recent.length > 0) && (
-        <Card className="space-y-2 !p-4">
-          <h2 className="font-semibold">Le tue offerte</h2>
-          <ul className="divide-y divide-stampa-100 text-sm dark:divide-stampa-700">
-            {[...pending, ...recent].map((b) => (
-              <li key={b.id} className="flex flex-wrap items-center justify-between gap-2 py-1.5">
-                <span>
-                  <span className="font-medium">{name(b.playerId)}</span> · {b.salaries.length}{' '}
-                  {b.salaries.length === 1 ? 'anno' : 'anni'}, {millions(b.salaries[0] ?? 0)} il primo
-                  <span className="block text-xs text-stampa-500 dark:text-stampa-400">
-                    {BID_STATUS[b.status]}
-                  </span>
-                </span>
-                {b.status === 'pending' && (
-                  <Button
-                    variant="ghost"
-                    disabled={busy}
-                    onClick={() => void run({ kind: 'withdraw_bid', bid_id: b.id }, 'Offerta ritirata.')}
-                  >
-                    Ritira
-                  </Button>
-                )}
-              </li>
-            ))}
-          </ul>
-        </Card>
-      )}
 
-      <Card className="space-y-3 !p-4">
-        <div className="flex flex-wrap items-center justify-between gap-2">
-          <h2 className="font-semibold">Svincolati</h2>
-          <span className="text-xs text-stampa-500 dark:text-stampa-400">
-            {filtered.length === rows.length
-              ? `${rows.length} in tutto`
-              : `${filtered.length} su ${rows.length}`}
-          </span>
-        </div>
-        <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
-          <input
-            type="search"
-            aria-label="Cerca per nome"
-            placeholder="Cerca per nome"
-            className="col-span-2 min-h-11 rounded-lg border border-stampa-300 bg-stampa-25 px-3 text-base sm:col-span-3 sm:text-sm dark:border-stampa-600 dark:bg-stampa-800"
-            value={query.name}
-            onChange={(e) => change({ name: e.target.value })}
-          />
-          <select
-            aria-label="Ruolo"
-            className={SELECT}
+      <div className="space-y-2">
+        <TextInput
+          label="Cerca per nome"
+          type="search"
+          placeholder="Nome o cognome"
+          value={query.name}
+          onChange={(e) => change({ name: e.target.value })}
+        />
+        <div className="flex flex-wrap items-center gap-1.5">
+          <FilterSelect
+            label="Ruolo"
+            active={query.role !== 'all'}
             value={query.role}
             onChange={(e) => change({ role: e.target.value })}
           >
-            <option value="all">Tutti i ruoli</option>
-            {['PG', 'SG', 'SF', 'PF', 'C'].map((r) => (
+            <option value="all">Ruolo: tutti</option>
+            {ROLES.map((r) => (
               <option key={r} value={r}>
-                {r}
+                Ruolo: {r}
               </option>
             ))}
-          </select>
-          <select
-            aria-label="Età"
-            className={SELECT}
+          </FilterSelect>
+          <FilterSelect
+            label="Età"
+            active={query.age !== 'all'}
             value={query.age}
             onChange={(e) => change({ age: e.target.value as AgeBand })}
           >
             {AGE_BANDS.map((o) => (
               <option key={o.value} value={o.value}>
-                {o.label}
+                {o.value === 'all' ? 'Età: tutte' : `Età: ${o.label.toLowerCase()}`}
               </option>
             ))}
-          </select>
-          <select
-            aria-label="Richiesta"
-            className={SELECT}
+          </FilterSelect>
+          <FilterSelect
+            label="Richiesta"
+            active={query.ask !== 'all'}
             value={query.ask}
             onChange={(e) => change({ ask: e.target.value as AskBand })}
           >
             {ASK_BANDS.map((o) => (
               <option key={o.value} value={o.value}>
-                {o.label}
+                {o.value === 'all' ? 'Richiesta: qualsiasi' : o.label}
               </option>
             ))}
-          </select>
-          <select
-            aria-label="Ordina per"
-            className={SELECT}
+          </FilterSelect>
+          <FilterSelect
+            ghost
+            label="Ordina per"
+            className="sm:ml-auto"
             value={query.sort}
             onChange={(e) => change({ sort: e.target.value as FreeAgentSort })}
           >
             {FA_SORTS.map((o) => (
               <option key={o.value} value={o.value}>
-                Ordina: {o.label}
+                Ordina: {o.label.toLowerCase()}
               </option>
             ))}
-          </select>
+          </FilterSelect>
           {filtersOn && (
-            <Button
-              variant="ghost"
-              className="col-span-2 sm:col-span-1"
-              onClick={() => change(DEFAULT_FA_QUERY)}
-            >
+            <Button variant="ghost" onClick={() => change(DEFAULT_FA_QUERY)}>
               Togli i filtri
             </Button>
           )}
         </div>
-        <p className="text-xs text-stampa-500 dark:text-stampa-400">
+      </div>
+
+      <section className="space-y-1">
+        <SectionTitle
+          aside={
+            filtered.length === rows.length
+              ? `${rows.length} in tutto`
+              : `${filtered.length} su ${rows.length}`
+          }
+        >
+          Disponibili
+        </SectionTitle>
+        <p className={NOTE}>
           Offerte a busta chiusa: alla chiusura del turno ogni svincolato sceglie, tra le offerte sopra la sua
           richiesta, quella con il punteggio migliore (soldi, minuti attesi, forza della squadra). Sopra il
           cap si firma solo al minimo.
         </p>
         {list.length === 0 && (
-          <p className="text-sm text-stampa-500 dark:text-stampa-400">
+          <p className="py-2 text-sm">
             {rows.length === 0 ? 'Nessuno svincolato.' : 'Nessuno svincolato con questi filtri.'}
           </p>
         )}
-        <ul className="divide-y divide-stampa-100 dark:divide-stampa-700">
+        <ul>
           {list.map(({ p, ovr, ask }) => (
-            <li key={p.id} className="py-2 text-sm">
-              <div className="flex flex-wrap items-center gap-2">
-                <span className="w-8 text-center font-mono font-semibold">{ovr}</span>
-                <Link
-                  to={`/lega/${data.league.id}/giocatore/${p.id}`}
-                  className="min-w-0 flex-1 truncate hover:underline"
-                >
-                  {p.firstName} {p.lastName}
-                  <span className="ml-1 text-xs text-stampa-500 dark:text-stampa-400">
+            <li key={p.id} className={`py-2 ${RULE}`}>
+              <div className="flex items-center gap-3">
+                <OvrBox value={ovr} />
+                <div className="min-w-0 flex-1">
+                  <Link
+                    to={`/lega/${data.league.id}/giocatore/${p.id}`}
+                    className="block truncate text-base font-bold hover:underline"
+                  >
+                    {p.firstName} {p.lastName}
+                  </Link>
+                  <p className={META}>
                     {p.role}
                     {p.secondaryRole ? `/${p.secondaryRole}` : ''} · {p.age} anni · pot. {p.scoutedPotential}
                     {skill &&
                       ` · ${SKILL_LABEL[skill].toLowerCase()} ${Math.round(skillOf(p.ratings, skill))}`}
-                  </span>
-                </Link>
-                <Link
-                  to={compareWith(data.league.id, p.id)}
-                  className="inline-flex min-h-11 items-center rounded-lg px-2 text-xs font-semibold text-rosso-700 hover:bg-rosso-50 dark:text-rosso-300 dark:hover:bg-rosso-950"
-                >
-                  Confronta
-                </Link>
-                <span className="text-xs text-stampa-600 dark:text-stampa-300">chiede {millions(ask)}</span>
-                <Button
-                  variant="secondary"
-                  disabled={busy}
-                  onClick={() => setOpen(open === p.id ? null : p.id)}
-                >
-                  {open === p.id ? 'Chiudi' : 'Offri'}
-                </Button>
+                  </p>
+                  <p className={META}>
+                    chiede {millions(ask)}
+                    {offered.has(p.id) && (
+                      <span className="ml-2 not-italic">
+                        <Tag tone="outline">Offerta fatta</Tag>
+                      </span>
+                    )}
+                  </p>
+                </div>
+                <div className="flex shrink-0 items-center gap-1">
+                  <Link
+                    to={compareWith(data.league.id, p.id)}
+                    className={GHOST_LINK}
+                    aria-label={`Confronta ${p.firstName} ${p.lastName}`}
+                  >
+                    Confronta
+                  </Link>
+                  <Button
+                    variant="secondary"
+                    className="px-3"
+                    disabled={busy}
+                    aria-expanded={open === p.id}
+                    onClick={() => setOpen(open === p.id ? null : p.id)}
+                  >
+                    {open === p.id ? 'Chiudi' : offered.has(p.id) ? 'Cambia' : 'Offri'}
+                  </Button>
+                </div>
               </div>
               {open === p.id && (
                 <OfferForm
@@ -499,11 +613,11 @@ function FreeAgents({ data, busy, run }: { data: MarketData; busy: boolean; run:
           ))}
         </ul>
         {filtered.length > shown && (
-          <Button variant="secondary" className="w-full" onClick={() => setShown((n) => n + FA_PAGE)}>
-            Mostra altri ({filtered.length - shown})
+          <Button variant="ghost" className="w-full" onClick={() => setShown((n) => n + FA_PAGE)}>
+            Mostra altri {filtered.length - shown}
           </Button>
         )}
-      </Card>
+      </section>
     </div>
   );
 }
@@ -523,25 +637,25 @@ function OfferForm({
   const run = first !== null ? salaryRunOf(first, years) : [];
   return (
     <form
-      className="mt-2 flex flex-wrap items-end gap-3 rounded-lg bg-stampa-50 p-3 dark:bg-stampa-900"
+      className={`mt-2 flex flex-wrap items-end gap-3 p-3 ${BOX}`}
       onSubmit={(e) => {
         e.preventDefault();
         if (first !== null) onSubmit(first, years);
       }}
     >
-      <label className="text-xs">
-        Primo anno (milioni)
+      <label className="block">
+        <span className={FIELD_LABEL}>Primo anno (milioni)</span>
         <input
           inputMode="decimal"
-          className="mt-1 block min-h-11 w-28 rounded-lg border border-stampa-300 bg-stampa-25 px-2 text-sm dark:border-stampa-600 dark:bg-stampa-800"
+          className={`mt-1 block w-32 ${FIELD}`}
           value={salary}
           onChange={(e) => setSalary(e.target.value)}
         />
       </label>
-      <label className="text-xs">
-        Anni
+      <label className="block">
+        <span className={FIELD_LABEL}>Anni</span>
         <select
-          className="mt-1 block min-h-11 rounded-lg border border-stampa-300 bg-stampa-25 px-2 text-sm dark:border-stampa-600 dark:bg-stampa-800"
+          className={`mt-1 block ${FIELD}`}
           value={years}
           onChange={(e) => setYears(Number(e.target.value))}
         >
@@ -552,7 +666,9 @@ function OfferForm({
           ))}
         </select>
       </label>
-      <p className="min-w-40 flex-1 text-xs text-stampa-500 dark:text-stampa-400">
+      <p
+        className={`min-w-40 flex-1 text-[0.8125rem] italic ${run.length ? 'text-stampa-600 dark:text-stampa-300' : BAD}`}
+      >
         {run.length ? `Totale ${millions(run.reduce((a, b) => a + b, 0))}, +5% l'anno.` : 'Cifra non valida.'}
       </p>
       <Button type="submit" disabled={busy || !run.length}>
@@ -564,19 +680,9 @@ function OfferForm({
 
 // ---------------------------------------------------------------- scambi
 
-function Trades({
-  data,
-  busy,
-  run,
-  notify,
-}: {
-  data: MarketData;
-  busy: boolean;
-  run: Run;
-  notify: (m: ToastMessage) => void;
-}) {
+function Trades({ data, busy, run }: { data: MarketData; busy: boolean; run: Run }) {
   const me = data.me.id;
-  // Giocatori sul mercato della lega (poche righe): si rileggono dopo ogni modifica della propria lista
+  // Giocatori sul mercato della lega (poche righe): segnano la rosa dell'altra squadra nella nuova proposta
   const block = useAsync(() => tradeBlock(data.league.id), [data.league.id, data.league.roundId]);
   const [search] = useSearchParams();
   const received = data.offers.filter((o) => o.toTeamId === me && o.status === 'pending');
@@ -586,9 +692,10 @@ function Trades({
   const accepted = data.offers.filter((o) => o.toTeamId === me && o.status === 'accepted');
   const history = data.offers.filter((o) => !['pending', 'accepted'].includes(o.status)).slice(0, 15);
   return (
-    <div className="space-y-4">
+    <div className="space-y-6">
       <OfferList
         title="Proposte ricevute"
+        aside={received.length ? `${received.length} da decidere` : undefined}
         empty="Nessuna proposta da decidere."
         offers={received}
         data={data}
@@ -637,7 +744,6 @@ function Trades({
           }
         />
       )}
-      <LeagueBlock leagueId={data.league.id} myTeamId={me} teams={data.league.teams} block={block.data} />
       {/* Arrivando da "Proponi" (?con=squadra&prendi=giocatore) la proposta riparte con quella scelta */}
       <NewTrade
         key={`${search.get('con') ?? ''}:${search.get('prendi') ?? ''}`}
@@ -646,14 +752,6 @@ function Trades({
         run={run}
         block={block.data}
       />
-      <MyBlock
-        leagueId={data.league.id}
-        teamId={me}
-        roster={data.roster}
-        block={block.data}
-        onChange={block.reload}
-        notify={notify}
-      />
       {history.length > 0 && (
         <OfferList title="Storico" empty="" offers={history} data={data} actions={() => null} />
       )}
@@ -661,20 +759,56 @@ function Trades({
   );
 }
 
-function pickLabel(k: PickInfo | undefined, teams: Map<string, LeagueTeam>, protection?: number): string {
-  if (!k) return 'Scelta';
+// ---------------------------------------------------------------- sul mercato
+
+/** Chi i manager della lega hanno messo sul mercato e la propria lista. */
+function OnTheBlock({ data, notify }: { data: MarketData; notify: (m: ToastMessage) => void }) {
+  // Poche righe: si rileggono dopo ogni modifica della propria lista
+  const block = useAsync(() => tradeBlock(data.league.id), [data.league.id, data.league.roundId]);
+  return (
+    <div className="space-y-6">
+      <LeagueBlock
+        leagueId={data.league.id}
+        myTeamId={data.me.id}
+        teams={data.league.teams}
+        block={block.data}
+      />
+      <MyBlock
+        leagueId={data.league.id}
+        teamId={data.me.id}
+        roster={data.roster}
+        block={block.data}
+        onChange={block.reload}
+        notify={notify}
+      />
+    </div>
+  );
+}
+
+interface OfferItem {
+  title: string;
+  meta: string;
+}
+
+function pickItem(k: PickInfo | undefined, teams: Map<string, LeagueTeam>, protection?: number): OfferItem {
+  if (!k) return { title: 'Scelta', meta: '' };
   const n = protection ?? k.protection;
-  return `${k.round === 1 ? '1°' : '2°'} giro ${k.draftYear} (${teams.get(k.originalTeamId)?.code ?? '?'})${n ? ` top ${n}` : ''}`;
+  return {
+    title: pickName(k),
+    meta: `di ${teams.get(k.originalTeamId)?.code ?? '?'}${n ? ` · protetta top ${n}` : ''}`,
+  };
 }
 
 function OfferList({
   title,
+  aside,
   empty,
   offers,
   data,
   actions,
 }: {
   title: string;
+  aside?: string;
   empty: string;
   offers: TradeOffer[];
   data: MarketData;
@@ -683,53 +817,36 @@ function OfferList({
   const teams = new Map(data.league.teams.map((t) => [t.id, t]));
   const picks = data.offerPicks;
   const me = data.me.id;
-  const player = (id: string) => {
+  const player = (id: string): OfferItem => {
     const p = data.players.get(id);
-    return p ? `${p.name} (${p.role}, ${p.overall})` : 'Giocatore';
+    return p ? { title: p.name, meta: `${p.role} · ${p.overall}` } : { title: 'Giocatore', meta: '' };
   };
+  const pick = (o: TradeOffer) => (k: string) => pickItem(picks.get(k), teams, o.protections[k]);
   return (
-    <Card className="space-y-3 !p-4">
-      <h2 className="font-semibold">{title}</h2>
-      {offers.length === 0 && <p className="text-sm text-stampa-500 dark:text-stampa-400">{empty}</p>}
+    <section className="space-y-3">
+      <SectionTitle aside={aside}>{title}</SectionTitle>
+      {offers.length === 0 && <p className="text-sm">{empty}</p>}
       {offers.map((o) => {
         const mineFrom = o.fromTeamId === me;
         const other = teams.get(mineFrom ? o.toTeamId : o.fromTeamId);
-        const give = mineFrom
-          ? [
-              ...o.playersFrom.map(player),
-              ...o.picksFrom.map((k) => pickLabel(picks.get(k), teams, o.protections[k])),
-            ]
-          : [
-              ...o.playersTo.map(player),
-              ...o.picksTo.map((k) => pickLabel(picks.get(k), teams, o.protections[k])),
-            ];
-        const get = mineFrom
-          ? [
-              ...o.playersTo.map(player),
-              ...o.picksTo.map((k) => pickLabel(picks.get(k), teams, o.protections[k])),
-            ]
-          : [
-              ...o.playersFrom.map(player),
-              ...o.picksFrom.map((k) => pickLabel(picks.get(k), teams, o.protections[k])),
-            ];
+        const fromItems = [...o.playersFrom.map(player), ...o.picksFrom.map(pick(o))];
+        const toItems = [...o.playersTo.map(player), ...o.picksTo.map(pick(o))];
+        const give = mineFrom ? fromItems : toItems;
+        const get = mineFrom ? toItems : fromItems;
         return (
-          <div key={o.id} className="rounded-lg border border-stampa-200 p-3 text-sm dark:border-stampa-700">
-            <p className="flex items-center gap-2 font-medium">
+          <article key={o.id} className={`space-y-2 p-3 ${BOX}`}>
+            <h3 className="flex items-center gap-2 text-sm font-semibold tracking-wider uppercase">
               <TeamCode code={other?.code ?? '?'} />
-              {mineFrom ? `Proposta a ${other?.fullName}` : `Proposta da ${other?.fullName}`}
-            </p>
-            <div className="mt-2 grid gap-2 sm:grid-cols-2">
-              <div>
-                <p className="text-xs text-stampa-500 dark:text-stampa-400">Cedi</p>
-                <p>{give.join(', ') || 'niente'}</p>
-              </div>
-              <div>
-                <p className="text-xs text-stampa-500 dark:text-stampa-400">Ricevi</p>
-                <p>{get.join(', ') || 'niente'}</p>
-              </div>
+              <span className="min-w-0">
+                {mineFrom ? `Proposta a ${other?.fullName}` : `Proposta da ${other?.fullName}`}
+              </span>
+            </h3>
+            <div className="grid gap-3 sm:grid-cols-2">
+              <OfferSide label="Cedi" items={give} />
+              <OfferSide label="Ricevi" items={get} />
             </div>
             {o.swaps.length > 0 && (
-              <p className="mt-1 text-xs">
+              <p className={META}>
                 Swap:{' '}
                 {o.swaps
                   .map(
@@ -739,16 +856,34 @@ function OfferList({
                   .join('; ')}
               </p>
             )}
-            <div className="mt-2 flex flex-wrap items-center justify-between gap-2">
-              <span className="text-xs text-stampa-500 dark:text-stampa-400">
-                {TRADE_STATUS[o.status] ?? o.status}
-              </span>
-              <span className="flex gap-2">{actions(o)}</span>
+            <div className="flex flex-wrap items-center justify-between gap-2 border-t border-stampa-300 pt-2 dark:border-stampa-700">
+              <span className={META}>{TRADE_STATUS[o.status] ?? o.status}</span>
+              <span className="flex flex-wrap gap-2">{actions(o)}</span>
             </div>
-          </div>
+          </article>
         );
       })}
-    </Card>
+    </section>
+  );
+}
+
+function OfferSide({ label, items }: { label: string; items: OfferItem[] }) {
+  return (
+    <div>
+      <p className={FIELD_LABEL}>{label}</p>
+      {items.length === 0 ? (
+        <p className={`py-1 ${META}`}>niente</p>
+      ) : (
+        <ul className="text-sm">
+          {items.map((x, i) => (
+            <li key={i} className={`py-1 ${RULE} last:border-b-0`}>
+              <span className="font-semibold">{x.title}</span>
+              {x.meta && <span className={`ml-1.5 ${META}`}>{x.meta}</span>}
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
   );
 }
 
@@ -773,7 +908,7 @@ function NewTrade({
     return others.some((t) => t.id === con) ? con : '';
   });
   // Arrivando con la squadra già scelta la proposta nuova si porta in vista (sopra ci sono quelle ricevute)
-  const card = useRef<HTMLDivElement>(null);
+  const card = useRef<HTMLElement>(null);
   const preselected = useRef(partner !== '');
   useEffect(() => {
     if (preselected.current) card.current?.scrollIntoView({ block: 'start' });
@@ -875,12 +1010,12 @@ function NewTrade({
       : null;
 
   return (
-    <div ref={card} className="scroll-mt-[calc(var(--spazio-alto)+7rem)]">
-      <Card className="space-y-3 !p-4">
-        <h2 className="font-semibold">Nuova proposta</h2>
+    <section ref={card} className="scroll-mt-[calc(var(--spazio-alto)+7rem)] space-y-4">
+      <SectionTitle>Nuova proposta</SectionTitle>
+      <label className="block">
+        <span className={FIELD_LABEL}>Con</span>
         <select
-          aria-label="Squadra"
-          className="min-h-11 w-full rounded-lg border border-stampa-300 bg-stampa-25 px-2 text-sm sm:w-auto dark:border-stampa-600 dark:bg-stampa-800"
+          className={`mt-1 block w-full font-semibold sm:w-auto ${FIELD}`}
           value={partner}
           onChange={(e) => {
             setPartner(e.target.value);
@@ -890,114 +1025,118 @@ function NewTrade({
           <option value="">Scegli la squadra…</option>
           {others.map((t) => (
             <option key={t.id} value={t.id}>
-              {t.fullName} {t.ownerId ? `(${t.ownerName ?? 'manager'})` : '(bot)'}
+              {t.code} · {t.fullName}, {t.ownerId ? `di ${t.ownerName ?? 'un manager'}` : 'bot'}
             </option>
           ))}
         </select>
-        {partner && (
-          <>
-            <label className="flex items-center gap-2 text-xs text-stampa-500 dark:text-stampa-400">
-              Ordina le rose per
-              <select className={SELECT} value={sort} onChange={(e) => setSort(e.target.value as RosterSort)}>
-                <option value="overall">Overall</option>
-                <option value="salary">Stipendio</option>
-                <option value="age">Età</option>
-              </select>
-            </label>
-            <div className="grid gap-4 md:grid-cols-2">
-              <Side
-                sort={sort}
-                title={`Cedi (${data.me.code})`}
-                roster={data.roster}
-                picks={myPicks}
-                teams={teams}
-                selected={give}
-                selectedPicks={givePicks}
-                onPlayer={(id) => toggle(give, setGive, id)}
-                onPick={(id) => toggle(givePicks, setGivePicks, id)}
-                protections={protections}
-                onProtection={(id, n) => setProtections((p) => ({ ...p, [id]: n }))}
-                ownTeamId={data.me.id}
-              />
-              <Side
-                sort={sort}
-                title={`Ricevi (${teams.get(partner)?.code})`}
-                roster={theirRoster ?? []}
-                onBlock={partnerBlock}
-                blockNote={
-                  partnerTeam?.ownerId ? 'sul mercato' : 'sul mercato per la strategia del bot (indicativo)'
-                }
-                picks={theirPicks}
-                teams={teams}
-                selected={get}
-                selectedPicks={getPicks}
-                onPlayer={(id) => toggle(get, setGet, id)}
-                onPick={(id) => toggle(getPicks, setGetPicks, id)}
-              />
-            </div>
-            <div className="space-y-2">
-              <p className="text-xs text-stampa-500 dark:text-stampa-400">
-                Swap: il diritto di scambiare, dopo la lottery, la propria scelta con quella dell’altra
-                squadra.
-              </p>
-              {swaps.map((w, i) => (
-                <div key={i} className="flex flex-wrap items-center gap-2 text-sm">
-                  <select
-                    aria-label="Chi ha il diritto"
-                    className="min-h-11 rounded-lg border border-stampa-300 bg-stampa-25 px-2 dark:border-stampa-600 dark:bg-stampa-800"
-                    value={w.holder}
-                    onChange={(e) =>
-                      setSwaps((s) =>
-                        s.map((x, j) => (j === i ? { ...x, holder: e.target.value as 'from' | 'to' } : x)),
-                      )
-                    }
-                  >
-                    <option value="from">Tu hai il diritto</option>
-                    <option value="to">Loro hanno il diritto</option>
-                  </select>
-                  <select
-                    aria-label="Draft"
-                    className="min-h-11 rounded-lg border border-stampa-300 bg-stampa-25 px-2 dark:border-stampa-600 dark:bg-stampa-800"
-                    value={w.draft_year}
-                    onChange={(e) =>
-                      setSwaps((s) =>
-                        s.map((x, j) => (j === i ? { ...x, draft_year: Number(e.target.value) } : x)),
-                      )
-                    }
-                  >
-                    {Array.from({ length: 7 }, (_, k) => year + 1 + k).map((y) => (
-                      <option key={y} value={y}>
-                        Draft {y}
-                      </option>
-                    ))}
-                  </select>
-                  <select
-                    aria-label="Giro"
-                    className="min-h-11 rounded-lg border border-stampa-300 bg-stampa-25 px-2 dark:border-stampa-600 dark:bg-stampa-800"
-                    value={w.round}
-                    onChange={(e) =>
-                      setSwaps((s) =>
-                        s.map((x, j) => (j === i ? { ...x, round: Number(e.target.value) } : x)),
-                      )
-                    }
-                  >
-                    <option value={1}>1° giro</option>
-                    <option value={2}>2° giro</option>
-                  </select>
-                  <Button variant="ghost" onClick={() => setSwaps((s) => s.filter((_, j) => j !== i))}>
-                    Togli
-                  </Button>
-                </div>
-              ))}
-              <Button
-                variant="ghost"
-                onClick={() => setSwaps((s) => [...s, { draft_year: year + 1, round: 1, holder: 'from' }])}
-              >
-                Aggiungi uno swap
-              </Button>
-            </div>
-            {preview && <PreviewCard preview={preview} offseason={data.league.roundKind === 'offseason'} />}
+      </label>
+      {partner && (
+        <>
+          <label className="flex flex-wrap items-center gap-2">
+            <span className={FIELD_LABEL}>Ordina le rose per</span>
+            <select className={FIELD} value={sort} onChange={(e) => setSort(e.target.value as RosterSort)}>
+              <option value="overall">Overall</option>
+              <option value="salary">Stipendio</option>
+              <option value="age">Età</option>
+            </select>
+          </label>
+          <div className="grid gap-5 md:grid-cols-2">
+            <Side
+              sort={sort}
+              title={`Dai · ${data.me.code}`}
+              roster={data.roster}
+              picks={myPicks}
+              teams={teams}
+              selected={give}
+              selectedPicks={givePicks}
+              onPlayer={(id) => toggle(give, setGive, id)}
+              onPick={(id) => toggle(givePicks, setGivePicks, id)}
+              protections={protections}
+              onProtection={(id, n) => setProtections((p) => ({ ...p, [id]: n }))}
+              ownTeamId={data.me.id}
+            />
+            <Side
+              sort={sort}
+              title={`Ricevi · ${teams.get(partner)?.code ?? ''}`}
+              roster={theirRoster ?? []}
+              onBlock={partnerBlock}
+              blockNote={
+                partnerTeam?.ownerId
+                  ? 'In cima chi il manager ha messo sul mercato.'
+                  : 'In cima chi è sul mercato per la strategia del bot: è indicativo.'
+              }
+              picks={theirPicks}
+              teams={teams}
+              selected={get}
+              selectedPicks={getPicks}
+              onPlayer={(id) => toggle(get, setGet, id)}
+              onPick={(id) => toggle(getPicks, setGetPicks, id)}
+            />
+          </div>
+          <div className="space-y-2">
+            <SubTitle>Swap</SubTitle>
+            <p className={NOTE}>
+              Il diritto di scambiare, dopo la lottery, la propria scelta con quella dell’altra squadra.
+            </p>
+            {swaps.map((w, i) => (
+              <div key={i} className={`flex flex-wrap items-center gap-2 pb-2 ${RULE}`}>
+                <select
+                  aria-label="Chi ha il diritto"
+                  className={FIELD}
+                  value={w.holder}
+                  onChange={(e) =>
+                    setSwaps((s) =>
+                      s.map((x, j) => (j === i ? { ...x, holder: e.target.value as 'from' | 'to' } : x)),
+                    )
+                  }
+                >
+                  <option value="from">Tu hai il diritto</option>
+                  <option value="to">Loro hanno il diritto</option>
+                </select>
+                <select
+                  aria-label="Draft"
+                  className={FIELD}
+                  value={w.draft_year}
+                  onChange={(e) =>
+                    setSwaps((s) =>
+                      s.map((x, j) => (j === i ? { ...x, draft_year: Number(e.target.value) } : x)),
+                    )
+                  }
+                >
+                  {Array.from({ length: 7 }, (_, k) => year + 1 + k).map((y) => (
+                    <option key={y} value={y}>
+                      Draft {y}
+                    </option>
+                  ))}
+                </select>
+                <select
+                  aria-label="Giro"
+                  className={FIELD}
+                  value={w.round}
+                  onChange={(e) =>
+                    setSwaps((s) => s.map((x, j) => (j === i ? { ...x, round: Number(e.target.value) } : x)))
+                  }
+                >
+                  <option value={1}>1° giro</option>
+                  <option value={2}>2° giro</option>
+                </select>
+                <Button variant="ghost" onClick={() => setSwaps((s) => s.filter((_, j) => j !== i))}>
+                  Togli
+                </Button>
+              </div>
+            ))}
             <Button
+              variant="ghost"
+              onClick={() => setSwaps((s) => [...s, { draft_year: year + 1, round: 1, holder: 'from' }])}
+            >
+              Aggiungi uno swap
+            </Button>
+          </div>
+          {preview && <PreviewCard preview={preview} offseason={data.league.roundKind === 'offseason'} />}
+          <div className="flex flex-wrap items-center gap-2">
+            <Button
+              variant="accent"
+              className="min-h-12 flex-1 text-base"
               disabled={busy || empty}
               onClick={() =>
                 void run(
@@ -1019,12 +1158,19 @@ function NewTrade({
                 ).then((ok) => ok && reset())
               }
             >
-              Proponi lo scambio
+              {partnerTeam?.ownerId
+                ? `Invia la proposta a ${partnerTeam.ownerName ?? 'il manager'}`
+                : 'Invia la proposta al bot'}
             </Button>
-          </>
-        )}
-      </Card>
-    </div>
+            {!empty && (
+              <Button variant="ghost" disabled={busy} onClick={reset}>
+                Ricomincia
+              </Button>
+            )}
+          </div>
+        </>
+      )}
+    </section>
   );
 }
 
@@ -1076,81 +1222,95 @@ function Side({
   const sorted = sortRoster(roster, sort).sort(
     (a, b) => Number(onBlock?.has(b.id) ?? false) - Number(onBlock?.has(a.id) ?? false),
   );
+  const total = selectedSalary(roster, selected);
   return (
-    <div className="space-y-2">
-      <h3 className="text-xs font-semibold tracking-wide text-stampa-500 uppercase dark:text-stampa-400">
-        {title}
-      </h3>
-      <ul className="max-h-72 space-y-1 overflow-y-auto text-sm">
-        {sorted.map((p) => (
-          <li key={p.id}>
-            <label className="flex min-h-11 cursor-pointer items-center gap-2 rounded px-1 hover:bg-stampa-50 dark:hover:bg-stampa-900">
-              <input
-                type="checkbox"
-                className="size-4 accent-rosso-600"
-                checked={selected.has(p.id)}
-                onChange={() => onPlayer(p.id)}
-              />
-              <span className="w-7 text-center font-mono text-xs">{overall(p)}</span>
-              <span className="min-w-0 flex-1 truncate">
-                {p.firstName} {p.lastName}
-                <span className="ml-1 text-xs text-stampa-500 dark:text-stampa-400">
-                  {p.role} · {p.age}
-                </span>
-                {onBlock?.has(p.id) && (
-                  <span
-                    className="ml-1 rounded bg-amber-100 px-1 text-xs font-semibold text-amber-900 dark:bg-amber-900 dark:text-amber-100"
-                    title={blockNote}
-                  >
-                    sul mercato
-                  </span>
-                )}
-              </span>
-              <span className="shrink-0 text-xs text-stampa-500 dark:text-stampa-400">
-                {p.contractType === 'two-way'
-                  ? 'two-way'
-                  : p.salaries[0]
-                    ? `${millions(p.salaries[0])} · ${p.salaries.length}a`
-                    : ''}
-              </span>
-            </label>
-          </li>
-        ))}
-      </ul>
-      <ul className="max-h-48 space-y-1 overflow-y-auto text-sm">
-        {picks.map((k) => {
-          const canProtect =
-            onProtection && k.round === 1 && k.originalTeamId === ownTeamId && k.protection === null;
+    <div className="min-w-0 space-y-1">
+      <SubTitle aside={total > 0 ? `${mln1(total)} mln` : undefined}>{title}</SubTitle>
+      {blockNote && (onBlock?.size ?? 0) > 0 && <p className={NOTE}>{blockNote}</p>}
+      <ul className="max-h-80 overflow-y-auto">
+        {sorted.map((p) => {
+          const on = selected.has(p.id);
           return (
-            <li key={k.id} className="flex min-h-11 items-center gap-2 px-1">
-              <label className="flex flex-1 cursor-pointer items-center gap-2">
+            <li key={p.id} className={RULE}>
+              <label className="flex min-h-12 cursor-pointer items-center gap-3 py-1">
                 <input
                   type="checkbox"
-                  className="size-4 accent-rosso-600"
-                  checked={selectedPicks.has(k.id)}
-                  onChange={() => onPick(k.id)}
+                  className="size-5 shrink-0 accent-stampa-900 dark:accent-stampa-100"
+                  checked={on}
+                  onChange={() => onPlayer(p.id)}
                 />
-                <span>{pickLabel(k, teams)}</span>
+                <OvrBox value={overall(p)} small />
+                <span className="min-w-0 flex-1">
+                  <span className={`block truncate ${on ? 'font-bold' : ''}`}>
+                    {p.firstName} {p.lastName}
+                  </span>
+                  <span className={META}>
+                    {p.role} · {p.age} anni
+                    {onBlock?.has(p.id) && (
+                      <span className="ml-1.5 not-italic">
+                        <Tag tone="outline">sul mercato</Tag>
+                      </span>
+                    )}
+                  </span>
+                </span>
+                <span className={`shrink-0 text-right ${META}`}>
+                  {p.contractType === 'two-way'
+                    ? 'two-way'
+                    : p.salaries[0]
+                      ? `${millions(p.salaries[0])} · ${p.salaries.length}a`
+                      : ''}
+                </span>
               </label>
-              {canProtect && selectedPicks.has(k.id) && (
-                <select
-                  aria-label="Protezione"
-                  className="min-h-11 rounded border border-stampa-300 bg-stampa-25 px-1 text-xs dark:border-stampa-600 dark:bg-stampa-800"
-                  value={protections?.[k.id] ?? 0}
-                  onChange={(e) => onProtection(k.id, Number(e.target.value))}
-                >
-                  <option value={0}>Libera</option>
-                  {Array.from({ length: MAX_PROTECTION }, (_, i) => i + 1).map((n) => (
-                    <option key={n} value={n}>
-                      Top {n}
-                    </option>
-                  ))}
-                </select>
-              )}
             </li>
           );
         })}
       </ul>
+      {picks.length > 0 && (
+        <>
+          <p className={`pt-2 ${FIELD_LABEL}`}>Scelte al draft</p>
+          <ul className="max-h-60 overflow-y-auto">
+            {picks.map((k) => {
+              const canProtect =
+                onProtection && k.round === 1 && k.originalTeamId === ownTeamId && k.protection === null;
+              const on = selectedPicks.has(k.id);
+              return (
+                <li key={k.id} className={`flex min-h-12 items-center gap-2 ${RULE}`}>
+                  <label className="flex min-h-11 flex-1 cursor-pointer items-center gap-3">
+                    <input
+                      type="checkbox"
+                      className="size-5 shrink-0 accent-stampa-900 dark:accent-stampa-100"
+                      checked={on}
+                      onChange={() => onPick(k.id)}
+                    />
+                    <span className="min-w-0">
+                      <span className={on ? 'font-bold' : ''}>{pickName(k)}</span>{' '}
+                      <span className={META}>
+                        di {teams.get(k.originalTeamId)?.code ?? '?'}
+                        {k.protection ? ` · protetta top ${k.protection}` : ''}
+                      </span>
+                    </span>
+                  </label>
+                  {canProtect && on && (
+                    <select
+                      aria-label={`Protezione della ${pickName(k).toLowerCase()}`}
+                      className={FIELD}
+                      value={protections?.[k.id] ?? 0}
+                      onChange={(e) => onProtection(k.id, Number(e.target.value))}
+                    >
+                      <option value={0}>Libera</option>
+                      {Array.from({ length: MAX_PROTECTION }, (_, i) => i + 1).map((n) => (
+                        <option key={n} value={n}>
+                          Top {n}
+                        </option>
+                      ))}
+                    </select>
+                  )}
+                </li>
+              );
+            })}
+          </ul>
+        </>
+      )}
     </div>
   );
 }
@@ -1160,64 +1320,62 @@ function Side({
 function Ledger({ data }: { data: MarketData }) {
   const { finance, config } = data;
   return (
-    <div className="space-y-4">
-      <Card className="space-y-2 !p-4 text-sm">
-        <h2 className="font-semibold">Stagione</h2>
-        <dl className="grid grid-cols-2 gap-x-4 gap-y-1 sm:grid-cols-[auto_1fr]">
-          <dt className="text-stampa-500 dark:text-stampa-400">Ricavi della stagione</dt>
-          <dd>{millions(config.revenue)} (uguali per tutti, giornata per giornata)</dd>
-          <dt className="text-stampa-500 dark:text-stampa-400">Salary cap</dt>
-          <dd>{millions(config.salaryCap)}</dd>
-          <dt className="text-stampa-500 dark:text-stampa-400">Soglia della luxury tax</dt>
-          <dd>{millions(config.luxuryTax)}</dd>
-          <dt className="text-stampa-500 dark:text-stampa-400">Monte stipendi minimo</dt>
-          <dd>{millions(config.minimumTeamSalary)}</dd>
-        </dl>
-        <p className="text-xs text-stampa-500 dark:text-stampa-400">
-          Tassa e monte minimo si pagano a fine regular season, sul monte stipendi di quel momento
+    <div className="space-y-6">
+      <section className="space-y-1">
+        <SectionTitle>La stagione</SectionTitle>
+        <div className="text-sm">
+          <Leader label="Ricavi della stagione" value={<b>{millions(config.revenue)}</b>} />
+          <Leader label="Salary cap" value={<b>{millions(config.salaryCap)}</b>} />
+          <Leader label="Soglia della luxury tax" value={<b>{millions(config.luxuryTax)}</b>} />
+          <Leader label="Monte stipendi minimo" value={<b>{millions(config.minimumTeamSalary)}</b>} />
+        </div>
+        <p className={NOTE}>
+          Ricavi uguali per tutti, accreditati giornata per giornata. Tassa e monte minimo si pagano a fine
+          regular season, sul monte stipendi di quel momento
           {finance.repeater ? '; paghi le aliquote maggiorate (tassa in 3 delle ultime 4 stagioni)' : ''}.
         </p>
-      </Card>
+      </section>
       {finance.deadMoney.length > 0 && (
-        <Card className="space-y-2 !p-4">
-          <h2 className="font-semibold">Stipendi residui dei tagliati</h2>
-          <ul className="text-sm">
+        <section className="space-y-1">
+          <SectionTitle>Stipendi residui dei tagliati</SectionTitle>
+          <div className="text-sm">
             {finance.deadMoney.map((d, i) => (
-              <li key={i} className="flex justify-between py-0.5">
-                <span>{d.playerName}</span>
-                <span className="font-mono">
-                  {millions(d.salaries[0] ?? 0)} · {d.salaries.length}{' '}
-                  {d.salaries.length === 1 ? 'stagione' : 'stagioni'}
-                </span>
-              </li>
+              <Leader
+                key={i}
+                label={d.playerName}
+                value={
+                  <>
+                    <b>{millions(d.salaries[0] ?? 0)}</b>{' '}
+                    <i className="text-stampa-600 dark:text-stampa-300">
+                      · {d.salaries.length} {d.salaries.length === 1 ? 'stagione' : 'stagioni'}
+                    </i>
+                  </>
+                }
+              />
             ))}
-          </ul>
-        </Card>
+          </div>
+        </section>
       )}
-      <Card className="space-y-2 !p-4">
-        <h2 className="font-semibold">Movimenti</h2>
-        {finance.ledger.length === 0 && (
-          <p className="text-sm text-stampa-500 dark:text-stampa-400">Nessun movimento ancora.</p>
-        )}
-        <ul className="divide-y divide-stampa-100 text-sm dark:divide-stampa-700">
+      <section className="space-y-1">
+        <SectionTitle aside={finance.ledger.length ? `${finance.ledger.length} voci` : undefined}>
+          Movimenti
+        </SectionTitle>
+        {finance.ledger.length === 0 && <p className="py-1 text-sm">Nessun movimento ancora.</p>}
+        <ul className="text-sm">
           {finance.ledger.map((l, i) => (
-            <li key={i} className="flex justify-between gap-2 py-1">
-              <span>
+            <li key={i} className={`flex items-baseline justify-between gap-2 py-1.5 ${RULE}`}>
+              <span className="min-w-0">
                 {LEDGER_LABEL[l.kind] ?? l.kind}
-                {l.note && (
-                  <span className="ml-1 text-xs text-stampa-500 dark:text-stampa-400">{l.note}</span>
-                )}
+                {l.note && <span className={`ml-1.5 ${META}`}>{l.note}</span>}
               </span>
-              <span
-                className={`font-mono ${l.amount < 0 ? 'text-red-600 dark:text-red-400' : 'text-green-700 dark:text-green-400'}`}
-              >
+              <span className={`shrink-0 font-titolo ${l.amount < 0 ? BAD : 'font-semibold'}`}>
                 {l.amount > 0 ? '+' : ''}
                 {millions(l.amount)}
               </span>
             </li>
           ))}
         </ul>
-      </Card>
+      </section>
     </div>
   );
 }
@@ -1228,44 +1386,52 @@ function Ledger({ data }: { data: MarketData }) {
 function Renewals({ data, busy, run }: { data: MarketData; busy: boolean; run: Run }) {
   const expiring = data.roster.filter((p) => p.contractType !== 'two-way' && p.salaries.length === 0);
   return (
-    <Card className="space-y-3 !p-4">
-      <h2 className="font-semibold">Giocatori in scadenza</h2>
-      <p className="text-xs text-stampa-500 dark:text-stampa-400">
+    <section className="space-y-1">
+      <SectionTitle aside={expiring.length ? `${expiring.length} in scadenza` : undefined}>
+        Giocatori in scadenza
+      </SectionTitle>
+      <p className={NOTE}>
         Le richieste sono ai prezzi della prossima stagione e dipendono da valore, età e morale. Con il morale
         sotto 30 il giocatore non rinnova. Alla chiusura del turno chi non hai rinnovato diventa svincolato.
       </p>
-      {expiring.length === 0 && (
-        <p className="text-sm text-stampa-500 dark:text-stampa-400">Nessun giocatore in scadenza.</p>
-      )}
-      <ul className="divide-y divide-stampa-100 text-sm dark:divide-stampa-700">
+      {expiring.length === 0 && <p className="py-1 text-sm">Nessun giocatore in scadenza.</p>}
+      <ul>
         {expiring.map((p) => {
           const ask = expiringAskOf(data.config, p);
           const request = data.requests.find((r) => r.playerId === p.id && r.kind === 'renew');
           return (
-            <li key={p.id} className="flex flex-wrap items-center gap-2 py-2">
-              <span className="w-8 text-center font-mono font-semibold">{overall(p)}</span>
-              <Link
-                to={`/lega/${data.league.id}/giocatore/${p.id}`}
-                className="min-w-0 flex-1 truncate hover:underline"
-              >
-                {p.firstName} {p.lastName}
-                <span className="ml-1 text-xs text-stampa-500 dark:text-stampa-400">
-                  {p.role} · {p.age} anni · morale {Math.round(p.morale)}
-                </span>
-              </Link>
-              <span className="text-xs text-stampa-600 dark:text-stampa-300">
-                {ask ? `${ask.length} anni, ${millions(ask[0] ?? 0)} il primo` : 'non vuole rinnovare'}
-              </span>
-              {request ? (
-                <Button
-                  variant="ghost"
-                  disabled={busy}
-                  onClick={() =>
-                    void run({ kind: 'withdraw_request', request_id: request.id }, 'Rinnovo annullato.')
-                  }
+            <li key={p.id} className={`flex flex-wrap items-center gap-3 py-2 ${RULE}`}>
+              <OvrBox value={overall(p)} />
+              <div className="min-w-0 flex-1">
+                <Link
+                  to={`/lega/${data.league.id}/giocatore/${p.id}`}
+                  className="block truncate text-base font-bold hover:underline"
                 >
-                  Annulla il rinnovo
-                </Button>
+                  {p.firstName} {p.lastName}
+                </Link>
+                <p className={META}>
+                  {p.role} · {p.age} anni · morale {Math.round(p.morale)}
+                </p>
+                <p className={ask ? META : `text-[0.8125rem] italic ${BAD}`}>
+                  {ask
+                    ? `chiede ${ask.length} anni, ${millions(ask[0] ?? 0)} il primo`
+                    : 'non vuole rinnovare'}
+                </p>
+              </div>
+              {request ? (
+                <span className="flex items-center gap-1">
+                  <Tag tone="ink">Rinnovato</Tag>
+                  <Button
+                    variant="ghost"
+                    disabled={busy}
+                    aria-label={`Annulla il rinnovo di ${p.firstName} ${p.lastName}`}
+                    onClick={() =>
+                      void run({ kind: 'withdraw_request', request_id: request.id }, 'Rinnovo annullato.')
+                    }
+                  >
+                    Annulla
+                  </Button>
+                </span>
               ) : (
                 ask && (
                   <Button
@@ -1285,6 +1451,6 @@ function Renewals({ data, busy, run }: { data: MarketData; busy: boolean; run: R
           );
         })}
       </ul>
-    </Card>
+    </section>
   );
 }

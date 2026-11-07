@@ -1,51 +1,25 @@
 // Pezzi d'interfaccia comuni.
 import {
   useEffect,
+  useId,
+  useRef,
   useState,
   type ButtonHTMLAttributes,
   type InputHTMLAttributes,
   type ReactNode,
 } from 'react';
+import { buttonClass, FIELD_LABEL, type ButtonVariant } from '../lib/linkStyles.ts';
 
-export type ButtonVariant = 'primary' | 'accent' | 'secondary' | 'ghost' | 'danger';
+export type { ButtonVariant };
 
-/**
- * Pulsanti nello stile Edicola: maiuscolo stretto e angoli vivi. primary è d'inchiostro; accent è il rosso, per
- * l'azione principale della pagina (Sono pronto): uno per pagina, perché il rosso segna anche gli avvisi; danger
- * è il rosso scuro delle azioni che non si annullano; ghost è un link in corsivo sottolineato.
- */
+/** Pulsanti nello stile Edicola: maiuscolo stretto e angoli vivi; le classi stanno in lib/linkStyles.ts. */
 export function Button({
   variant = 'primary',
   className = '',
   ...props
 }: ButtonHTMLAttributes<HTMLButtonElement> & { variant?: ButtonVariant }) {
-  const styles = {
-    primary:
-      'bg-stampa-900 text-stampa-25 hover:bg-stampa-700 disabled:bg-stampa-400 dark:bg-stampa-100 dark:text-stampa-900 dark:hover:bg-stampa-50 dark:disabled:bg-stampa-600',
-    accent:
-      'bg-rosso-600 text-white hover:bg-rosso-700 disabled:bg-rosso-300 dark:bg-rosso-500 dark:hover:bg-rosso-600 dark:disabled:bg-rosso-900',
-    danger:
-      'bg-rosso-700 text-white hover:bg-rosso-800 disabled:bg-rosso-300 dark:bg-rosso-500 dark:hover:bg-rosso-600 dark:disabled:bg-rosso-900',
-    secondary:
-      'border border-stampa-900 bg-transparent text-stampa-900 hover:bg-stampa-100 disabled:border-stampa-300 disabled:text-stampa-400 dark:border-stampa-100 dark:text-stampa-50 dark:hover:bg-stampa-800 dark:disabled:border-stampa-700',
-    ghost:
-      'text-stampa-800 underline underline-offset-4 hover:bg-stampa-100 dark:text-stampa-100 dark:hover:bg-stampa-800',
-  }[variant];
-  const type =
-    variant === 'ghost'
-      ? 'font-serif text-[0.95rem] font-semibold italic'
-      : 'font-titolo text-[0.95rem] font-semibold tracking-wider uppercase';
-  return (
-    <button
-      className={`inline-flex min-h-11 items-center justify-center gap-2 rounded-sm px-4 py-2 transition-colors disabled:cursor-not-allowed ${type} ${styles} ${className}`}
-      {...props}
-    />
-  );
+  return <button className={buttonClass(variant, className)} {...props} />;
 }
-
-/** Etichetta dei campi e dei gruppi di scelte: maiuscolo stretto, come le testatine del giornale. */
-const FIELD_LABEL =
-  'font-titolo text-xs font-semibold tracking-widest uppercase text-stampa-800 dark:text-stampa-100';
 
 /**
  * Pulsante da toccare due volte per le azioni che non si annullano con un tocco: il primo chiede conferma
@@ -305,5 +279,124 @@ export function TeamCode({ code, strong = false }: { code: string; strong?: bool
     >
       {code}
     </span>
+  );
+}
+
+/** Riga sopra un titolo (occhiello): maiuscolo stretto, rossa per le notizie, grigia per le indicazioni. */
+export function Kicker({ children, muted = false }: { children: ReactNode; muted?: boolean }) {
+  return (
+    <p
+      className={`font-titolo text-xs font-semibold tracking-[0.12em] uppercase ${
+        muted ? 'text-stampa-500 dark:text-stampa-400' : 'text-rosso-700 dark:text-rosso-300'
+      }`}
+    >
+      {children}
+    </p>
+  );
+}
+
+/** Titolo di sezione del giornale: maiuscolo stretto con il filetto pieno sotto; a destra un'aggiunta. */
+export function SectionTitle({ children, aside }: { children: ReactNode; aside?: ReactNode }) {
+  return (
+    <h2 className="flex items-baseline justify-between gap-3 border-b-2 border-stampa-900 pb-1 text-base font-semibold tracking-wider dark:border-stampa-100">
+      <span>{children}</span>
+      {aside !== undefined && (
+        <span className="font-serif text-sm font-normal tracking-normal normal-case italic">{aside}</span>
+      )}
+    </h2>
+  );
+}
+
+export type TagTone = 'ink' | 'red' | 'outline' | 'soft';
+
+/**
+ * Etichetta quadrata in maiuscolo stretto. ink: pronto, scelto; red: avvisi (deve decidere, infortunato);
+ * outline: allenatore, sigle; soft: neutra.
+ */
+export function Tag({ tone = 'soft', children }: { tone?: TagTone; children: ReactNode }) {
+  const color = {
+    ink: 'bg-stampa-900 text-stampa-25 dark:bg-stampa-100 dark:text-stampa-900',
+    red: 'bg-rosso-600 text-white dark:bg-rosso-500',
+    outline: 'border border-stampa-900 text-stampa-900 dark:border-stampa-100 dark:text-stampa-100',
+    soft: 'bg-stampa-100 text-stampa-700 dark:bg-stampa-700 dark:text-stampa-100',
+  }[tone];
+  return (
+    <span
+      className={`inline-block px-1.5 py-px font-titolo text-xs font-semibold tracking-wider whitespace-nowrap uppercase ${color}`}
+    >
+      {children}
+    </span>
+  );
+}
+
+/** Riga con i puntini tra la voce e il valore, come nei tabellini del giornale. */
+export function Leader({ label, value }: { label: ReactNode; value: ReactNode }) {
+  return (
+    <div className="flex min-h-7 items-baseline gap-2">
+      <span className="shrink-0">{label}</span>
+      <span
+        aria-hidden="true"
+        className="min-w-4 flex-1 border-b-2 border-dotted border-stampa-300 dark:border-stampa-600"
+      />
+      <span className="shrink-0 text-right">{value}</span>
+    </div>
+  );
+}
+
+/**
+ * Pannello che sale dal basso sopra la pagina (al centro da sm in su), con il velo scuro: per scelte che non
+ * meritano una pagina (cambio del titolare, tattiche, conferma del Pronto). Si chiude con Esc, toccando il velo o
+ * con i pulsanti del contenuto; il fuoco va al pannello all'apertura e torna dov'era alla chiusura.
+ */
+export function Sheet({
+  title,
+  kicker,
+  onClose,
+  children,
+}: {
+  title: ReactNode;
+  kicker?: ReactNode;
+  onClose: () => void;
+  children: ReactNode;
+}) {
+  const panel = useRef<HTMLDivElement>(null);
+  const titleId = useId();
+  // onClose cambia a ogni disegno della pagina: l'ascolto di Esc e il fuoco si impostano una volta sola
+  const close = useRef(onClose);
+  close.current = onClose;
+  useEffect(() => {
+    const before = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    panel.current?.focus();
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') close.current();
+    };
+    document.addEventListener('keydown', onKey);
+    return () => {
+      document.removeEventListener('keydown', onKey);
+      before?.focus();
+    };
+  }, []);
+  return (
+    <div className="fixed inset-0 z-50 flex items-end justify-center sm:items-center sm:p-6">
+      <div aria-hidden="true" className="absolute inset-0 bg-stampa-900/55" onClick={() => close.current()} />
+      <div
+        ref={panel}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby={titleId}
+        tabIndex={-1}
+        className="relative max-h-[92dvh] w-full max-w-lg overflow-y-auto rounded-t-2xl border-t-4 border-double border-stampa-900 bg-stampa-25 px-4 pt-2 pb-[max(1rem,env(safe-area-inset-bottom))] outline-none sm:rounded-none sm:border dark:border-stampa-100 dark:bg-stampa-800"
+      >
+        <span
+          aria-hidden="true"
+          className="mx-auto mb-3 block h-1 w-10 rounded-full bg-stampa-300 sm:hidden"
+        />
+        {kicker && <Kicker muted>{kicker}</Kicker>}
+        <h2 id={titleId} className="text-2xl leading-tight font-bold">
+          {title}
+        </h2>
+        <div className="mt-3 space-y-3">{children}</div>
+      </div>
+    </div>
   );
 }

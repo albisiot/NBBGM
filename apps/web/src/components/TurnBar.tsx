@@ -2,6 +2,8 @@
 // completa): turno, stato della propria squadra, pulsante Pronto e decisioni bloccanti aperte, con il link alla
 // pagina della lega dove si leggono gli avvisi. Così non si torna sempre alla pagina della lega. Prima di segnarsi
 // pronti avvisa di che cosa succede alle decisioni aperte e propone di salvare le modifiche fatte in Squadra.
+// Finché in Squadra ci sono modifiche non salvate, al posto del turno e del Pronto mostra "Da salvare" con i minuti,
+// Annulla e Salva (stile Edicola: la pagina non ha più la barra Salva in basso).
 import { useCallback, useEffect, useState } from 'react';
 import { Link } from 'react-router';
 import { friendlyError } from '../lib/errors.ts';
@@ -10,6 +12,7 @@ import { useTurn } from '../lib/turnStore.ts';
 import { useUnsaved } from '../lib/unsaved.ts';
 import { refreshAppBadge } from '../lib/appBadge.ts';
 import { ReadyConfirm } from './ReadyConfirm.tsx';
+import { SaveBar } from './SaveBar.tsx';
 
 export function TurnBar({ leagueId, userId }: { leagueId: string; userId: string }) {
   // Stato del turno condiviso con la scheda e con le pagine (una lettura e un canale per lega). I dati sono sempre
@@ -62,6 +65,22 @@ export function TurnBar({ leagueId, userId }: { leagueId: string; userId: string
     setAsking(false);
     await toggle(true);
   }, [unsaved, toggle]);
+
+  // Modifiche in Squadra: niente conferma del Pronto aperta sotto la barra che cambia
+  const editing = unsaved !== null;
+  useEffect(() => {
+    if (editing) setAsking(false);
+  }, [editing]);
+  const saveNow = useCallback(async () => {
+    if (!unsaved) return;
+    setBusy(true);
+    setError(null);
+    // L'errore lo mostra la pagina, in basso
+    await unsaved.save();
+    setBusy(false);
+  }, [unsaved]);
+
+  if (unsaved) return <SaveBar unsaved={unsaved} busy={busy} onSave={() => void saveNow()} />;
 
   const view = data ? barView(data) : null;
   // Mentre arrivano i dati (anche cambiando lega): un segnaposto della stessa altezza, senza pulsanti

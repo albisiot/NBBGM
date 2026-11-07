@@ -71,6 +71,18 @@ describe('stile Edicola', () => {
     }
   });
 
+  it('ogni riquadro che scorre in orizzontale è relative', () => {
+    // Le etichette sr-only (position: absolute) nelle intestazioni delle tabelle, senza un antenato posizionato,
+    // si appoggiano alla pagina e non al riquadro che scorre: allargavano il box score su telefono a 682 px
+    const dir = new URL('./', import.meta.url);
+    const files = readdirSync(dir, { recursive: true, encoding: 'utf8' }).filter((f) => f.endsWith('.tsx'));
+    for (const file of files) {
+      const text = readFileSync(new URL(file.replaceAll('\\', '/'), dir), 'utf8');
+      for (const cls of text.match(/(["`])[^"`]*\boverflow-x-auto\b[^"`]*\1/g) ?? [])
+        expect(cls, file).toMatch(/\brelative\b/);
+    }
+  });
+
   it('caratteri nella build, non da Google Fonts', () => {
     expect(css).toContain("font-family: 'Oswald Variable';");
     expect(css).toContain("font-family: 'Source Serif 4 Variable';");

@@ -1,23 +1,45 @@
-// Classifica di regular season per conference (1-6 ai playoff, 7-10 al play-in) o per division. È la stessa
-// classifica, spareggi compresi, che il server usa per il tabellone.
+// Classifica di regular season come un tabellino: una conference alla volta (1-6 ai playoff, 7-10 al play-in) o le
+// sue division. Filetto pieno dopo il 6° posto e a puntini dopo il 10°, la propria squadra evidenziata. È la stessa
+// classifica, spareggi compresi, che il server usa per il tabellone. Titolo e schede in ChampionshipLayout.
 import type { StandingsLine } from '@nbbgm/engine';
 import { useMemo, useState } from 'react';
 import { Link, useParams } from 'react-router';
-import { Card, ErrorText, PageTitle, Segmented, Spinner, TeamCode } from '../components/ui.tsx';
+import { Button, ErrorText, SectionTitle, Segmented, Spinner } from '../components/ui.tsx';
 import { useUserId } from '../lib/auth.tsx';
 import type { LeagueTeam } from '../lib/leagues.ts';
 import { seasonStandings } from '../lib/results.ts';
+import {
+  HEAD_ROW,
+  HIGHLIGHT,
+  INK_LINK,
+  NOTE,
+  PAPER,
+  rowRule,
+  seedZone,
+  standingsRule,
+  STICKY,
+  TABLE,
+} from '../lib/tabellino.ts';
 import { useSeason } from '../lib/useSeason.ts';
 
-const DIVISIONS: Record<'East' | 'West', string[]> = {
+type Conference = 'East' | 'West';
+
+const DIVISIONS: Record<Conference, string[]> = {
   East: ['Atlantic', 'Central', 'Southeast'],
   West: ['Northwest', 'Pacific', 'Southwest'],
+};
+
+const CONFERENCE_NAME: Record<Conference, string> = {
+  East: 'Eastern Conference',
+  West: 'Western Conference',
 };
 
 export function StandingsPage() {
   const { id = '' } = useParams();
   const userId = useUserId();
   const [view, setView] = useState<'conference' | 'division'>('conference');
+  // Senza una scelta si apre la conference della propria squadra
+  const [chosen, setChosen] = useState<Conference | null>(null);
   const { data, error, loading } = useSeason(id);
   // La classifica si ricalcola solo con partite nuove, non a ogni cambio di vista
   const table = useMemo(() => (data ? seasonStandings(data.league, data.games) : null), [data]);
@@ -27,53 +49,56 @@ export function StandingsPage() {
   if (!data || !table) return <ErrorText>Lega non trovata, oppure non ne fai parte.</ErrorText>;
   const { league, games } = data;
   const team = new Map(league.teams.map((t) => [t.id, t]));
-  const mine = league.teams.find((t) => t.ownerId === userId)?.id;
+  const mineTeam = league.teams.find((t) => t.ownerId === userId);
+  const mine = mineTeam?.id;
+  const conf = chosen ?? mineTeam?.conference ?? 'East';
   const played = games.filter((g) => g.kind === 'regular' && g.homeScore !== null).length;
 
   return (
     <div className="space-y-4">
-      <PageTitle sub={`Regular season · ${played} partite giocate su 1230`}>Classifica</PageTitle>
-      <Segmented
-        label="Raggruppa"
-        value={view}
-        onChange={setView}
-        options={[
-          { label: 'Conference', value: 'conference' },
-          { label: 'Division', value: 'division' },
-        ]}
-      />
-      {(['East', 'West'] as const).map((conf) =>
-        view === 'conference' ? (
-          <Card key={conf} className="!p-4">
-            <h2 className="mb-2 font-semibold">{conf === 'East' ? 'Eastern' : 'Western'} Conference</h2>
-            <StandingsTable leagueId={league.id} lines={table[conf]} team={team} mine={mine} seeds />
-          </Card>
-        ) : (
-          DIVISIONS[conf].map((div) => (
-            <Card key={div} className="!p-4">
-              <h2 className="mb-2 font-semibold">{div}</h2>
-              <StandingsTable
-                leagueId={league.id}
-                lines={table[conf].filter((l) => l.division === div).sort((a, b) => a.divRank - b.divRank)}
-                team={team}
-                mine={mine}
-              />
-            </Card>
-          ))
-        ),
-      )}
-      {view === 'conference' && (
-        <p className="flex flex-wrap gap-4 text-xs text-stampa-500 dark:text-stampa-400">
-          <span>
-            <span className="mr-1 inline-block size-2.5 rounded-sm bg-green-500" />
-            1-6: playoff
-          </span>
-          <span>
-            <span className="mr-1 inline-block size-2.5 rounded-sm bg-rosso-400" />
-            7-10: play-in
-          </span>
-          <span>A parità: scontri diretti, differenza punti, poi sorteggio.</span>
-        </p>
+      <p className={NOTE}>Regular season · {played} partite giocate su 1230</p>
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <Segmented
+          label="Conference"
+          value={conf}
+          onChange={setChosen}
+          options={[
+            { label: 'Est', value: 'East' },
+            { label: 'Ovest', value: 'West' },
+          ]}
+        />
+        <Button
+          variant="ghost"
+          className="px-1"
+          onClick={() => setView((v) => (v === 'conference' ? 'division' : 'conference'))}
+        >
+          {view === 'conference' ? 'Vedi per division' : 'Vedi per conference'}
+        </Button>
+      </div>
+
+      {view === 'conference' ? (
+        <section aria-labelledby="classifica-conference" className="space-y-2">
+          <h2 id="classifica-conference" className="sr-only">
+            {CONFERENCE_NAME[conf]}
+          </h2>
+          <StandingsTable leagueId={league.id} lines={table[conf]} team={team} mine={mine} seeds />
+          <p className={NOTE}>
+            Sopra la riga piena: playoff · fino alla riga a puntini: play-in. A parità: scontri diretti,
+            differenza punti, poi sorteggio.
+          </p>
+        </section>
+      ) : (
+        DIVISIONS[conf].map((div) => (
+          <section key={div} className="space-y-2">
+            <SectionTitle>{div}</SectionTitle>
+            <StandingsTable
+              leagueId={league.id}
+              lines={table[conf].filter((l) => l.division === div).sort((a, b) => a.divRank - b.divRank)}
+              team={team}
+              mine={mine}
+            />
+          </section>
+        ))
       )}
     </div>
   );
@@ -92,63 +117,83 @@ function StandingsTable({
   mine: string | undefined;
   seeds?: boolean;
 }) {
-  const th = 'px-1.5 py-1 text-right font-medium';
-  const td = 'px-1.5 py-1 text-right font-mono';
+  const th = 'px-1.5 pt-2 pb-1 text-right';
+  const td = 'px-1.5 py-1.5 text-right';
   const leader = lines[0];
   return (
-    <div className="overflow-x-auto">
-      <table className="w-full min-w-[36rem] text-sm">
+    <div className="relative overflow-x-auto">
+      <table className={`${TABLE} min-w-[36rem]`}>
         <thead>
-          <tr className="border-b border-stampa-200 text-xs text-stampa-500 dark:border-stampa-700 dark:text-stampa-400">
-            <th className="sticky left-0 bg-stampa-25 py-1 pr-2 pl-2 text-left font-medium dark:bg-stampa-800">
+          <tr className={HEAD_ROW}>
+            <th scope="col" className={`${STICKY} ${PAPER} pt-2 pr-2 pb-1 pl-1 text-left`}>
               <span className="inline-block w-6">#</span>Squadra
             </th>
-            <th className={th}>V</th>
-            <th className={th}>P</th>
-            <th className={th}>%</th>
-            <th className={th}>Dist.</th>
-            <th className={th}>Casa</th>
-            <th className={th}>Trasf.</th>
-            <th className={th}>Ult. 10</th>
-            <th className={th}>Serie</th>
-            <th className={th}>Diff.</th>
+            <th scope="col" className={th}>
+              V
+            </th>
+            <th scope="col" className={th}>
+              P
+            </th>
+            <th scope="col" className={th}>
+              %
+            </th>
+            <th scope="col" className={th} title="Distacco dalla prima">
+              Dist.
+            </th>
+            <th scope="col" className={th}>
+              Casa
+            </th>
+            <th scope="col" className={th} title="In trasferta">
+              Trasf.
+            </th>
+            <th scope="col" className={th} title="Ultime 10 partite">
+              Ult. 10
+            </th>
+            <th scope="col" className={th}>
+              Serie
+            </th>
+            <th scope="col" className={th} title="Differenza punti">
+              Diff.
+            </th>
           </tr>
         </thead>
         <tbody>
           {lines.map((l, i) => {
             const rank = seeds ? l.confRank : i + 1;
             const t = team.get(l.teamId);
-            // Segno dei posti playoff e play-in: un'ombra interna, perché il bordo di una cella fissa (sticky)
-            // in una tabella con i bordi collassati non la segue quando la tabella scorre
-            const mark = !seeds
-              ? ''
-              : rank <= 6
-                ? 'shadow-[inset_4px_0_0_var(--color-green-500)]'
-                : rank <= 10
-                  ? 'shadow-[inset_4px_0_0_var(--color-rosso-400)]'
-                  : '';
+            const own = l.teamId === mine;
+            const zone = seeds ? seedZone(rank) : null;
             const gb = leader ? (leader.w - l.w + (l.l - leader.l)) / 2 : 0;
             return (
               <tr
                 key={l.teamId}
-                className={`border-b border-stampa-100 dark:border-stampa-700/60 ${l.teamId === mine ? 'font-semibold' : ''} ${
-                  seeds && rank === 6 ? 'border-b-stampa-300 dark:border-b-stampa-500' : ''
-                } ${seeds && rank === 10 ? 'border-b-stampa-300 dark:border-b-stampa-500' : ''}`}
+                className={`${rowRule(seeds ? standingsRule(rank) : 'thin')} ${own ? `${HIGHLIGHT} font-bold` : ''} ${
+                  seeds && zone === null && !own ? 'text-stampa-600 dark:text-stampa-400' : ''
+                }`}
               >
-                <td
-                  className={`sticky left-0 max-w-[12rem] truncate bg-stampa-25 py-1 pr-2 pl-2 sm:max-w-60 dark:bg-stampa-800 ${mark}`}
+                <th
+                  scope="row"
+                  className={`${STICKY} ${own ? HIGHLIGHT : PAPER} py-1.5 pr-2 pl-1 text-left ${
+                    own ? 'font-bold' : 'font-normal'
+                  }`}
                 >
-                  <span className="flex items-center gap-2">
-                    <span className="w-5 shrink-0 font-normal">{rank}</span>
-                    <TeamCode code={t?.code ?? '?'} strong={l.teamId === mine} />
+                  <span className="flex max-w-[12rem] min-w-0 items-center gap-1.5 sm:max-w-64">
+                    <span
+                      className={`w-6 shrink-0 font-titolo ${own ? 'text-rosso-700 dark:text-rosso-300' : ''}`}
+                    >
+                      {rank}
+                    </span>
+                    <b className="shrink-0 font-titolo font-semibold">{t?.code ?? '?'}</b>
                     <Link
                       to={`/lega/${leagueId}/squadre/${t?.code ?? ''}`}
-                      className="truncate hover:underline"
+                      className={`truncate ${INK_LINK}`}
                     >
                       {t?.fullName}
                     </Link>
+                    {/* I filetti si vedono soltanto: ai lettori di schermo il posto si dice a parole */}
+                    {zone && <span className="sr-only">, zona {zone}</span>}
                   </span>
-                </td>
+                </th>
                 <td className={td}>{l.w}</td>
                 <td className={td}>{l.l}</td>
                 <td className={td}>{l.w + l.l ? l.pct.toFixed(3).replace(/^0/, '') : '–'}</td>

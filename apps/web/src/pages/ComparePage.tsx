@@ -1,10 +1,11 @@
-// Confronto tra giocatori: fino a 3 fianco a fianco, con overall, stime (mai i valori nascosti), contratto,
-// statistiche della stagione e abilità visibili, il valore migliore di ogni riga in evidenza. Ci si arriva dalla
-// scheda giocatore e dal mercato; l'elenco sta nell'indirizzo (?g=a,b,c).
+// Confronto tra giocatori, nello stile Edicola: fino a 3 fianco a fianco in una tabella a filetti, con overall, stime
+// (mai i valori nascosti), contratto, statistiche della stagione e abilità visibili; il migliore di ogni riga in
+// grassetto d'inchiostro. Ci si arriva dalla scheda giocatore e dal mercato; l'elenco sta nell'indirizzo (?g=a,b,c).
 import { overall, RATING_FIELDS } from '@nbbgm/engine';
 import { useEffect, useState } from 'react';
 import { Link, useParams, useSearchParams } from 'react-router';
-import { Card, ErrorText, PageTitle, Spinner, TeamCode } from '../components/ui.tsx';
+import { BOX, META, NOTE, RULE } from '../components/inkParts.tsx';
+import { ErrorText, Kicker, Spinner, TeamCode, TextInput } from '../components/ui.tsx';
 import {
   bestOf,
   COMPARE_MAX,
@@ -119,36 +120,39 @@ export function ComparePage() {
   const teams = new Map((data?.league?.teams ?? []).map((t) => [t.id, t]));
   const list = data?.compared ?? [];
   return (
-    <div className="space-y-4">
-      <PageTitle
-        sub={`Fino a ${COMPARE_MAX} giocatori fianco a fianco: in evidenza il migliore di ogni riga.`}
-      >
-        Confronto
-      </PageTitle>
+    <div className="space-y-5">
+      <header>
+        <Kicker>Giocatori</Kicker>
+        <h1 className="text-3xl leading-tight font-bold">Confronto</h1>
+        <p className="mt-1 text-sm text-stampa-600 italic dark:text-stampa-300">
+          Fino a {COMPARE_MAX} giocatori fianco a fianco: in grassetto il migliore di ogni riga.
+        </p>
+      </header>
       {ids.length < COMPARE_MAX && (
         <AddPlayer leagueId={id} teams={teams} onAdd={(pid) => setIds(withPlayer(ids, pid))} />
       )}
       {loading && !data && <Spinner />}
       <ErrorText>{error}</ErrorText>
       {data && list.length === 0 && (
-        <p className="text-sm text-stampa-500 dark:text-stampa-400">
+        <p className="text-sm">
           Cerca un giocatore qui sopra, oppure tocca “Confronta” nella scheda di un giocatore o tra gli
           svincolati del mercato.
         </p>
       )}
       {list.length > 0 && (
-        <Card className="overflow-x-auto !p-0">
+        // Su telefono la tabella scorre dentro il riquadro, con la colonna delle voci ferma a sinistra
+        <div className={`relative overflow-x-auto ${BOX}`}>
           <table className="w-full min-w-[20rem] text-sm">
             <thead>
-              <tr className="border-b border-stampa-200 dark:border-stampa-700">
-                <th className="sticky left-0 bg-stampa-25 p-2 text-left text-xs font-medium text-stampa-500 dark:bg-stampa-800 dark:text-stampa-400">
+              <tr className="border-b-2 border-stampa-900 dark:border-stampa-100">
+                <th className="sticky left-0 bg-stampa-25 p-2 text-left dark:bg-stampa-800">
                   <span className="sr-only">Voce</span>
                 </th>
                 {list.map((c) => (
                   <th key={c.player.id} className="min-w-[6.5rem] p-2 text-left align-top">
                     <Link
                       to={`/lega/${id}/giocatore/${c.player.id}`}
-                      className="block font-semibold hover:underline"
+                      className="block font-serif text-[0.9375rem] leading-snug font-bold hover:underline"
                     >
                       {c.player.firstName} {c.player.lastName}
                     </Link>
@@ -158,7 +162,7 @@ export function ComparePage() {
                         type="button"
                         aria-label={`Togli ${c.player.firstName} ${c.player.lastName} dal confronto`}
                         onClick={() => setIds(ids.filter((x) => x !== c.player.id))}
-                        className="inline-flex size-11 items-center justify-center rounded-lg text-stampa-500 hover:bg-stampa-100 dark:text-stampa-400 dark:hover:bg-stampa-700"
+                        className="inline-flex size-11 items-center justify-center text-stampa-600 hover:bg-stampa-100 dark:text-stampa-300 dark:hover:bg-stampa-700"
                       >
                         ✕
                       </button>
@@ -172,25 +176,31 @@ export function ComparePage() {
                 <tr>
                   <th
                     colSpan={list.length + 1}
-                    className="bg-stampa-50 px-2 py-1 text-left text-xs font-semibold tracking-wide text-stampa-500 uppercase dark:bg-stampa-900 dark:text-stampa-400"
+                    scope="rowgroup"
+                    className="border-b border-stampa-900 px-2 pt-3 pb-1 text-left font-titolo text-xs font-semibold tracking-[0.12em] text-rosso-700 uppercase dark:border-stampa-100 dark:text-rosso-300"
                   >
-                    {section.title}
+                    {/* Il titolo resta a sinistra anche quando la tabella scorre */}
+                    <span className="sticky left-2">{section.title}</span>
                   </th>
                 </tr>
                 {section.rows.map((line) => {
                   const best = bestOf(line);
                   return (
-                    <tr key={line.label} className="border-b border-stampa-100 dark:border-stampa-700/60">
+                    <tr key={line.label} className={`${RULE} last:border-b-0`}>
                       <th
                         scope="row"
-                        className="sticky left-0 max-w-[9rem] bg-stampa-25 px-2 py-1 text-left text-xs font-normal text-stampa-600 dark:bg-stampa-800 dark:text-stampa-300"
+                        className="sticky left-0 max-w-[9rem] bg-stampa-25 px-2 py-1 text-left text-[0.8125rem] font-normal text-stampa-600 dark:bg-stampa-800 dark:text-stampa-300"
                       >
                         {line.label}
                       </th>
                       {line.values.map((v, i) => (
                         <td
                           key={i}
-                          className={`px-2 py-1 ${best.has(i) ? 'font-semibold text-green-700 dark:text-green-300' : ''}`}
+                          className={`px-2 py-1 ${
+                            best.has(i)
+                              ? 'font-bold text-stampa-900 dark:text-stampa-50'
+                              : 'text-stampa-700 dark:text-stampa-200'
+                          }`}
                         >
                           {v.text}
                           {best.has(i) && <span className="sr-only"> (il migliore)</span>}
@@ -202,10 +212,10 @@ export function ComparePage() {
               </tbody>
             ))}
           </table>
-        </Card>
+        </div>
       )}
       {list.length > 0 && (
-        <p className="text-xs text-stampa-500 dark:text-stampa-400">
+        <p className={NOTE}>
           Potenziale, costanza, etica del lavoro e rischi sono stime: più precise per i giocatori della tua
           squadra, i valori veri restano nascosti.
         </p>
@@ -244,31 +254,28 @@ function AddPlayer({
   }, [leagueId, text]);
   return (
     <div className="space-y-1">
-      <input
+      <TextInput
+        label="Aggiungi un giocatore al confronto"
         type="search"
-        aria-label="Aggiungi un giocatore al confronto"
-        placeholder="Aggiungi un giocatore: scrivi il nome"
-        className="min-h-11 w-full rounded-lg border border-stampa-300 bg-stampa-25 px-3 text-base sm:text-sm dark:border-stampa-600 dark:bg-stampa-800"
+        placeholder="Scrivi il nome o il cognome"
         value={text}
         onChange={(e) => setText(e.target.value)}
       />
       {found && (
-        <ul className="divide-y divide-stampa-100 rounded-lg border border-stampa-200 bg-stampa-25 text-sm dark:divide-stampa-700 dark:border-stampa-700 dark:bg-stampa-800">
-          {found.length === 0 && (
-            <li className="px-3 py-2 text-stampa-500 dark:text-stampa-400">Nessun giocatore.</li>
-          )}
+        <ul className={BOX}>
+          {found.length === 0 && <li className="px-3 py-2 text-sm">Nessun giocatore.</li>}
           {found.map((p) => (
-            <li key={p.id}>
+            <li key={p.id} className={`${RULE} last:border-b-0`}>
               <button
                 type="button"
                 onClick={() => {
                   onAdd(p.id);
                   setText('');
                 }}
-                className="flex min-h-11 w-full items-center gap-2 px-3 text-left hover:bg-stampa-50 dark:hover:bg-stampa-700"
+                className="flex min-h-11 w-full items-center gap-2 px-3 text-left hover:bg-stampa-100 dark:hover:bg-stampa-700"
               >
-                <span className="min-w-0 flex-1 truncate">{p.name}</span>
-                <span className="text-xs text-stampa-500 dark:text-stampa-400">
+                <span className="min-w-0 flex-1 truncate font-semibold">{p.name}</span>
+                <span className={META}>
                   {p.role} · {p.teamId ? (teams.get(p.teamId)?.code ?? '?') : 'svincolato'}
                 </span>
               </button>

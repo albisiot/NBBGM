@@ -1,11 +1,11 @@
-// Storico della lega: albo d'oro (campioni e finaliste), e per ogni stagione premi, migliori della stagione e
-// classifica finale di regular season. I premi seguono formule fisse (packages/engine/src/season/awards.ts); per
-// la stagione in corso sono provvisori.
+// Storico della lega come l'almanacco del giornale: albo d'oro (campioni e finaliste), e per ogni stagione premi,
+// migliori della stagione e classifica finale di regular season. I premi seguono formule fisse
+// (packages/engine/src/season/awards.ts); per la stagione in corso sono provvisori.
 import { AWARD_FORMULA, AWARD_LABEL, seasonAwards, type StandingsLine } from '@nbbgm/engine';
 import { useState } from 'react';
 import { Link, useParams, useSearchParams } from 'react-router';
 import { CeremonyCard } from '../components/CeremonyCard.tsx';
-import { Card, ErrorText, PageTitle, Spinner, TeamCode } from '../components/ui.tsx';
+import { Button, ErrorText, Kicker, Leader, PageTitle, SectionTitle, Spinner } from '../components/ui.tsx';
 import { useUserId } from '../lib/auth.tsx';
 import {
   defaultSeason,
@@ -18,11 +18,12 @@ import {
   type SeasonPlayer,
 } from '../lib/history.ts';
 import { leagueDetail, type LeagueDetail, type LeagueTeam } from '../lib/leagues.ts';
+import { FIELD, INK_LINK, NOTE, SUBHEAD } from '../lib/tabellino.ts';
 import { useAsync } from '../lib/useAsync.ts';
 import { useRoundChange } from '../lib/useRoundChange.ts';
 import { currentStandings } from '../lib/useSeason.ts';
 
-const LINK = 'font-semibold text-rosso-700 hover:underline dark:text-rosso-300';
+const RED_LINK = 'font-semibold text-rosso-700 hover:underline dark:text-rosso-300';
 
 export function HistoryPage() {
   const { id = '' } = useParams();
@@ -47,75 +48,90 @@ export function HistoryPage() {
   const done = finals.filter((f) => f.championId !== null);
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-6">
       <PageTitle sub="Campioni, premi e classifiche delle stagioni giocate.">Storico</PageTitle>
 
-      <Card className="space-y-2 !p-4">
-        <h2 className="font-semibold">Albo d’oro</h2>
+      <section className="space-y-1">
+        <SectionTitle>Albo d’oro</SectionTitle>
         {done.length === 0 ? (
-          <p className="text-sm text-stampa-500 dark:text-stampa-400">Nessuna stagione conclusa, per ora.</p>
+          <p className={NOTE}>Nessuna stagione conclusa, per ora.</p>
         ) : (
-          <ul className="divide-y divide-stampa-100 text-sm dark:divide-stampa-700">
+          <ul>
             {done.map((f) => {
               const champion = team.get(f.championId ?? '');
               const finalist = team.get(f.finalistId ?? '');
+              const own = champion?.id === mine;
               return (
-                <li key={f.seasonId} className="flex flex-wrap items-center gap-x-2 gap-y-1 py-2">
-                  <span className="w-16 shrink-0 font-mono text-xs">{seasonLabel(f.year)}</span>
-                  <TeamCode code={champion?.code ?? '?'} strong={champion?.id === mine} />
-                  <Link
-                    to={`/lega/${league.id}/squadre/${champion?.code ?? ''}`}
-                    className="font-semibold hover:underline"
-                  >
-                    {champion?.fullName}
-                  </Link>
-                  <span className="text-xs text-stampa-500 dark:text-stampa-400">
-                    in finale su {finalist?.code ?? '?'}
+                <li
+                  key={f.seasonId}
+                  className="flex items-baseline gap-3 border-b border-stampa-200 py-1.5 text-sm last:border-b-0 dark:border-stampa-700"
+                >
+                  <span className="w-16 shrink-0 font-titolo font-semibold tabular-nums">
+                    {seasonLabel(f.year)}
+                  </span>
+                  <span className="min-w-0 flex-1">
+                    <b className={`mr-1.5 font-titolo ${own ? 'text-rosso-700 dark:text-rosso-300' : ''}`}>
+                      {champion?.code ?? '?'}
+                    </b>
+                    <Link
+                      to={`/lega/${league.id}/squadre/${champion?.code ?? ''}`}
+                      className={`font-semibold ${INK_LINK}`}
+                    >
+                      {champion?.fullName}
+                    </Link>{' '}
+                    <i className="text-[0.8125rem] whitespace-nowrap text-stampa-600 dark:text-stampa-300">
+                      in finale su {finalist?.code ?? '?'}
+                    </i>
                   </span>
                 </li>
               );
             })}
           </ul>
         )}
-      </Card>
+      </section>
 
-      {seasons.length > 1 && season && (
-        <label className="flex items-center gap-2 text-sm">
-          Stagione
-          <select
-            className="min-h-11 rounded-lg border border-stampa-300 bg-stampa-25 px-2 dark:border-stampa-600 dark:bg-stampa-800"
-            value={season.year}
-            onChange={(e) => setSearch({ stagione: e.target.value }, { replace: true })}
-          >
-            {seasons.map((s) => (
-              <option key={s.id} value={s.year}>
-                {seasonLabel(s.year)}
-                {s.current ? ' (in corso)' : ''}
-              </option>
-            ))}
-          </select>
-        </label>
-      )}
-      {season && done.some((f) => f.seasonId === season.id) && (
-        <CeremonyButton key={`cerimonia-${season.id}`} league={league} season={season} />
+      {(seasons.length > 1 || (season && done.some((f) => f.seasonId === season.id))) && (
+        <div className="flex flex-wrap items-end gap-3">
+          {seasons.length > 1 && season && (
+            <label className="flex flex-col gap-1 text-sm">
+              <span className="font-titolo text-xs font-semibold tracking-widest uppercase">Stagione</span>
+              <select
+                className={FIELD}
+                value={season.year}
+                onChange={(e) => setSearch({ stagione: e.target.value }, { replace: true })}
+              >
+                {seasons.map((s) => (
+                  <option key={s.id} value={s.year}>
+                    {seasonLabel(s.year)}
+                    {s.current ? ' (in corso)' : ''}
+                  </option>
+                ))}
+              </select>
+            </label>
+          )}
+          {season && done.some((f) => f.seasonId === season.id) && (
+            <CeremonyButton key={`cerimonia-${season.id}`} league={league} season={season} />
+          )}
+        </div>
       )}
       {season && <SeasonDetail key={season.id} league={league} season={season} mine={mine} />}
     </div>
   );
 }
 
-/** La cerimonia di fine stagione, da rivedere quando si vuole. */
+/** La cerimonia di fine stagione, da rivedere quando si vuole: un pulsante a filo, la cerimonia sotto. */
 function CeremonyButton({ league, season }: { league: LeagueDetail; season: LeagueSeason }) {
   const [open, setOpen] = useState(false);
-  if (open) return <CeremonyCard league={league} season={season} inHistory onClose={() => setOpen(false)} />;
+  if (open)
+    return (
+      <div className="w-full">
+        <CeremonyCard league={league} season={season} inHistory onClose={() => setOpen(false)} />
+      </div>
+    );
   return (
-    <button
-      type="button"
-      onClick={() => setOpen(true)}
-      className="inline-flex min-h-11 items-center gap-2 rounded-lg border border-amber-300 bg-amber-50 px-4 text-sm font-semibold text-amber-900 hover:bg-amber-100 dark:border-amber-700 dark:bg-amber-950 dark:text-amber-100 dark:hover:bg-amber-900"
-    >
-      <span aria-hidden="true">🏆</span> Cerimonia della stagione {seasonLabel(season.year)}
-    </button>
+    <Button variant="secondary" onClick={() => setOpen(true)}>
+      Cerimonia della stagione {seasonLabel(season.year)}
+    </Button>
   );
 }
 
@@ -157,46 +173,45 @@ function SeasonDetail({
   const playedGames = [...standings.East, ...standings.West].some((l) => l.w + l.l > 0);
 
   return (
-    <div className="space-y-4">
-      <Card className="space-y-3 !p-4">
-        <div className="flex flex-wrap items-baseline justify-between gap-2">
-          <h2 className="font-semibold">
-            {live ? `Corsa ai premi ${seasonLabel(season.year)}` : `Premi ${seasonLabel(season.year)}`}
-          </h2>
-          <Link to={`/lega/${league.id}/statistiche?stagione=${season.year}`} className={`text-sm ${LINK}`}>
-            Statistiche della stagione
-          </Link>
-        </div>
-        {live && (
-          <p className="text-xs text-stampa-500 dark:text-stampa-400">
-            Provvisori: si decidono con le statistiche di fine regular season.
-          </p>
-        )}
+    <div className="space-y-6">
+      <section className="space-y-3">
+        <SectionTitle
+          aside={
+            <Link
+              to={`/lega/${league.id}/statistiche?stagione=${season.year}`}
+              className={`inline-flex min-h-11 items-center ${RED_LINK}`}
+            >
+              Statistiche ›
+            </Link>
+          }
+        >
+          {live ? `Corsa ai premi ${seasonLabel(season.year)}` : `Premi ${seasonLabel(season.year)}`}
+        </SectionTitle>
+        {live && <p className={NOTE}>Provvisori: si decidono con le statistiche di fine regular season.</p>}
         {result.awards.length === 0 ? (
-          <p className="text-sm text-stampa-500 dark:text-stampa-400">Nessuna partita giocata.</p>
+          <p className={NOTE}>Nessuna partita giocata.</p>
         ) : (
-          <ul className="grid gap-2 sm:grid-cols-2">
+          <ul className="grid gap-x-6 gap-y-3 sm:grid-cols-2">
             {result.awards.map((a) => {
               const p = byId.get(a.playerId);
               const t = team.get(a.teamId ?? '');
               return (
-                <li
-                  key={a.key}
-                  className="rounded-lg border border-stampa-200 p-3 text-sm dark:border-stampa-700"
-                >
-                  <p className="text-xs font-semibold tracking-wide text-rosso-700 uppercase dark:text-rosso-300">
-                    {AWARD_LABEL[a.key]}
-                  </p>
-                  <p className="mt-1 flex items-center gap-2">
-                    <TeamCode code={t?.code ?? 'SV'} strong={t?.id === mine} />
+                <li key={a.key} className="border-t border-stampa-900 pt-2 text-sm dark:border-stampa-100">
+                  <Kicker>{AWARD_LABEL[a.key]}</Kicker>
+                  <p className="mt-0.5 flex min-w-0 items-baseline gap-1.5 text-base">
+                    <b
+                      className={`shrink-0 font-titolo ${t?.id === mine ? 'text-rosso-700 dark:text-rosso-300' : ''}`}
+                    >
+                      {t?.code ?? 'SV'}
+                    </b>
                     <Link
                       to={`/lega/${league.id}/giocatore/${a.playerId}`}
-                      className="truncate font-semibold hover:underline"
+                      className={`truncate font-semibold ${INK_LINK}`}
                     >
                       {p?.name}
                     </Link>
                   </p>
-                  <p className="mt-1 text-xs text-stampa-500 dark:text-stampa-400">
+                  <p className={NOTE}>
                     {p ? statLine(p) : ''} · punteggio {a.score.toFixed(1).replace('.', ',')}
                   </p>
                 </li>
@@ -205,9 +220,11 @@ function SeasonDetail({
           </ul>
         )}
         {result.awards.length > 0 && (
-          <details className="text-xs text-stampa-600 dark:text-stampa-300">
-            <summary className="min-h-11 cursor-pointer py-3 font-semibold">Come si calcolano</summary>
-            <ul className="space-y-1">
+          <details className="text-sm">
+            <summary className="flex min-h-11 cursor-pointer items-center font-semibold italic underline underline-offset-4">
+              Come si calcolano
+            </summary>
+            <ul className="space-y-1 text-stampa-700 dark:text-stampa-200">
               {(['mvp', 'dpoy', 'roy', 'sixth'] as const).map((k) => (
                 <li key={k}>
                   <span className="font-semibold">{AWARD_LABEL[k]}:</span> {AWARD_FORMULA[k]}.
@@ -220,12 +237,12 @@ function SeasonDetail({
             </ul>
           </details>
         )}
-      </Card>
+      </section>
 
       {result.leaders.points.length > 0 && (
-        <Card className="!p-4">
-          <h2 className="mb-2 font-semibold">I migliori</h2>
-          <div className="grid gap-4 sm:grid-cols-3">
+        <section className="space-y-3">
+          <SectionTitle>I migliori</SectionTitle>
+          <div className="grid gap-5 sm:grid-cols-3">
             {(
               [
                 ['Punti', result.leaders.points],
@@ -233,37 +250,43 @@ function SeasonDetail({
                 ['Assist', result.leaders.assists],
               ] as const
             ).map(([label, list]) => (
-              <div key={label}>
-                <h3 className="text-xs font-semibold tracking-wide text-stampa-500 uppercase dark:text-stampa-400">
-                  {label} a partita
-                </h3>
+              <div key={label} className="space-y-1">
+                <h3 className={SUBHEAD}>{label} a partita</h3>
                 <ol className="text-sm">
                   {list.map((l, i) => (
-                    <li key={l.playerId} className="flex items-center gap-2 py-0.5">
-                      <span className="w-4 text-xs text-stampa-500 dark:text-stampa-400">{i + 1}</span>
-                      <TeamCode code={team.get(l.teamId ?? '')?.code ?? 'SV'} strong={l.teamId === mine} />
-                      <Link
-                        to={`/lega/${league.id}/giocatore/${l.playerId}`}
-                        className="min-w-0 flex-1 truncate hover:underline"
-                      >
-                        {byId.get(l.playerId)?.name}
-                      </Link>
-                      <span className="font-mono">{l.value.toFixed(1).replace('.', ',')}</span>
+                    <li key={l.playerId} className={l.teamId === mine ? 'font-bold' : ''}>
+                      <Leader
+                        label={
+                          <span className="flex items-baseline gap-1.5">
+                            <span className="w-3 font-titolo text-stampa-600 dark:text-stampa-300">
+                              {i + 1}
+                            </span>
+                            <b className="font-titolo font-semibold">
+                              {team.get(l.teamId ?? '')?.code ?? 'SV'}
+                            </b>
+                            <Link
+                              to={`/lega/${league.id}/giocatore/${l.playerId}`}
+                              className={`max-w-[9rem] truncate ${INK_LINK}`}
+                            >
+                              {byId.get(l.playerId)?.name}
+                            </Link>
+                          </span>
+                        }
+                        value={<span className="tabular-nums">{l.value.toFixed(1).replace('.', ',')}</span>}
+                      />
                     </li>
                   ))}
                 </ol>
               </div>
             ))}
           </div>
-        </Card>
+        </section>
       )}
 
       {playedGames && (
-        <Card className="!p-4">
-          <h2 className="mb-2 font-semibold">
-            {live ? 'Classifica attuale' : 'Classifica finale di regular season'}
-          </h2>
-          <div className="grid gap-4 md:grid-cols-2">
+        <section className="space-y-3">
+          <SectionTitle>{live ? 'Classifica attuale' : 'Classifica finale di regular season'}</SectionTitle>
+          <div className="grid gap-6 md:grid-cols-2">
             {(['East', 'West'] as const).map((conf) => (
               <FinalTable
                 key={conf}
@@ -275,7 +298,8 @@ function SeasonDetail({
               />
             ))}
           </div>
-        </Card>
+          <p className={NOTE}>Sopra la riga piena: playoff · fino alla riga a puntini: play-in.</p>
+        </section>
       )}
     </div>
   );
@@ -302,29 +326,44 @@ function FinalTable({
   leagueId: string;
 }) {
   return (
-    <div>
-      <h3 className="text-xs font-semibold tracking-wide text-stampa-500 uppercase dark:text-stampa-400">
-        {title}
-      </h3>
+    <div className="space-y-1">
+      <h3 className={SUBHEAD}>{title}</h3>
       <ol className="text-sm">
         {lines.map((l) => {
           const t = team.get(l.teamId);
+          const own = l.teamId === mine;
+          // Filetto pieno dopo il 6° posto (playoff), a puntini dopo il 10° (play-in)
+          const rule =
+            l.confRank === 6
+              ? 'border-b-2 border-stampa-900 dark:border-stampa-100'
+              : l.confRank === 10
+                ? 'border-b-2 border-dotted border-stampa-900 dark:border-stampa-100'
+                : '';
           return (
-            <li
-              key={l.teamId}
-              className={`flex items-center gap-2 py-0.5 ${l.teamId === mine ? 'font-semibold' : ''}`}
-            >
-              <span className="w-5 text-xs text-stampa-500 dark:text-stampa-400">{l.confRank}</span>
-              <TeamCode code={t?.code ?? '?'} strong={l.teamId === mine} />
-              <Link
-                to={`/lega/${leagueId}/squadre/${t?.code ?? ''}`}
-                className="min-w-0 flex-1 truncate hover:underline"
-              >
-                {t?.fullName}
-              </Link>
-              <span className="font-mono">
-                {l.w}-{l.l}
-              </span>
+            <li key={l.teamId} className={`${rule} ${own ? 'font-bold' : ''}`}>
+              <Leader
+                label={
+                  <span className="flex items-baseline gap-1.5">
+                    <span
+                      className={`w-5 font-titolo ${own ? 'text-rosso-700 dark:text-rosso-300' : 'text-stampa-600 dark:text-stampa-300'}`}
+                    >
+                      {l.confRank}
+                    </span>
+                    <b className="font-titolo font-semibold">{t?.code ?? '?'}</b>
+                    <Link
+                      to={`/lega/${leagueId}/squadre/${t?.code ?? ''}`}
+                      className={`max-w-[11rem] truncate ${INK_LINK}`}
+                    >
+                      {t?.fullName}
+                    </Link>
+                  </span>
+                }
+                value={
+                  <span className="tabular-nums">
+                    {l.w}-{l.l}
+                  </span>
+                }
+              />
             </li>
           );
         })}

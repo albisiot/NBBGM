@@ -1,13 +1,24 @@
-// Statistiche individuali di regular season, per partita: si ordinano toccando l'intestazione di una colonna e
-// si filtrano per squadra e per partite giocate. Le stagioni passate (?stagione=2026) vengono da quelle salvate a
-// fine regular season.
+// Statistiche individuali di regular season, per partita, come un tabellino: si ordinano toccando l'intestazione
+// di una colonna e si filtrano per squadra e per partite giocate. Le stagioni passate (?stagione=2026) vengono da
+// quelle salvate a fine regular season.
 import { useMemo, useState } from 'react';
 import { Link, useParams, useSearchParams } from 'react-router';
-import { Card, ErrorText, PageTitle, Spinner, TeamCode } from '../components/ui.tsx';
+import { ErrorText, PageTitle, Spinner } from '../components/ui.tsx';
 import { useUserId } from '../lib/auth.tsx';
 import { leagueDetail } from '../lib/leagues.ts';
 import { leagueSeasons, seasonLabel, seasonPlayers } from '../lib/history.ts';
 import { perGame, type PlayerSeason } from '../lib/results.ts';
+import {
+  FIELD,
+  HEAD_ROW,
+  HIGHLIGHT,
+  INK_LINK,
+  NOTE,
+  PAPER,
+  rowRule,
+  STICKY,
+  TABLE,
+} from '../lib/tabellino.ts';
 import { useAsync } from '../lib/useAsync.ts';
 import { useRoundChange } from '../lib/useRoundChange.ts';
 
@@ -15,12 +26,12 @@ type SortKey = 'pts' | 'reb' | 'ast' | 'stl' | 'blk' | 'tov' | 'min' | 'g' | 'fg
 
 const COLUMNS: { key: SortKey; label: string; title: string; pct?: boolean; int?: boolean }[] = [
   { key: 'g', label: 'G', title: 'Partite giocate', int: true },
-  { key: 'min', label: 'MIN', title: 'Minuti' },
-  { key: 'pts', label: 'PT', title: 'Punti' },
-  { key: 'reb', label: 'RIM', title: 'Rimbalzi' },
-  { key: 'ast', label: 'AS', title: 'Assist' },
-  { key: 'stl', label: 'RUB', title: 'Rubate' },
-  { key: 'blk', label: 'STP', title: 'Stoppate' },
+  { key: 'min', label: 'Min', title: 'Minuti' },
+  { key: 'pts', label: 'Pt', title: 'Punti' },
+  { key: 'reb', label: 'Rim', title: 'Rimbalzi' },
+  { key: 'ast', label: 'As', title: 'Assist' },
+  { key: 'stl', label: 'Rub', title: 'Rubate' },
+  { key: 'blk', label: 'Stp', title: 'Stoppate' },
   { key: 'tov', label: 'PP', title: 'Palle perse' },
   { key: 'fgPct', label: '%T', title: 'Percentuale al tiro', pct: true },
   { key: 'tpPct', label: '%3', title: 'Percentuale da 3', pct: true },
@@ -28,9 +39,6 @@ const COLUMNS: { key: SortKey; label: string; title: string; pct?: boolean; int?
 ];
 
 const LIMIT = 100;
-
-// Colonna del nome fissa a sinistra quando la tabella scorre (su telefono): fondo della scheda sotto
-const STICKY = 'sticky left-0 bg-stampa-25 pl-1 dark:bg-stampa-800';
 
 export function StatsPage() {
   const { id = '' } = useParams();
@@ -75,16 +83,21 @@ export function StatsPage() {
   const { league } = data;
   const team = new Map(league.teams.map((t) => [t.id, t]));
   const mine = league.teams.find((t) => t.ownerId === userId)?.id;
+  const label = 'font-titolo text-xs font-semibold tracking-widest uppercase';
 
   return (
     <div className="space-y-4">
-      <PageTitle sub="Regular season, medie per partita.">Statistiche</PageTitle>
-      <div className="flex flex-wrap items-center gap-3 text-sm">
+      <PageTitle
+        sub={`Regular season${data.year !== null ? ` ${seasonLabel(data.year)}` : ''}, medie per partita.`}
+      >
+        Statistiche
+      </PageTitle>
+      <div className="flex flex-wrap items-end gap-3 text-sm">
         {data.seasons.length > 1 && data.year !== null && (
-          <label className="flex items-center gap-2">
-            Stagione
+          <label className="flex flex-col gap-1">
+            <span className={label}>Stagione</span>
             <select
-              className="min-h-11 rounded-lg border border-stampa-300 bg-stampa-25 px-2 dark:border-stampa-600 dark:bg-stampa-800"
+              className={FIELD}
               value={data.year}
               onChange={(e) => setSearch({ stagione: e.target.value }, { replace: true })}
             >
@@ -97,13 +110,9 @@ export function StatsPage() {
             </select>
           </label>
         )}
-        <label className="flex items-center gap-2">
-          Squadra
-          <select
-            className="min-h-11 rounded-lg border border-stampa-300 bg-stampa-25 px-2 dark:border-stampa-600 dark:bg-stampa-800"
-            value={teamFilter}
-            onChange={(e) => setTeamFilter(e.target.value)}
-          >
+        <label className="flex min-w-0 flex-col gap-1">
+          <span className={label}>Squadra</span>
+          <select className={FIELD} value={teamFilter} onChange={(e) => setTeamFilter(e.target.value)}>
             <option value="all">Tutta la lega</option>
             {mine && <option value={mine}>La mia squadra</option>}
             {[...league.teams]
@@ -116,10 +125,10 @@ export function StatsPage() {
           </select>
         </label>
         {teamFilter === 'all' && (
-          <label className="flex items-center gap-2">
+          <label className="flex min-h-11 items-center gap-2">
             <input
               type="checkbox"
-              className="size-4 accent-rosso-600"
+              className="size-5 accent-stampa-900 dark:accent-stampa-100"
               checked={minGames}
               onChange={(e) => setMinGames(e.target.checked)}
             />
@@ -129,23 +138,32 @@ export function StatsPage() {
       </div>
 
       {rows.length === 0 ? (
-        <p className="text-sm text-stampa-500 dark:text-stampa-400">Nessuna partita giocata.</p>
+        <p className={NOTE}>Nessuna partita giocata.</p>
       ) : (
-        <Card className="!p-4">
-          <div className="overflow-x-auto">
-            <table className="w-full min-w-[46rem] text-sm">
+        <section aria-label="Statistiche dei giocatori" className="space-y-2">
+          <div className="relative overflow-x-auto">
+            <table className={`${TABLE} min-w-[46rem]`}>
               <thead>
-                <tr className="border-b border-stampa-200 text-xs text-stampa-500 dark:border-stampa-700 dark:text-stampa-400">
-                  <th className={`${STICKY} py-1 pr-2 text-left font-medium`}>
-                    <span className="inline-block w-6">#</span>Giocatore
+                <tr className={HEAD_ROW}>
+                  <th scope="col" className={`${STICKY} ${PAPER} pt-2 pr-2 pb-1 pl-1 text-left`}>
+                    <span className="inline-block w-7">#</span>Giocatore
                   </th>
                   {COLUMNS.map((c) => (
-                    <th key={c.key} className="px-1 py-1 text-right font-medium">
+                    <th
+                      key={c.key}
+                      scope="col"
+                      aria-sort={sort === c.key ? 'descending' : undefined}
+                      className="px-0.5 pt-1 pb-0 text-right"
+                    >
                       <button
                         type="button"
                         title={c.title}
                         onClick={() => setSort(c.key)}
-                        className={`min-h-11 min-w-11 rounded px-1 ${sort === c.key ? 'font-bold text-rosso-700 dark:text-rosso-300' : 'hover:text-stampa-900 dark:hover:text-white'}`}
+                        className={`min-h-11 min-w-11 px-1 tracking-wider uppercase ${
+                          sort === c.key
+                            ? 'font-bold text-rosso-700 dark:text-rosso-300'
+                            : 'hover:text-stampa-900 dark:hover:text-stampa-50'
+                        }`}
                       >
                         {c.label}
                         {sort === c.key ? ' ↓' : ''}
@@ -169,12 +187,11 @@ export function StatsPage() {
               </tbody>
             </table>
           </div>
-          {rows.length > LIMIT && (
-            <p className="mt-2 text-xs text-stampa-500 dark:text-stampa-400">
-              I primi {LIMIT} su {rows.length}.
-            </p>
-          )}
-        </Card>
+          <p className={NOTE}>
+            {rows.length > LIMIT ? `I primi ${LIMIT} su ${rows.length}. ` : ''}Tocca una colonna per ordinare;
+            evidenziati i giocatori della tua squadra.
+          </p>
+        </section>
       )}
     </div>
   );
@@ -196,28 +213,30 @@ function Row({
   sort: SortKey;
 }) {
   return (
-    <tr className={`border-b border-stampa-100 dark:border-stampa-700/60 ${mine ? 'font-semibold' : ''}`}>
-      <td className={`${STICKY} max-w-[13rem] truncate py-1 pr-2 sm:max-w-64`}>
-        <span className="flex items-center gap-2">
-          <span className="w-4 shrink-0 text-xs font-normal text-stampa-500 dark:text-stampa-400">
-            {rank}
-          </span>
-          <TeamCode code={code ?? 'SV'} strong={mine} />
-          <Link to={`/lega/${leagueId}/giocatore/${p.id}`} className="truncate hover:underline">
+    <tr className={`${rowRule('thin')} ${mine ? `${HIGHLIGHT} font-bold` : ''}`}>
+      <th
+        scope="row"
+        className={`${STICKY} ${mine ? HIGHLIGHT : PAPER} py-1.5 pr-2 pl-1 text-left ${
+          mine ? 'font-bold' : 'font-normal'
+        }`}
+      >
+        <span className="flex max-w-[13rem] min-w-0 items-center gap-1.5 sm:max-w-72">
+          <span className="w-6 shrink-0 font-titolo text-stampa-600 dark:text-stampa-300">{rank}</span>
+          <b className="w-9 shrink-0 font-titolo font-semibold">{code ?? 'SV'}</b>
+          <Link to={`/lega/${leagueId}/giocatore/${p.id}`} className={`truncate ${INK_LINK}`}>
             {p.name}
           </Link>
           {/* Su telefono il ruolo lascia spazio al nome: si vede nella scheda del giocatore */}
-          <span className="hidden text-xs text-stampa-500 sm:inline dark:text-stampa-400">{p.role}</span>
+          <i className="hidden shrink-0 text-[0.8125rem] font-normal text-stampa-600 sm:inline dark:text-stampa-300">
+            {p.role}
+          </i>
         </span>
-      </td>
+      </th>
       {COLUMNS.map((c) => {
         const v = p[c.key];
         const text = v === null ? '–' : c.pct ? (v * 100).toFixed(1) : c.int ? String(v) : v.toFixed(1);
         return (
-          <td
-            key={c.key}
-            className={`px-1.5 py-1 text-right font-mono ${sort === c.key ? 'font-semibold' : ''}`}
-          >
+          <td key={c.key} className={`px-1.5 py-1.5 text-right ${sort === c.key ? 'font-bold' : ''}`}>
             {text}
           </td>
         );

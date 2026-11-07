@@ -4,16 +4,7 @@
 import { useEffect, useState } from 'react';
 import { onResume } from './resume.ts';
 import { supabase } from './supabase.ts';
-import {
-  countsAsReady,
-  PHASE_LABEL,
-  PHASE_TONE,
-  roundPhase,
-  type Readiness,
-  type RoundInfo,
-  type RoundPhase,
-  type Tone,
-} from './turns.ts';
+import { countsAsReady, roundPhase, type Readiness, type RoundInfo, type RoundPhase } from './turns.ts';
 
 /** Una riga della risposta di my_leagues_status. */
 export interface LeagueLiveRow {
@@ -77,32 +68,6 @@ export function leagueLive(row: LeagueLiveRow, now = Date.now()): LeagueLive {
     humans: inRound.length,
     decisions: Number(row.decisions) || 0,
   };
-}
-
-export interface LiveBadge {
-  label: string;
-  tone: Tone;
-}
-
-/**
- * Etichette dell'elenco, nell'ordine: stato della lega se non è un turno aperto (draft iniziale, turno bloccato,
- * simulazione, pausa), "Tocca a te" se la propria squadra non è pronta, umani pronti sul totale, decisioni aperte.
- */
-export function liveBadges(l: LeagueLive): LiveBadge[] {
-  const out: LiveBadge[] = [];
-  if (l.phase === null) return out;
-  if (l.phase !== 'open') out.push({ label: PHASE_LABEL[l.phase], tone: PHASE_TONE[l.phase] });
-  const playing = l.phase === 'open' || l.phase === 'paused';
-  if (playing) {
-    if (l.myState === 'waiting' || l.myState === 'blocked') out.push({ label: 'Tocca a te', tone: 'orange' });
-    else if (l.myState === 'ready') out.push({ label: 'Pronto', tone: 'green' });
-    else if (l.myState === 'coach') out.push({ label: 'Allenatore', tone: 'sky' });
-    else if (l.myState === 'out') out.push({ label: 'Non gioca', tone: 'slate' });
-    if (l.humans > 0) out.push({ label: `Pronti ${l.ready}/${l.humans}`, tone: 'slate' });
-  }
-  if (l.decisions > 0)
-    out.push({ label: l.decisions === 1 ? '1 decisione' : `${l.decisions} decisioni`, tone: 'amber' });
-  return out;
 }
 
 /** Stato dal vivo delle leghe dell'utente; null se il database non ha ancora la funzione. */

@@ -3,7 +3,7 @@
 import { useState, type FormEvent } from 'react';
 import { useNavigate } from 'react-router';
 import { TeamPicker } from '../components/TeamPicker.tsx';
-import { Button, Card, Choice, ErrorText, PageTitle, TextInput } from '../components/ui.tsx';
+import { Button, Card, Choice, ErrorText, PageTitle, SectionTitle, TextInput } from '../components/ui.tsx';
 import { friendlyError } from '../lib/errors.ts';
 import {
   createLeague,
@@ -50,6 +50,7 @@ export function CreateLeaguePage() {
     <form onSubmit={submit} className="space-y-4">
       <PageTitle sub="Sarai il commissario della lega.">Crea una lega</PageTitle>
       <Card className="space-y-4">
+        <SectionTitle>La lega</SectionTitle>
         <TextInput
           label="Nome della lega"
           required
@@ -106,12 +107,13 @@ export function CreateLeaguePage() {
         )}
       </Card>
 
-      <Card>
-        <h2 className="mb-3 text-sm font-medium text-stampa-700 dark:text-stampa-200">La tua squadra</h2>
+      <Card className="space-y-3">
+        <SectionTitle aside={team ?? undefined}>La tua squadra</SectionTitle>
         <TeamPicker value={team} onChange={setTeam} />
       </Card>
 
       <Card className="space-y-4">
+        <SectionTitle>Impostazioni</SectionTitle>
         <Choice
           label="Scadenza dei turni"
           value={settings.deadline_minutes}
@@ -136,7 +138,13 @@ export function CreateLeaguePage() {
       </Card>
 
       <ErrorText>{error}</ErrorText>
-      <Button type="submit" className="w-full sm:w-auto" disabled={busy || !name.trim() || !team}>
+      {/* L'azione principale della pagina: il pulsante rosso */}
+      <Button
+        type="submit"
+        variant="accent"
+        className="min-h-12 w-full sm:w-auto"
+        disabled={busy || !name.trim() || !team}
+      >
         {busy ? 'Creo la lega…' : 'Crea la lega'}
       </Button>
     </form>

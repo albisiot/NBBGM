@@ -1,8 +1,9 @@
 // Draft iniziale: giocatori in palio, lista dei preferiti, scelte fatte e rose. Dal vivo si sceglie quando
-// tocca a te, con il tempo che scorre; allo scadere sceglie il server dalla tua lista.
+// tocca a te, con il tempo che scorre; allo scadere sceglie il server dalla tua lista. Nello stile Edicola: il
+// riquadro della chiamata, le schede come sezioni a filetto, gli elenchi come colonne del giornale.
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { Link, useParams } from 'react-router';
-import { Button, Card, ErrorText, PageTitle, Spinner } from '../components/ui.tsx';
+import { Button, Card, ErrorText, Kicker, PageTitle, Spinner, Tag } from '../components/ui.tsx';
 import { useUserId } from '../lib/auth.tsx';
 import {
   draftAction,
@@ -22,6 +23,10 @@ import {
 import { friendlyError } from '../lib/errors.ts';
 import { latestSaver } from '../lib/latestSaver.ts';
 import { leagueDetail, type LeagueDetail } from '../lib/leagues.ts';
+import { FIELD, NOTE } from '../lib/tabellino.ts';
+
+/** Riga di un elenco del draft: filetto sottile sotto, niente dopo l'ultima. */
+const LIST_ROW = 'border-b border-stampa-200 last:border-b-0 dark:border-stampa-700';
 
 type Tab = 'players' | 'list' | 'picks' | 'rosters';
 const ROLES = ['PG', 'SG', 'SF', 'PF', 'C'] as const;
@@ -151,7 +156,7 @@ export function DraftPage() {
     <div className="space-y-4">
       <PageTitle
         sub={
-          <Link to={`/lega/${league.id}`} className="underline">
+          <Link to={`/lega/${league.id}`} className="underline underline-offset-2">
             {league.name}
           </Link>
         }
@@ -169,33 +174,39 @@ export function DraftPage() {
               13 giri a serpentina, ordine sorteggiato. Intanto prepara la tua lista.
             </p>
             {isCommissioner ? (
-              <Button disabled={busy} onClick={() => void run('start')}>
+              <Button variant="accent" disabled={busy} onClick={() => void run('start')}>
                 Avvia il draft
               </Button>
             ) : (
-              <p className="text-sm text-stampa-500 dark:text-stampa-400">
-                Aspetta che il commissario lo avvii.
-              </p>
+              <p className={NOTE}>Aspetta che il commissario lo avvii.</p>
             )}
           </>
         )}
         {draft.state === 'running' && (
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div>
-              <p className="text-sm text-stampa-500 dark:text-stampa-400">
+              <Kicker muted>
                 Chiamata {draft.next + 1} di {draft.order.length} · {pickLabel(draft.next)}
-              </p>
-              <p className={`text-lg font-semibold ${myTurn ? 'text-rosso-600' : ''}`}>
+              </Kicker>
+              <p
+                className={`font-titolo text-xl font-semibold tracking-wide uppercase ${
+                  myTurn ? 'text-rosso-700 dark:text-rosso-300' : ''
+                }`}
+              >
                 {myTurn ? 'Tocca a te!' : `Tocca a ${onClockTeam?.fullName ?? '…'}`}
                 {!myTurn && onClockTeam && (
-                  <span className="ml-2 text-sm font-normal text-stampa-500 dark:text-stampa-400">
+                  <span className="ml-2 font-serif text-sm font-normal tracking-normal text-stampa-600 normal-case italic dark:text-stampa-300">
                     {onClockTeam.ownerName ?? 'Bot'}
                   </span>
                 )}
               </p>
             </div>
             {left !== null && (
-              <p className={`font-mono text-3xl font-bold ${left <= 10 ? 'text-red-600' : ''}`}>
+              <p
+                className={`font-titolo text-4xl font-bold tabular-nums ${
+                  left <= 10 ? 'text-rosso-700 dark:text-rosso-300' : ''
+                }`}
+              >
                 {Math.floor(left / 60)}:{String(left % 60).padStart(2, '0')}
               </p>
             )}
@@ -219,7 +230,11 @@ export function DraftPage() {
         <ErrorText>{error}</ErrorText>
       </Card>
 
-      <div className="flex gap-1 overflow-x-auto" role="tablist">
+      {/* Schede come sezioni del giornale: quella aperta con il filetto spesso */}
+      <div
+        className="relative flex gap-x-5 overflow-x-auto border-b border-stampa-900 dark:border-stampa-100"
+        role="tablist"
+      >
         {(
           [
             ['players', 'Giocatori'],
@@ -233,10 +248,10 @@ export function DraftPage() {
             role="tab"
             aria-selected={tab === t}
             onClick={() => setTab(t)}
-            className={`min-h-11 shrink-0 rounded-lg px-3 text-sm font-medium ${
+            className={`min-h-11 shrink-0 border-b-[3px] font-titolo text-sm tracking-wider whitespace-nowrap uppercase ${
               tab === t
-                ? 'bg-rosso-600 text-white'
-                : 'bg-stampa-25 text-stampa-700 dark:bg-stampa-800 dark:text-stampa-200'
+                ? 'border-stampa-900 font-semibold text-stampa-900 dark:border-stampa-50 dark:text-stampa-50'
+                : 'border-transparent font-medium text-stampa-700 hover:text-stampa-900 dark:text-stampa-300 dark:hover:text-stampa-50'
             }`}
           >
             {label}
@@ -267,33 +282,34 @@ export function DraftPage() {
         />
       )}
       {tab === 'picks' && (
-        <Card>
-          <ol className="divide-y divide-stampa-100 text-sm dark:divide-stampa-700">
+        <section aria-label="Scelte fatte">
+          <ol className="text-sm">
             {[...picks].reverse().map((k) => {
               const p = byId.get(k.playerId);
               const team = teamById.get(k.teamId);
               return (
-                <li key={k.pick} className="flex items-center justify-between gap-2 py-1.5">
+                <li key={k.pick} className={`flex items-center justify-between gap-2 py-1.5 ${LIST_ROW}`}>
                   <span className="min-w-0 truncate">
-                    <span className="mr-2 font-mono text-xs text-stampa-500 dark:text-stampa-400">
-                      #{k.pick + 1}
+                    <span className="mr-2 inline-block w-9 font-titolo text-stampa-600 tabular-nums dark:text-stampa-300">
+                      {k.pick + 1}
                     </span>
-                    <strong>{team?.code}</strong> {p?.name}{' '}
-                    <span className="text-stampa-500 dark:text-stampa-400">
+                    <b
+                      className={`font-titolo ${k.teamId === myTeam?.id ? 'text-rosso-700 dark:text-rosso-300' : ''}`}
+                    >
+                      {team?.code}
+                    </b>{' '}
+                    {p?.name}{' '}
+                    <i className="text-[0.8125rem] text-stampa-600 dark:text-stampa-300">
                       {p?.role} · {p ? Math.round(p.overall) : ''}
-                    </span>
+                    </i>
                   </span>
-                  {k.auto && (
-                    <span className="shrink-0 text-xs text-stampa-500 dark:text-stampa-400">auto</span>
-                  )}
+                  {k.auto && <Tag>auto</Tag>}
                 </li>
               );
             })}
-            {picks.length === 0 && (
-              <li className="py-2 text-stampa-500 dark:text-stampa-400">Nessuna scelta ancora.</li>
-            )}
+            {picks.length === 0 && <li className={`py-2 ${NOTE}`}>Nessuna scelta ancora.</li>}
           </ol>
-        </Card>
+        </section>
       )}
       {tab === 'rosters' && (
         <RostersTab league={league} picks={picks} byId={byId} myTeamId={myTeam?.id ?? null} />
@@ -312,16 +328,18 @@ function PlayerRow({
   className?: string;
 }) {
   return (
-    <li className={`flex items-center justify-between gap-2 py-2 ${className}`}>
+    <li className={`flex items-center justify-between gap-2 py-2 ${LIST_ROW} ${className}`}>
       <span className="min-w-0">
-        <span className="block truncate font-medium">{p.name}</span>
-        <span className="text-xs text-stampa-500 dark:text-stampa-400">
+        <span className="block truncate font-semibold">{p.name}</span>
+        <i className="text-[0.8125rem] text-stampa-600 dark:text-stampa-300">
           {p.role}
           {p.secondaryRole ? `/${p.secondaryRole}` : ''} · {p.age} anni · {formatSalary(p.salary)}
-        </span>
+        </i>
       </span>
       <span className="flex shrink-0 items-center gap-2">
-        <span className="w-8 text-right font-mono text-sm font-semibold">{Math.round(p.overall)}</span>
+        <span className="w-8 text-right font-titolo text-lg font-semibold tabular-nums" title="Overall">
+          {Math.round(p.overall)}
+        </span>
         {children}
       </span>
     </li>
@@ -346,22 +364,17 @@ function PlayersTab(props: {
     .filter((p) => !q || p.name.toLowerCase().includes(q))
     .slice(0, 100);
   return (
-    <Card>
-      <div className="mb-2 flex gap-2">
+    <section aria-label="Giocatori disponibili" className="space-y-2">
+      <div className="flex gap-2">
         <input
           type="search"
           aria-label="Cerca un giocatore"
           placeholder="Cerca per nome"
           value={query}
           onChange={(e) => setQuery(e.target.value)}
-          className="min-h-11 min-w-0 flex-1 rounded-lg border border-stampa-300 bg-stampa-25 px-3 text-base dark:border-stampa-600 dark:bg-stampa-900"
+          className={`${FIELD} min-w-0 flex-1 px-3 text-base`}
         />
-        <select
-          aria-label="Ruolo"
-          value={role}
-          onChange={(e) => setRole(e.target.value)}
-          className="min-h-11 rounded-lg border border-stampa-300 bg-stampa-25 px-2 text-sm dark:border-stampa-600 dark:bg-stampa-900"
-        >
+        <select aria-label="Ruolo" value={role} onChange={(e) => setRole(e.target.value)} className={FIELD}>
           <option value="">Tutti</option>
           {ROLES.map((r) => (
             <option key={r} value={r}>
@@ -370,10 +383,8 @@ function PlayersTab(props: {
           ))}
         </select>
       </div>
-      <p className="mb-1 text-xs text-stampa-500 dark:text-stampa-400">
-        Disponibili in ordine di overall (al massimo 100 alla volta).
-      </p>
-      <ul className="divide-y divide-stampa-100 dark:divide-stampa-700">
+      <p className={NOTE}>Disponibili in ordine di overall (al massimo 100 alla volta).</p>
+      <ul className="border-t-2 border-stampa-900 dark:border-stampa-100">
         {shown.map((p) => (
           <PlayerRow key={p.id} p={p}>
             {props.myTurn && (
@@ -386,11 +397,11 @@ function PlayersTab(props: {
                 + Lista
               </Button>
             )}
-            {props.list.includes(p.id) && <span className="text-xs text-rosso-600">in lista</span>}
+            {props.list.includes(p.id) && <Tag tone="outline">in lista</Tag>}
           </PlayerRow>
         ))}
       </ul>
-    </Card>
+    </section>
   );
 }
 
@@ -411,24 +422,22 @@ function ListTab(props: {
     props.onChange(next);
   };
   return (
-    <Card>
-      <p className="mb-2 text-xs text-stampa-500 dark:text-stampa-400">
+    <section aria-label="La mia lista" className="space-y-2">
+      <p className={NOTE}>
         In modalità lista, o allo scadere del tempo, il server prende il primo disponibile di questa lista.
         Senza lista sceglie il migliore per il ruolo più scoperto.
       </p>
       {props.list.length === 0 && (
-        <p className="text-sm text-stampa-500 dark:text-stampa-400">
-          La lista è vuota: aggiungi giocatori dalla scheda Giocatori.
-        </p>
+        <p className="text-sm">La lista è vuota: aggiungi giocatori dalla scheda Giocatori.</p>
       )}
-      <ol className="divide-y divide-stampa-100 dark:divide-stampa-700">
+      <ol className={props.list.length ? 'border-t-2 border-stampa-900 dark:border-stampa-100' : ''}>
         {props.list.map((pid, i) => {
           const p = props.byId.get(pid);
           if (!p) return null;
           const gone = props.taken.has(pid);
           return (
-            <PlayerRow key={pid} p={p} className={gone ? 'opacity-40' : ''}>
-              {gone && <span className="text-xs">già scelto</span>}
+            <PlayerRow key={pid} p={p} className={gone ? 'opacity-50' : ''}>
+              {gone && <i className="text-[0.8125rem]">già scelto</i>}
               {!gone && props.myTurn && (
                 <Button className="px-3" onClick={() => props.onPick(pid)}>
                   Scegli
@@ -438,7 +447,7 @@ function ListTab(props: {
                 <>
                   <Button
                     variant="ghost"
-                    className="min-w-11 px-2"
+                    className="min-w-11 px-2 no-underline"
                     aria-label="Su"
                     onClick={() => move(i, -1)}
                   >
@@ -446,7 +455,7 @@ function ListTab(props: {
                   </Button>
                   <Button
                     variant="ghost"
-                    className="min-w-11 px-2"
+                    className="min-w-11 px-2 no-underline"
                     aria-label="Giù"
                     onClick={() => move(i, 1)}
                   >
@@ -454,7 +463,7 @@ function ListTab(props: {
                   </Button>
                   <Button
                     variant="ghost"
-                    className="min-w-11 px-2"
+                    className="min-w-11 px-2 no-underline"
                     aria-label="Togli dalla lista"
                     onClick={() => props.onChange(props.list.filter((x) => x !== pid))}
                   >
@@ -466,7 +475,7 @@ function ListTab(props: {
           );
         })}
       </ol>
-    </Card>
+    </section>
   );
 }
 
@@ -483,12 +492,12 @@ function RostersTab(props: {
     .filter((p): p is DraftPlayer => p !== undefined);
   const payroll = players.reduce((a, p) => a + p.salary, 0);
   return (
-    <Card>
+    <section aria-label="Rose" className="space-y-2">
       <select
         aria-label="Squadra"
         value={teamId}
         onChange={(e) => setTeamId(e.target.value)}
-        className="mb-2 min-h-11 w-full rounded-lg border border-stampa-300 bg-stampa-25 px-2 text-sm sm:w-auto dark:border-stampa-600 dark:bg-stampa-900"
+        className={`${FIELD} w-full sm:w-auto`}
       >
         {props.league.teams.map((t) => (
           <option key={t.id} value={t.id}>
@@ -496,14 +505,14 @@ function RostersTab(props: {
           </option>
         ))}
       </select>
-      <p className="mb-1 text-xs text-stampa-500 dark:text-stampa-400">
+      <p className={NOTE}>
         {players.length} di 13 giocatori · monte stipendi {formatSalary(payroll)}
       </p>
-      <ul className="divide-y divide-stampa-100 dark:divide-stampa-700">
+      <ul className={players.length ? 'border-t-2 border-stampa-900 dark:border-stampa-100' : ''}>
         {players.map((p) => (
           <PlayerRow key={p.id} p={p} />
         ))}
       </ul>
-    </Card>
+    </section>
   );
 }

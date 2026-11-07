@@ -2,10 +2,11 @@
 import { useEffect, useState, type FormEvent } from 'react';
 import { Link } from 'react-router';
 import { PushSettings } from '../components/PushSettings.tsx';
-import { Button, Card, ErrorText, PageTitle, TextInput } from '../components/ui.tsx';
+import { Button, Card, ErrorText, PageTitle, SectionTitle, TextInput } from '../components/ui.tsx';
 import { useAuth, useUserId } from '../lib/auth.tsx';
 import { friendlyError } from '../lib/errors.ts';
 import { updateDisplayName } from '../lib/leagues.ts';
+import { ROW_LINK } from '../lib/linkStyles.ts';
 import { disablePush } from '../lib/push.ts';
 
 export function ProfilePage() {
@@ -30,12 +31,13 @@ export function ProfilePage() {
   }
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-6">
       <PageTitle sub={session?.user.email}>Profilo</PageTitle>
       <Card>
         <form onSubmit={save} className="space-y-3">
+          <SectionTitle>Il tuo nome</SectionTitle>
           <TextInput
-            label="Il tuo nome"
+            label="Nome"
             hint="È il nome che vedono gli altri manager accanto alla tua squadra."
             required
             maxLength={40}
@@ -52,8 +54,8 @@ export function ProfilePage() {
         </form>
       </Card>
       <PushSettings userId={userId} />
-      <p className="text-sm">
-        <Link to="/guida" className="font-semibold text-rosso-700 hover:underline dark:text-rosso-300">
+      <p>
+        <Link to="/guida" className={ROW_LINK}>
           Come si gioca
         </Link>
       </p>

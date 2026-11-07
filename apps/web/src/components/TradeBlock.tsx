@@ -1,130 +1,102 @@
-// Mercato degli scambi: anteprima della proposta (prima e dopo per le due squadre), i propri giocatori sul mercato
-// (scritti dal client a turno aperto) e quelli che i manager della lega hanno messo sul mercato.
+// Mercato degli scambi: anteprima della proposta (tabella prima → dopo per le due squadre, con l'esito che darebbe il
+// server), i propri giocatori sul mercato (scritti dal client a turno aperto) e quelli che i manager della lega hanno
+// messo sul mercato.
 import { overall } from '@nbbgm/engine';
 import { useState } from 'react';
 import { Link } from 'react-router';
 import { friendlyError } from '../lib/errors.ts';
 import type { LeagueTeam } from '../lib/leagues.ts';
-import { millions } from '../lib/market.ts';
+import { mln1, myTaxIncrease, previewRows } from '../lib/marketView.ts';
 import { playersLite, type PlayerLite, type RosterPlayer } from '../lib/roster.ts';
 import { setOnBlock } from '../lib/tradeBlock.ts';
-import type { SideNumbers, SidePreview, TradePreview } from '../lib/tradePreview.ts';
+import type { TradePreview } from '../lib/tradePreview.ts';
 import { useAsync } from '../lib/useAsync.ts';
-import { Card, TeamCode, type ToastMessage } from './ui.tsx';
+import { BAD, BOX, linkButton, META, NOTE, OvrBox, RULE, SubTitle } from './inkParts.tsx';
+import { SectionTitle, TeamCode, type ToastMessage } from './ui.tsx';
 
-const signed = (x: number) => `${x < 0 ? '−' : '+'}${millions(Math.abs(x))}`;
-
-/** "12,35 mln sotto il cap" / "4,10 mln sopra la tassa" */
-function room(n: SideNumbers): string {
-  if (n.capSpace >= 0) return `${millions(n.capSpace)} sotto il cap`;
-  if (n.taxRoom >= 0) return `${millions(n.taxRoom)} dalla tassa`;
-  return `${millions(-n.taxRoom)} sopra la tassa`;
-}
-
-function Row({
-  label,
-  before,
-  after,
-  bad = false,
-}: {
-  label: string;
-  before: string;
-  after: string;
-  bad?: boolean;
-}) {
-  return (
-    // Su telefono il valore va a capo sotto l'etichetta quando non ci sta accanto
-    <div className="flex flex-wrap items-baseline justify-between gap-x-3 py-1">
-      <dt className="text-xs text-stampa-500 dark:text-stampa-400">{label}</dt>
-      <dd
-        className={`ml-auto text-right text-xs ${bad ? 'font-semibold text-rosso-700 dark:text-rosso-300' : ''}`}
-      >
-        {!before || before === after ? after : `${before} → ${after}`}
-      </dd>
-    </div>
-  );
-}
-
-function SideCard({ side, offseason }: { side: SidePreview; offseason: boolean }) {
-  const { before: b, after: a } = side;
-  const rosterText = (n: SideNumbers) =>
-    offseason ? `${n.total}/21 · two-way ${n.twoWay}/3` : `${n.standard}/15 · two-way ${n.twoWay}/3`;
-  return (
-    <div className="rounded-lg border border-stampa-200 p-3 dark:border-stampa-700">
-      <h4 className="mb-1 flex items-center gap-2 text-sm font-semibold">
-        <TeamCode code={side.code} />
-        {a.payroll === b.payroll ? 'Monte stipendi invariato' : `Monte ${signed(a.payroll - b.payroll)}`}
-      </h4>
-      <dl className="divide-y divide-stampa-100 dark:divide-stampa-700">
-        <Row label="Monte stipendi" before={millions(b.payroll)} after={millions(a.payroll)} />
-        <Row label="Spazio" before={room(b)} after={room(a)} />
-        <Row
-          label={side.taxEstimated ? 'Luxury tax stimata (aliquote normali)' : 'Luxury tax stimata'}
-          before={b.tax ? millions(b.tax) : 'nessuna'}
-          after={a.tax ? millions(a.tax) : 'nessuna'}
-          bad={a.tax > b.tax}
-        />
-        <Row
-          label={offseason ? 'Rosa (offseason)' : 'Rosa standard'}
-          before={rosterText(b)}
-          after={rosterText(a)}
-          bad={!side.rosterOk}
-        />
-        <Row
-          label="Regola Stepien"
-          before="ok"
-          after={
-            side.stepienGaps.length ? `senza prima scelta dal draft ${side.stepienGaps.join(', ')}` : 'ok'
-          }
-          bad={side.stepienGaps.length > 0}
-        />
-        <Row
-          label="Saldo in rosso"
-          before=""
-          after={
-            side.balance === 'unknown'
-              ? 'riservato: lo controlla il server'
-              : side.balance === 'blocked'
-                ? 'non può aumentare il monte stipendi'
-                : 'ok'
-          }
-          bad={side.balance === 'blocked'}
-        />
-      </dl>
-    </div>
-  );
-}
-
-/** Anteprima della proposta: prima e dopo per le due squadre, più i motivi per cui il server la rifiuterebbe. */
+/**
+ * Anteprima della proposta: per le due squadre prima → dopo (monte stipendi, spazio, tassa, rosa, regola Stepien,
+ * saldo), in rosso quello che peggiora o non va; sotto, l'esito che darebbe il server con i motivi di un rifiuto.
+ */
 export function PreviewCard({ preview, offseason }: { preview: TradePreview; offseason: boolean }) {
+  const rows = previewRows(preview, offseason);
+  const [me, them] = preview.sides;
+  const taxUp = myTaxIncrease(preview);
+  const estimated = preview.sides.some((s) => s.taxEstimated);
   return (
-    <section aria-label="Anteprima dello scambio" className="space-y-2">
-      <h3 className="text-xs font-semibold tracking-wide text-stampa-500 uppercase dark:text-stampa-400">
-        Anteprima
-      </h3>
-      <div className="grid gap-2 md:grid-cols-2">
-        {preview.sides.map((s) => (
-          <SideCard key={s.teamId} side={s} offseason={offseason} />
-        ))}
-      </div>
-      {preview.problems.length > 0 ? (
-        <div
-          role="status"
-          className="border-2 border-rosso-600 bg-stampa-25 px-3 py-2 text-sm text-rosso-800 dark:border-rosso-300 dark:bg-stampa-800 dark:text-rosso-200"
-        >
-          <p className="font-semibold">Così il server la rifiuterebbe:</p>
-          <ul className="list-disc pl-5">
-            {preview.problems.map((p) => (
-              <li key={p}>{p}</li>
+    <section aria-label="Anteprima dello scambio" className={`${BOX} space-y-2 px-3 py-2.5`}>
+      <SubTitle aside="milioni di $">Anteprima, prima → dopo</SubTitle>
+      {/* Su telefono stretto la tabella scorre dentro il riquadro, non la pagina */}
+      <div className="relative -mx-1 overflow-x-auto px-1">
+        <table className="w-full min-w-[19rem] text-[0.8125rem]">
+          <thead>
+            <tr className="font-titolo text-xs tracking-widest uppercase">
+              <th scope="col" className="pb-1 text-left font-semibold">
+                <span className="sr-only">Voce</span>
+              </th>
+              <th scope="col" className="w-[36%] pb-1 text-left font-semibold">
+                {me.code}
+              </th>
+              <th scope="col" className="w-[36%] pb-1 text-left font-semibold">
+                {them.code}
+              </th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((r) => (
+              <tr key={r.label} className={`${RULE} last:border-b-0`}>
+                <th
+                  scope="row"
+                  className="py-1 pr-2 text-left align-top font-normal text-stampa-600 dark:text-stampa-300"
+                >
+                  {r.label}
+                </th>
+                {r.cells.map((c, i) => (
+                  <td
+                    key={i}
+                    className={`py-1 pr-1 align-top font-titolo ${c.bad ? `font-semibold ${BAD}` : ''}`}
+                  >
+                    {c.text}
+                    {c.bad && <span className="sr-only"> (problema)</span>}
+                  </td>
+                ))}
+              </tr>
             ))}
-          </ul>
-        </div>
-      ) : (
-        <p className="text-xs text-stampa-500 dark:text-stampa-400">
-          Per le regole che l’app conosce la proposta è valida. Decide il server, quando la mandi e alla
-          chiusura del turno: il saldo dell’altra squadra è riservato e lo controlla solo lui.
+          </tbody>
+        </table>
+      </div>
+      {estimated && (
+        <p className={NOTE}>
+          * Stima con le aliquote normali: non si sa se l’altra squadra paga quelle maggiorate.
         </p>
       )}
+      <div className="border-t border-stampa-300 pt-2 text-sm leading-snug dark:border-stampa-700">
+        {preview.problems.length > 0 ? (
+          <div role="status" className={BAD}>
+            <p className="font-semibold">Così il server la rifiuterebbe:</p>
+            <ul className="list-disc pl-5">
+              {preview.problems.map((p) => (
+                <li key={p}>{p}</li>
+              ))}
+            </ul>
+          </div>
+        ) : (
+          <p>
+            <b>Per le regole che l’app conosce la proposta è valida.</b>{' '}
+            {taxUp > 0 && (
+              <span className={BAD}>
+                La tua luxury tax stimata sale di {mln1(taxUp)} milioni, da pagare a fine regular season.{' '}
+              </span>
+            )}
+            <i className="text-stampa-600 dark:text-stampa-300">
+              Decide il server, quando la mandi e alla chiusura del turno
+              {them.balance === 'unknown'
+                ? `: il saldo di ${them.code} è riservato e lo controlla solo lui.`
+                : '.'}
+            </i>
+          </p>
+        )}
+      </div>
     </section>
   );
 }
@@ -166,42 +138,46 @@ export function MyBlock({
     }
   }
   return (
-    <Card className="space-y-2 !p-4">
-      <h2 className="font-semibold">I tuoi giocatori sul mercato</h2>
-      <p className="text-xs text-stampa-500 dark:text-stampa-400">
+    <section className="space-y-2">
+      <SectionTitle aside={block ? `${mine.size} segnati` : undefined}>
+        I tuoi giocatori sul mercato
+      </SectionTitle>
+      <p className={NOTE}>
         Chi segni qui lo vedono gli altri manager nella pagina della tua squadra e nel mercato. È solo
         un’indicazione: gli scambi passano sempre da una proposta. Si cambia a turno aperto.
       </p>
-      <ul className="max-h-72 space-y-1 overflow-y-auto text-sm">
+      <ul>
         {sorted.map((p) => (
-          <li key={p.id}>
-            <label className="flex min-h-11 cursor-pointer items-center gap-2 rounded px-1 hover:bg-stampa-50 dark:hover:bg-stampa-900">
+          <li key={p.id} className={RULE}>
+            <label className="flex min-h-12 cursor-pointer items-center gap-3 py-1">
               <input
                 type="checkbox"
-                className="size-4 accent-rosso-600"
+                className="size-5 shrink-0 accent-stampa-900 dark:accent-stampa-100"
                 checked={mine.has(p.id)}
                 disabled={busy !== null || block === null}
                 onChange={(e) => void toggle(p, e.target.checked)}
               />
-              <span className="w-7 text-center font-mono text-xs">{overall(p)}</span>
-              <span className="min-w-0 flex-1 truncate">
-                {p.firstName} {p.lastName}
-                <span className="ml-1 text-xs text-stampa-500 dark:text-stampa-400">
-                  {p.role} · {p.age}
+              <OvrBox value={overall(p)} small />
+              <span className="min-w-0 flex-1">
+                <span className={`block truncate ${mine.has(p.id) ? 'font-bold' : ''}`}>
+                  {p.firstName} {p.lastName}
+                </span>
+                <span className={META}>
+                  {p.role} · {p.age} anni
                 </span>
               </span>
             </label>
           </li>
         ))}
       </ul>
-    </Card>
+    </section>
   );
 }
 
 /**
  * Giocatori che i manager della lega hanno messo sul mercato, per squadra, con "Proponi" (apre la nuova proposta con
  * quella squadra e quel giocatore). Le liste dei bot, ricavate dalla strategia, si vedono nella pagina di ogni
- * squadra e scegliendo il bot qui sotto: per tutte servirebbero le rose intere dei 30.
+ * squadra e scegliendo il bot nella nuova proposta: per tutte servirebbero le rose intere dei 30.
  */
 export function LeagueBlock({
   leagueId,
@@ -221,46 +197,58 @@ export function LeagueBlock({
     [ids.join(',')],
   );
   return (
-    <Card className="space-y-2 !p-4">
-      <h2 className="font-semibold">Sul mercato nella lega</h2>
+    <section className="space-y-2">
+      <SectionTitle>Sul mercato nella lega</SectionTitle>
       {others.length === 0 ? (
-        <p className="text-sm text-stampa-500 dark:text-stampa-400">
-          Nessun manager ha messo giocatori sul mercato. Quelli dei bot, secondo la loro strategia, si vedono
-          scegliendo la squadra nella nuova proposta e nella pagina di ogni squadra.
+        <p className="text-sm">
+          Nessun manager ha messo giocatori sul mercato.{' '}
+          <i className="text-stampa-600 dark:text-stampa-300">
+            Quelli dei bot, secondo la loro strategia, si vedono scegliendo la squadra nella nuova proposta e
+            nella pagina di ogni squadra.
+          </i>
         </p>
       ) : (
-        <ul className="space-y-2 text-sm">
+        <ul className="space-y-4">
           {others.map((t) => (
             <li key={t.id}>
-              <p className="flex items-center gap-2 font-medium">
-                <TeamCode code={t.code} />
-                <Link to={`/lega/${leagueId}/squadre/${t.code}`} className="truncate hover:underline">
-                  {t.fullName}
-                </Link>
-              </p>
-              <ul className="mt-1 space-y-1">
+              <SubTitle>
+                <span className="flex items-center gap-2">
+                  <TeamCode code={t.code} />
+                  <Link
+                    to={`/lega/${leagueId}/squadre/${t.code}`}
+                    className="inline-flex min-h-11 min-w-0 items-center truncate hover:underline"
+                  >
+                    {t.fullName}
+                  </Link>
+                </span>
+              </SubTitle>
+              <ul>
                 {[...(block?.get(t.id) ?? [])].map((pid) => {
                   const p = players.data?.get(pid);
                   return (
-                    <li key={pid} className="flex min-h-11 items-center gap-2 pl-1">
-                      <span className="w-7 text-center font-mono text-xs">{p?.overall ?? ''}</span>
-                      <span className="min-w-0 flex-1 truncate">
+                    <li key={pid} className={`flex items-center gap-3 py-1.5 ${RULE}`}>
+                      <OvrBox value={p?.overall ?? '–'} />
+                      <span className="min-w-0 flex-1">
                         {p ? (
-                          <Link to={`/lega/${leagueId}/giocatore/${pid}`} className="hover:underline">
+                          <Link
+                            to={`/lega/${leagueId}/giocatore/${pid}`}
+                            className="block truncate font-bold hover:underline"
+                          >
                             {p.name}
                           </Link>
                         ) : (
-                          '…'
+                          <span className="block">…</span>
                         )}
                         {p && (
-                          <span className="ml-1 text-xs text-stampa-500 dark:text-stampa-400">
-                            {p.role} · {p.age}
+                          <span className={META}>
+                            {p.role} · {p.age} anni
                           </span>
                         )}
                       </span>
                       <Link
                         to={`/lega/${leagueId}/mercato?tab=scambi&con=${t.id}&prendi=${pid}`}
-                        className="inline-flex min-h-11 items-center rounded-lg px-2 text-xs font-semibold text-rosso-700 hover:bg-rosso-50 dark:text-rosso-300 dark:hover:bg-rosso-950"
+                        className={linkButton('secondary', 'shrink-0 px-3')}
+                        aria-label={p ? `Proponi uno scambio per ${p.name}` : 'Proponi uno scambio'}
                       >
                         Proponi
                       </Link>
@@ -272,6 +260,6 @@ export function LeagueBlock({
           ))}
         </ul>
       )}
-    </Card>
+    </section>
   );
 }

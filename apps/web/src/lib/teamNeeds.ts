@@ -9,6 +9,8 @@ import { supabase } from './supabase.ts';
 export interface Need {
   kind: 'role' | 'skill';
   title: string;
+  /** Testo breve per il pulsante del bisogno: "C scoperto · 1 su 2", "Rimbalzi −3". */
+  short: string;
   detail: string;
   /** Filtri degli svincolati per questo bisogno. */
   query: Partial<FreeAgentQuery>;
@@ -47,6 +49,7 @@ export function teamNeeds(
       needs.push({
         kind: 'role',
         title: `Serve un ${role}`,
+        short: `${role} scoperto · ${have} su ${want}`,
         detail: `Ne hai ${have} su ${want} come ruolo principale.`,
         query: { role, sort: 'overall' },
       });
@@ -57,10 +60,11 @@ export function teamNeeds(
       .filter((x) => x.gap <= -WEAK_GAP)
       .sort((a, b) => a.gap - b.gap)
       .slice(0, MAX_WEAK)
-      .forEach(({ g }) =>
+      .forEach(({ g, gap }) =>
         needs.push({
           kind: 'skill',
           title: g.label,
+          short: `${g.label} −${Math.round(-gap)}`,
           detail: `La tua rotazione ha ${Math.round(mine[g.key])}, la media della lega ${Math.round(league[g.key])}.`,
           query: { sort: `skill:${g.key}` },
         }),

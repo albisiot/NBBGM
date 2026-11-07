@@ -57,3 +57,33 @@ describe('avviso fisso in basso', () => {
     );
   });
 });
+
+describe('pezzi del giornale', () => {
+  it('etichette, titoli di sezione, righe a puntini e pannello', async () => {
+    const { Kicker, Leader, SectionTitle, Sheet, Tag } = await import('./ui.tsx');
+    expect(renderToStaticMarkup(createElement(Tag, { tone: 'red', children: 'Deve decidere' }))).toContain(
+      'bg-rosso-600',
+    );
+    expect(renderToStaticMarkup(createElement(Kicker, { children: 'Giornata 23' }))).toContain('uppercase');
+    const section = renderToStaticMarkup(
+      createElement(SectionTitle, { aside: '3 su 5', children: 'Il turno' }),
+    );
+    expect(section).toMatch(/^<h2[^>]*border-b-2/);
+    expect(section).toContain('3 su 5');
+    const leader = renderToStaticMarkup(createElement(Leader, { label: 'MVP', value: 'Jokić' }));
+    expect(leader).toContain('border-dotted');
+    const sheet = renderToStaticMarkup(
+      createElement(Sheet, {
+        title: 'Tattiche',
+        kicker: 'La formazione',
+        onClose: () => {},
+        children: 'contenuto',
+      }),
+    );
+    expect(sheet).toContain('role="dialog"');
+    expect(sheet).toContain('aria-modal="true"');
+    // Il titolo dà il nome al pannello
+    const id = /aria-labelledby="([^"]+)"/.exec(sheet)?.[1];
+    expect(sheet).toContain(`id="${id}"`);
+  });
+});

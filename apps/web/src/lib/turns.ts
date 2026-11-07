@@ -411,7 +411,7 @@ export function alertText(a: Pick<AlertItem, 'kind' | 'payload'>): {
   }
 }
 
-// Ordine delle decisioni nel riquadro "Da fare": prima quelle che senza risposta costano di più (la proposta di
+// Ordine delle decisioni nel riquadro "Da decidere prima del Pronto": prima quelle che senza risposta costano di più (la proposta di
 // scambio è rifiutata, il giocatore in scadenza se ne va), poi le altre; i tipi nuovi in fondo
 const DECISION_ORDER = [
   'trade_offer',

@@ -1,4 +1,4 @@
-// pnpm icons: disegna le icone della PWA (palla da basket su fondo scuro) in PNG, senza dipendenze: ogni pixel
+// pnpm icons: disegna le icone della PWA (stile Edicola: palla rossa con le cuciture d'inchiostro su carta rosa) in PNG, senza dipendenze: ogni pixel
 // si calcola dalla geometria, con 4x4 campioni per l'antialiasing, e il PNG si scrive con zlib di Node.
 // Scrive in apps/web/public/icons: icon-192.png, icon-512.png, maskable-512.png (Android ritaglia un cerchio o un
 // quadrato arrotondato: la palla sta nell'80% centrale), apple-touch-icon.png (180, iPhone) e badge-96.png,
@@ -11,10 +11,10 @@ import { deflateSync } from 'node:zlib';
 import { ROOT } from './paths.ts';
 
 type Rgb = [number, number, number];
-const BACKGROUND: Rgb = [15, 23, 42]; // slate-900
-const BALL: Rgb = [234, 88, 12]; // orange-600
-const BALL_LIGHT: Rgb = [249, 115, 22]; // orange-500
-const SEAM: Rgb = [28, 25, 23]; // stone-900
+const BACKGROUND: Rgb = [244, 220, 211]; // stampa-50, carta rosa
+const BALL: Rgb = [179, 18, 42]; // rosso-600
+const BALL_LIGHT: Rgb = [194, 39, 63]; // rosso-500
+const SEAM: Rgb = [27, 23, 22]; // stampa-900, inchiostro
 
 /** Dove cade il punto (x, y), in coordinate da -1 a 1: fuori dalla palla di raggio r, su una cucitura (spessa w) o sulla palla. */
 function region(x: number, y: number, r: number, w: number): 'out' | 'seam' | 'ball' {

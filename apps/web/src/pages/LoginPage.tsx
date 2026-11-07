@@ -2,9 +2,10 @@
 // non nella PWA installata). L'iscrizione è solo su invito: chi arriva dal link d'invito (#/entra/CODICE) manda
 // il codice con la richiesta, e se il server rifiuta un account nuovo senza invito lo si chiede qui.
 import { useEffect, useState, type FormEvent } from 'react';
-import { Button, Card, ErrorText, TextInput } from '../components/ui.tsx';
+import { Button, ErrorText, TextInput } from '../components/ui.tsx';
 import { friendlyError, normalizeOtp } from '../lib/errors.ts';
 import { currentPlatform, preferEmailCode } from '../lib/install.ts';
+import { ROW_LINK } from '../lib/linkStyles.ts';
 import { inviteCodeFromHash, isInviteRequired, oauthError, rememberPage } from '../lib/returnTo.ts';
 import { supabase } from '../lib/supabase.ts';
 
@@ -20,6 +21,8 @@ export function LoginPage() {
   const [wait, setWait] = useState(0);
   const [invite, setInvite] = useState(() => inviteCodeFromHash(window.location.hash) ?? '');
   const [askInvite, setAskInvite] = useState(false);
+  // Arrivati dal link d'invito: lo si dice in cima, prima di entrare
+  const [invitedBy] = useState(() => inviteCodeFromHash(window.location.hash));
 
   // L'errore di Google, letto, esce dall'indirizzo (resta la pagina dopo #)
   useEffect(() => {
@@ -83,36 +86,41 @@ export function LoginPage() {
   }
 
   return (
-    <main className="mx-auto flex min-h-dvh max-w-md flex-col justify-center px-4 py-10">
-      <div className="mb-6 text-center">
-        <p className="text-4xl" aria-hidden>
-          🏀
-        </p>
-        <h1 className="mt-2 text-3xl font-bold text-stampa-900 dark:text-stampa-50">NBBGM</h1>
-        <p className="mt-1 text-sm text-stampa-600 dark:text-stampa-400">
-          Il manageriale di basket a turni da giocare con gli amici.
-        </p>
-      </div>
+    <main className="mx-auto flex min-h-dvh max-w-md flex-col gap-6 px-5 pt-[calc(var(--spazio-alto)+1.5rem)] pb-[max(1.25rem,env(safe-area-inset-bottom))] sm:justify-center">
+      {/* La testata del giornale, grande: qui non c'è l'intestazione delle altre pagine */}
+      <header className="flex flex-col items-center gap-1.5 text-center">
+        <p className="font-titolo text-[4.5rem] leading-[0.95] font-bold tracking-[0.01em]">NBBGM</p>
+        <div
+          aria-hidden="true"
+          className="h-1 self-stretch border-t-2 border-b border-stampa-900 dark:border-stampa-100"
+        />
+        <p className="text-[0.875rem] italic">Il manageriale di basket a turni, tra amici</p>
+        <div aria-hidden="true" className="h-px self-stretch bg-stampa-900 dark:bg-stampa-100" />
+      </header>
 
-      <Card className="space-y-4">
+      {invitedBy && (
+        <p className="border border-stampa-900 bg-stampa-25 px-3 py-2.5 text-[0.95rem] leading-snug dark:border-stampa-600 dark:bg-stampa-800">
+          Sei stato invitato in una lega (codice{' '}
+          <strong className="font-titolo tracking-wider">{invitedBy}</strong>). Entra e scegli una squadra
+          libera.
+        </p>
+      )}
+
+      <section className="space-y-3">
+        <h1 className="text-3xl font-bold">Entra</h1>
         {sentTo === null ? (
           <>
-            {emailFirst && (
-              <p className="rounded-lg bg-sky-50 px-3 py-2 text-sm text-sky-900 dark:bg-sky-950 dark:text-sky-100">
-                Nell’app installata su iPhone conviene il <strong>codice via email</strong>: con Google
-                l’accesso si apre nel browser e l’app resta fuori.
-              </p>
-            )}
-            <Button variant="secondary" className="w-full" onClick={google}>
+            <Button variant="secondary" className="min-h-12 w-full" onClick={google}>
               <GoogleIcon /> Continua con Google
             </Button>
-            <div className="flex items-center gap-3 text-xs text-stampa-500 dark:text-stampa-400">
-              <span className="h-px flex-1 bg-stampa-200 dark:bg-stampa-700" /> oppure{' '}
-              <span className="h-px flex-1 bg-stampa-200 dark:bg-stampa-700" />
+            <div className="flex items-center gap-2.5 text-[0.8125rem] text-stampa-600 italic dark:text-stampa-300">
+              <span aria-hidden="true" className="h-px flex-1 bg-stampa-300 dark:bg-stampa-600" />
+              oppure con un codice via email
+              <span aria-hidden="true" className="h-px flex-1 bg-stampa-300 dark:bg-stampa-600" />
             </div>
             <form onSubmit={sendCode} className="space-y-3">
               <TextInput
-                label="Email"
+                label="La tua email"
                 type="email"
                 autoComplete="email"
                 inputMode="email"
@@ -132,14 +140,30 @@ export function LoginPage() {
                   placeholder="ABC234"
                 />
               )}
-              <Button type="submit" className="w-full" disabled={busy || !email.trim()}>
+              {/* L'azione principale della pagina: il pulsante rosso */}
+              <Button
+                type="submit"
+                variant="accent"
+                className="min-h-12 w-full"
+                disabled={busy || !email.trim()}
+              >
                 {busy ? 'Invio…' : 'Mandami il codice'}
               </Button>
             </form>
+            <p className="text-[0.95rem] leading-snug text-stampa-700 dark:text-stampa-200">
+              Ti arrivano 6 cifre da scrivere qui.{' '}
+              {/* Nell'app installata su iPhone Google si apre nel browser e l'accesso resta lì */}
+              {emailFirst && (
+                <em>
+                  Nell’app installata su iPhone usa il <strong>codice via email</strong>: con Google l’accesso
+                  si apre nel browser e l’app resta fuori.
+                </em>
+              )}
+            </p>
           </>
         ) : (
           <form onSubmit={verify} className="space-y-3">
-            <p className="text-sm text-stampa-700 dark:text-stampa-300">
+            <p className="text-[0.95rem] leading-snug">
               Ti abbiamo mandato un codice a <strong>{sentTo}</strong>. Scrivilo qui.
             </p>
             <TextInput
@@ -153,10 +177,15 @@ export function LoginPage() {
               placeholder="123456"
               className="tracking-[0.4em]"
             />
-            <Button type="submit" className="w-full" disabled={busy || code.length < 6}>
+            <Button
+              type="submit"
+              variant="accent"
+              className="min-h-12 w-full"
+              disabled={busy || code.length < 6}
+            >
               {busy ? 'Controllo…' : 'Entra'}
             </Button>
-            <div className="flex justify-between">
+            <div className="flex flex-wrap justify-between gap-2">
               <Button type="button" variant="ghost" onClick={() => setSentTo(null)}>
                 Cambia email
               </Button>
@@ -172,13 +201,14 @@ export function LoginPage() {
           </form>
         )}
         <ErrorText>{error}</ErrorText>
-      </Card>
-      <p className="mt-6 text-center text-xs text-stampa-500 dark:text-stampa-400">
-        Un gioco privato tra amici.{' '}
-        <a href="./privacy.html" className="underline hover:text-stampa-700 dark:hover:text-stampa-200">
+      </section>
+
+      <footer className="mt-auto flex flex-col items-center text-center text-[0.875rem] sm:mt-4">
+        <span className="italic">Un gioco privato tra amici.</span>
+        <a href="./privacy.html" className={ROW_LINK}>
           Informativa privacy
         </a>
-      </p>
+      </footer>
     </main>
   );
 }

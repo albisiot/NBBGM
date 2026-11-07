@@ -1,16 +1,23 @@
 // Tabellone di play-in e playoff. In regular season mostra chi ci andrebbe se la stagione finisse oggi; poi le
-// partite di play-in e le serie al meglio di 7, giro per giro, fino alla finale.
+// partite di play-in e le serie al meglio di 7, giro per giro, fino alla finale: riquadri a filo d'inchiostro con
+// il vincitore in grassetto. Titolo e schede di Campionato stanno in ChampionshipLayout.
 import { useMemo } from 'react';
-import { useParams } from 'react-router';
-import { Card, ErrorText, PageTitle, Spinner, TeamCode } from '../components/ui.tsx';
+import { Link, useParams } from 'react-router';
+import { ErrorText, Kicker, Leader, SectionTitle, Spinner } from '../components/ui.tsx';
 import { useUserId } from '../lib/auth.tsx';
 import type { LeagueTeam } from '../lib/leagues.ts';
 import { seasonStandings, SERIES_ROUND_LABEL, type SeasonGame, type Series } from '../lib/results.ts';
+import { INK_LINK, NOTE, SUBHEAD, winnerSide } from '../lib/tabellino.ts';
 import { useSeason } from '../lib/useSeason.ts';
 
 const CONFERENCES = ['East', 'West'] as const;
+const CONFERENCE_NAME = { East: 'Eastern Conference', West: 'Western Conference' } as const;
 // Ordine del tabellone fisso: 1-8, 4-5, 3-6, 2-7
 const BRACKET_ORDER = [1, 4, 3, 2];
+
+/** Riquadro a filo del tabellone (una serie o una partita di play-in). */
+const BOX =
+  'border border-stampa-900 bg-stampa-25 px-3 py-2 text-sm dark:border-stampa-300 dark:bg-stampa-800';
 
 export function PlayoffPage() {
   const { id = '' } = useParams();
@@ -32,78 +39,103 @@ export function PlayoffPage() {
   if (playIn.length === 0)
     return (
       <div className="space-y-4">
-        <PageTitle sub="Il tabellone si forma alla fine della regular season.">Playoff</PageTitle>
-        <p className="text-sm text-stampa-600 dark:text-stampa-300">Se la stagione finisse oggi:</p>
-        <div className="grid gap-4 md:grid-cols-2">
+        <p className={NOTE}>
+          Il tabellone si forma alla fine della regular season. Se la stagione finisse oggi:
+        </p>
+        <div className="grid gap-6 md:grid-cols-2">
           {CONFERENCES.map((c) => (
-            <Card key={c} className="space-y-3 !p-4">
-              <h2 className="font-semibold">{c === 'East' ? 'Eastern' : 'Western'} Conference</h2>
-              <ol className="space-y-1 text-sm">
-                {standings[c].slice(0, 10).map((l) => (
-                  <li key={l.teamId} className="flex items-center gap-2">
-                    <span className="w-5 text-right text-xs text-stampa-500 dark:text-stampa-400">
-                      {l.confRank}
-                    </span>
-                    <TeamCode code={team.get(l.teamId)?.code ?? '?'} strong={l.teamId === mine} />
-                    <span className="min-w-0 flex-1 truncate">{team.get(l.teamId)?.fullName}</span>
-                    <span className="font-mono text-xs">
-                      {l.w}-{l.l}
-                    </span>
-                    {l.confRank === 7 && (
-                      <span className="text-xs text-rosso-700 dark:text-rosso-300">play-in</span>
-                    )}
-                  </li>
-                ))}
+            <section key={c} className="space-y-1">
+              <SectionTitle>{CONFERENCE_NAME[c]}</SectionTitle>
+              <ol>
+                {standings[c].slice(0, 10).map((l) => {
+                  const t = team.get(l.teamId);
+                  const own = l.teamId === mine;
+                  return (
+                    <li
+                      key={l.teamId}
+                      className={`${own ? 'font-bold' : ''} ${
+                        l.confRank === 6
+                          ? 'border-b-2 border-stampa-900 pb-1 dark:border-stampa-100'
+                          : l.confRank === 7
+                            ? 'pt-1'
+                            : ''
+                      }`}
+                    >
+                      <Leader
+                        label={
+                          <span className="flex items-center gap-1.5">
+                            <span
+                              className={`w-5 font-titolo ${own ? 'text-rosso-700 dark:text-rosso-300' : ''}`}
+                            >
+                              {l.confRank}
+                            </span>
+                            <b className="font-titolo font-semibold">{t?.code ?? '?'}</b>
+                            <Link to={`/lega/${league.id}/squadre/${t?.code ?? ''}`} className={INK_LINK}>
+                              {t?.fullName}
+                            </Link>
+                            {l.confRank >= 7 && <span className="sr-only">, play-in</span>}
+                          </span>
+                        }
+                        value={
+                          <span className="tabular-nums">
+                            {l.w}-{l.l}
+                          </span>
+                        }
+                      />
+                    </li>
+                  );
+                })}
               </ol>
-            </Card>
+            </section>
           ))}
         </div>
+        <p className={NOTE}>Sopra la riga piena: playoff · sotto, dal 7° al 10°: play-in.</p>
       </div>
     );
 
   return (
-    <div className="space-y-4">
-      <PageTitle sub="Play-in a partita secca, poi serie al meglio di 7 (fattore campo 2-2-1-1-1).">
-        Playoff
-      </PageTitle>
+    <div className="space-y-6">
+      <p className={NOTE}>Play-in a partita secca, poi serie al meglio di 7 (fattore campo 2-2-1-1-1).</p>
 
       {champion && (
-        <Card className="border-rosso-300 bg-rosso-50 text-center dark:border-rosso-700 dark:bg-rosso-950">
-          <p className="text-sm text-stampa-600 dark:text-stampa-300">Campioni NBA</p>
-          <p className="text-2xl font-bold">{champion.fullName}</p>
-        </Card>
+        <section className="border-y-4 border-double border-stampa-900 py-3 text-center dark:border-stampa-100">
+          <Kicker>Campioni NBA</Kicker>
+          <p className="font-titolo text-3xl leading-tight font-bold tracking-wide uppercase">
+            {champion.fullName}
+          </p>
+        </section>
       )}
 
       {final && (
-        <Card className="space-y-2 !p-4">
-          <h2 className="font-semibold">{SERIES_ROUND_LABEL[4]}</h2>
-          <SeriesCard s={final} team={team} mine={mine} />
-        </Card>
+        <section className="space-y-2">
+          <SectionTitle>{SERIES_ROUND_LABEL[4]}</SectionTitle>
+          <div className="sm:max-w-sm">
+            <SeriesBox s={final} team={team} mine={mine} />
+          </div>
+        </section>
       )}
 
       {CONFERENCES.map((c) => {
         const seeds = standings[c].slice(0, 10).map((l) => l.teamId);
         return (
-          <Card key={c} className="space-y-4 !p-4">
-            <h2 className="font-semibold">{c === 'East' ? 'Eastern' : 'Western'} Conference</h2>
+          <section key={c} className="space-y-4">
+            <SectionTitle>{CONFERENCE_NAME[c]}</SectionTitle>
             {[3, 2, 1].map((round) => {
               const list = conferenceSeries(series, c, round as Series['round']);
               if (!list.length) return null;
               return (
                 <section key={round} className="space-y-2">
-                  <h3 className="text-xs font-semibold tracking-wide text-stampa-500 uppercase dark:text-stampa-400">
-                    {SERIES_ROUND_LABEL[round as Series['round']]}
-                  </h3>
+                  <h3 className={SUBHEAD}>{SERIES_ROUND_LABEL[round as Series['round']]}</h3>
                   <div className="grid gap-2 sm:grid-cols-2">
                     {list.map((s) => (
-                      <SeriesCard key={s.id} s={s} team={team} mine={mine} />
+                      <SeriesBox key={s.id} s={s} team={team} mine={mine} />
                     ))}
                   </div>
                 </section>
               );
             })}
             <PlayIn games={playIn} seeds={seeds} conference={c} team={team} mine={mine} />
-          </Card>
+          </section>
         );
       })}
     </div>
@@ -119,7 +151,45 @@ function conferenceSeries(series: readonly Series[], c: 'East' | 'West', round: 
   );
 }
 
-function SeriesCard({
+/** Una riga del riquadro: testa di serie, sigla, nome e numero (vittorie o punti); il vincitore in grassetto. */
+function TeamLine({
+  seed,
+  team,
+  mine,
+  value,
+  won,
+  lost,
+}: {
+  seed: number;
+  team: LeagueTeam | undefined;
+  mine: boolean;
+  value: number | string;
+  won: boolean;
+  lost: boolean;
+}) {
+  return (
+    <div
+      className={`flex min-h-7 items-center gap-2 ${won ? 'font-bold' : ''} ${
+        lost ? 'text-stampa-600 dark:text-stampa-400' : ''
+      }`}
+    >
+      <span className="w-4 text-right font-titolo text-xs text-stampa-600 dark:text-stampa-300">
+        {seed || ''}
+      </span>
+      <b
+        className={`w-9 shrink-0 font-titolo ${won ? 'font-bold' : 'font-semibold'} ${
+          mine ? 'text-rosso-700 dark:text-rosso-300' : ''
+        }`}
+      >
+        {team?.code ?? '?'}
+      </b>
+      <span className="min-w-0 flex-1 truncate">{team?.fullName}</span>
+      <span className="w-6 text-right font-titolo text-base tabular-nums">{value}</span>
+    </div>
+  );
+}
+
+function SeriesBox({
   s,
   team,
   mine,
@@ -137,24 +207,22 @@ function SeriesCard({
         : `Serie in parità ${s.winsHigh}-${s.winsLow}`
       : `${code(s.winsHigh > s.winsLow ? s.highTeamId : s.lowTeamId)} conduce ${Math.max(s.winsHigh, s.winsLow)}-${Math.min(s.winsHigh, s.winsLow)}`;
   return (
-    <div className="rounded-lg border border-stampa-200 p-2 text-sm dark:border-stampa-700">
+    <div className={BOX}>
       {[
         { id: s.highTeamId, seed: s.highSeed, wins: s.winsHigh },
         { id: s.lowTeamId, seed: s.lowSeed, wins: s.winsLow },
       ].map((x) => (
-        <div
+        <TeamLine
           key={x.id}
-          className={`flex items-center gap-2 py-0.5 ${s.winnerTeamId === x.id ? 'font-semibold' : ''} ${
-            s.winnerTeamId && s.winnerTeamId !== x.id ? 'text-stampa-500 dark:text-stampa-400' : ''
-          }`}
-        >
-          <span className="w-4 text-right text-xs text-stampa-500 dark:text-stampa-400">{x.seed || ''}</span>
-          <TeamCode code={code(x.id)} strong={x.id === mine} />
-          <span className="min-w-0 flex-1 truncate">{team.get(x.id)?.fullName}</span>
-          <span className="w-5 text-right font-mono text-base">{x.wins}</span>
-        </div>
+          seed={x.seed}
+          team={team.get(x.id)}
+          mine={x.id === mine}
+          value={x.wins}
+          won={s.winnerTeamId === x.id}
+          lost={s.winnerTeamId !== null && s.winnerTeamId !== x.id}
+        />
       ))}
-      <p className="mt-1 text-xs text-stampa-500 dark:text-stampa-400">{status}</p>
+      <p className={`mt-1 border-t border-stampa-200 pt-1 dark:border-stampa-700 ${NOTE}`}>{status}</p>
     </div>
   );
 }
@@ -172,15 +240,15 @@ function PlayIn({
   team: Map<string, LeagueTeam>;
   mine: string | undefined;
 }) {
-  const mineGames = games.filter((g) => team.get(g.homeTeamId)?.conference === conference);
+  const confGames = games.filter((g) => team.get(g.homeTeamId)?.conference === conference);
   const pair = (a: number, b: number) =>
-    mineGames.find((g) => {
+    confGames.find((g) => {
       const ids = new Set([g.homeTeamId, g.awayTeamId]);
       return ids.has(seeds[a - 1] as string) && ids.has(seeds[b - 1] as string);
     });
   const g78 = pair(7, 8);
   const g910 = pair(9, 10);
-  const final = mineGames.find((g) => g !== g78 && g !== g910);
+  const final = confGames.find((g) => g !== g78 && g !== g910);
   const rows: { label: string; game: SeasonGame | undefined }[] = [
     { label: '7ª contro 8ª: chi vince è settima', game: g78 },
     { label: '9ª contro 10ª: chi perde è eliminata', game: g910 },
@@ -189,34 +257,35 @@ function PlayIn({
   const seedOf = (id: string) => seeds.indexOf(id) + 1;
   return (
     <section className="space-y-2">
-      <h3 className="text-xs font-semibold tracking-wide text-stampa-500 uppercase dark:text-stampa-400">
-        Play-in
-      </h3>
+      <h3 className={SUBHEAD}>Play-in</h3>
       <div className="grid gap-2 sm:grid-cols-3">
-        {rows.map(({ label, game }) => (
-          <div key={label} className="rounded-lg border border-stampa-200 p-2 text-sm dark:border-stampa-700">
-            <p className="mb-1 text-xs text-stampa-500 dark:text-stampa-400">{label}</p>
-            {game ? (
-              [game.homeTeamId, game.awayTeamId].map((tid) => {
-                const score = tid === game.homeTeamId ? game.homeScore : game.awayScore;
-                const other = tid === game.homeTeamId ? game.awayScore : game.homeScore;
-                const won = score !== null && other !== null && score > other;
-                return (
-                  <div key={tid} className={`flex items-center gap-2 py-0.5 ${won ? 'font-semibold' : ''}`}>
-                    <span className="w-4 text-right text-xs text-stampa-500 dark:text-stampa-400">
-                      {seedOf(tid) || ''}
-                    </span>
-                    <TeamCode code={team.get(tid)?.code ?? '?'} strong={tid === mine} />
-                    <span className="min-w-0 flex-1 truncate">{team.get(tid)?.fullName}</span>
-                    <span className="font-mono">{score ?? '–'}</span>
-                  </div>
-                );
-              })
-            ) : (
-              <p className="text-xs text-stampa-500 dark:text-stampa-400">Dopo le prime due partite</p>
-            )}
-          </div>
-        ))}
+        {rows.map(({ label, game }) => {
+          const won = game ? winnerSide(game.awayScore, game.homeScore) : null;
+          return (
+            <div key={label} className={BOX}>
+              <p className={`mb-1 ${NOTE}`}>{label}</p>
+              {game ? (
+                [game.homeTeamId, game.awayTeamId].map((tid) => {
+                  const home = tid === game.homeTeamId;
+                  const score = home ? game.homeScore : game.awayScore;
+                  return (
+                    <TeamLine
+                      key={tid}
+                      seed={seedOf(tid)}
+                      team={team.get(tid)}
+                      mine={tid === mine}
+                      value={score ?? '–'}
+                      won={won !== null && won === (home ? 'home' : 'away')}
+                      lost={won !== null && won !== (home ? 'home' : 'away')}
+                    />
+                  );
+                })
+              ) : (
+                <p className={NOTE}>Dopo le prime due partite</p>
+              )}
+            </div>
+          );
+        })}
       </div>
     </section>
   );

@@ -479,7 +479,7 @@ describe('stato del turno in una lettura (seconda analisi, prestazioni)', () => 
   });
 });
 
-describe('avvisi nella pagina della lega: Da fare e Da leggere', () => {
+describe('avvisi nella pagina della lega: da decidere e da leggere', () => {
   const alert = (id: string, kind: string, blocking: boolean, createdAt: string) => ({
     id,
     kind,

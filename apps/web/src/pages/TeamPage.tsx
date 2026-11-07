@@ -1,9 +1,19 @@
-// Pagina di una squadra della lega (anche delle altre): record, giocatori sul mercato, rosa con overall, ruoli e
-// contratti, scelte al draft possedute con protezioni e swap. Il bilancio resta riservato. Da qui si propone uno
-// scambio con lei.
+// Pagina di una squadra della lega (anche delle altre), nello stile Edicola: record e conti in un tabellino, giocatori
+// sul mercato, rosa con il voto in un quadratino, ruoli e contratti, scelte al draft possedute con protezioni e swap.
+// Il bilancio resta riservato. Da qui si propone uno scambio con lei.
 import { overall } from '@nbbgm/engine';
 import { Link, useParams } from 'react-router';
-import { Card, ErrorText, PageTitle, Spinner, TeamCode } from '../components/ui.tsx';
+import {
+  GHOST_LINK,
+  GroupTitle,
+  linkButton,
+  META,
+  NOTE,
+  OvrBox,
+  RULE,
+  Strip,
+} from '../components/inkParts.tsx';
+import { ErrorText, Kicker, Leader, SectionTitle, Spinner, Tag, TeamCode } from '../components/ui.tsx';
 import { useUserId } from '../lib/auth.tsx';
 import { leagueDetail, type LeagueTeam } from '../lib/leagues.ts';
 import {
@@ -14,6 +24,7 @@ import {
   seasonConfig,
   type PickInfo,
 } from '../lib/market.ts';
+import { pickName } from '../lib/marketView.ts';
 import { teamRoster } from '../lib/roster.ts';
 import {
   contractSummary,
@@ -29,8 +40,6 @@ import { botTradeBlock, tradeBlock } from '../lib/tradeBlock.ts';
 import { useAsync } from '../lib/useAsync.ts';
 import { useRoundChange } from '../lib/useRoundChange.ts';
 import { currentStandings } from '../lib/useSeason.ts';
-
-const LINK = 'inline-flex min-h-11 items-center rounded-lg px-4 text-sm font-semibold';
 
 async function load(leagueId: string, code: string) {
   const league = await leagueDetail(leagueId);
@@ -77,92 +86,79 @@ export function TeamPage() {
   const firstYear = league.seasonYear
     ? contractFirstYear(league.seasonYear, league.roundKind, league.roundStage)
     : null;
+  const conference = team.conference === 'East' ? 'Eastern Conference' : 'Western Conference';
 
   return (
-    <div className="space-y-4">
-      <PageTitle
-        sub={
-          team.ownerId
-            ? `${mine ? 'La tua squadra' : `Manager: ${team.ownerName ?? 'manager'}`} · ${team.conference === 'East' ? 'Eastern' : 'Western'} Conference, ${team.division}`
-            : `Bot ${STRATEGY_LABEL[extra.strategy]} · ${team.conference === 'East' ? 'Eastern' : 'Western'} Conference, ${team.division}`
-        }
-      >
-        <span className="flex items-center gap-2">
+    <div className="space-y-6">
+      <header>
+        <Kicker>
+          {conference} · {team.division}
+        </Kicker>
+        <h1 className="flex items-center gap-2 text-3xl leading-tight font-bold">
           <TeamCode code={team.code} strong={mine} />
           <span className="min-w-0">{team.fullName}</span>
-        </span>
-      </PageTitle>
+        </h1>
+        <p className="mt-1 text-sm text-stampa-600 italic dark:text-stampa-300">
+          {team.ownerId
+            ? mine
+              ? 'La tua squadra'
+              : `Manager: ${team.ownerName ?? 'manager'}`
+            : `Bot ${STRATEGY_LABEL[extra.strategy]}`}
+        </p>
+      </header>
 
-      <Card className="space-y-3 !p-4">
-        <dl className="grid grid-cols-2 gap-3 text-sm sm:grid-cols-4">
-          <div>
-            <dt className="text-xs text-stampa-500 dark:text-stampa-400">Record</dt>
-            <dd className="font-semibold">
-              {line ? `${line.w}-${line.l}` : '–'}
-              {line && line.w + line.l > 0 && (
-                <span className="ml-1 font-normal text-stampa-500 dark:text-stampa-400">
-                  {line.confRank}ª in conference
-                </span>
-              )}
-            </dd>
-          </div>
-          <div>
-            <dt className="text-xs text-stampa-500 dark:text-stampa-400">Rosa</dt>
-            <dd className="font-semibold">
-              {roster.length - twoWay} + {twoWay} two-way
-            </dd>
-          </div>
-          <div>
-            <dt className="text-xs text-stampa-500 dark:text-stampa-400">Monte stipendi</dt>
-            <dd className="font-semibold">{millions(payroll)}</dd>
-          </div>
-          {config && (
-            <div>
-              <dt className="text-xs text-stampa-500 dark:text-stampa-400">
-                {payroll < config.salaryCap ? 'Spazio sotto il cap' : 'Rispetto alla tassa'}
-              </dt>
-              <dd
-                className={`font-semibold ${payroll > config.luxuryTax ? 'text-red-600 dark:text-red-400' : ''}`}
-              >
-                {payroll < config.salaryCap
-                  ? millions(config.salaryCap - payroll)
-                  : payroll > config.luxuryTax
-                    ? `${millions(payroll - config.luxuryTax)} sopra`
-                    : `${millions(config.luxuryTax - payroll)} sotto`}
-              </dd>
-            </div>
-          )}
-        </dl>
+      <div className="space-y-3">
+        <Strip
+          items={[
+            {
+              label: 'Record',
+              value: line ? `${line.w}-${line.l}` : '–',
+              note: line && line.w + line.l > 0 ? `${line.confRank}ª in conference` : undefined,
+            },
+            { label: 'Rosa', value: `${roster.length - twoWay} + ${twoWay}`, note: 'standard + two-way' },
+            { label: 'Monte stipendi', value: millions(payroll) },
+            ...(config
+              ? [
+                  {
+                    label: payroll < config.salaryCap ? 'Spazio sotto il cap' : 'Rispetto alla tassa',
+                    value:
+                      payroll < config.salaryCap
+                        ? millions(config.salaryCap - payroll)
+                        : payroll > config.luxuryTax
+                          ? `${millions(payroll - config.luxuryTax)} sopra`
+                          : `${millions(config.luxuryTax - payroll)} sotto`,
+                    bad: payroll > config.luxuryTax,
+                  },
+                ]
+              : []),
+          ]}
+        />
         <div className="flex flex-wrap gap-2">
           {mine ? (
-            <Link
-              to={`/lega/${league.id}/squadra`}
-              className={`${LINK} bg-rosso-600 text-white hover:bg-rosso-700`}
-            >
+            <Link to={`/lega/${league.id}/squadra`} className={linkButton('accent')}>
               Gestisci la squadra
             </Link>
           ) : (
             haveTeam && (
               <Link
                 to={`/lega/${league.id}/mercato?tab=scambi&con=${team.id}`}
-                className={`${LINK} bg-rosso-600 text-white hover:bg-rosso-700`}
+                className={linkButton('accent')}
               >
                 Proponi uno scambio
               </Link>
             )
           )}
-          <Link
-            to={`/lega/${league.id}/cronaca?squadra=${team.code}`}
-            className={`${LINK} border border-stampa-300 hover:bg-stampa-50 dark:border-stampa-600 dark:hover:bg-stampa-800`}
-          >
+          <Link to={`/lega/${league.id}/cronaca?squadra=${team.code}`} className={linkButton('secondary')}>
             Cronaca della squadra
           </Link>
         </div>
-      </Card>
+      </div>
 
-      <Card className="space-y-2 !p-4">
-        <h2 className="font-semibold">Sul mercato</h2>
-        <p className="text-xs text-stampa-500 dark:text-stampa-400">
+      <section className="space-y-1">
+        <SectionTitle aside={data.onBlock.length ? `${data.onBlock.length}` : undefined}>
+          Sul mercato
+        </SectionTitle>
+        <p className={NOTE}>
           {team.ownerId
             ? mine
               ? 'I giocatori che hai messo sul mercato: li vede tutta la lega.'
@@ -170,25 +166,28 @@ export function TeamPage() {
             : `Secondo la strategia del bot (${STRATEGY_LABEL[extra.strategy]}): è indicativo, decide la sua valutazione.`}
         </p>
         {data.onBlock.length === 0 ? (
-          <p className="text-sm text-stampa-500 dark:text-stampa-400">Nessun giocatore.</p>
+          <p className="py-1 text-sm">Nessun giocatore.</p>
         ) : (
-          <ul className="divide-y divide-stampa-100 text-sm dark:divide-stampa-700">
+          <ul>
             {data.onBlock.map((p) => (
-              <li key={p.id} className="flex items-center gap-2 py-1">
-                <span className="w-8 shrink-0 text-center font-mono font-semibold">{overall(p)}</span>
-                <Link
-                  to={`/lega/${league.id}/giocatore/${p.id}`}
-                  className="min-w-0 flex-1 truncate hover:underline"
-                >
-                  {p.firstName} {p.lastName}
-                  <span className="ml-1 text-xs text-stampa-500 dark:text-stampa-400">
+              <li key={p.id} className={`flex items-center gap-3 py-1.5 ${RULE}`}>
+                <OvrBox value={overall(p)} />
+                <div className="min-w-0 flex-1">
+                  <Link
+                    to={`/lega/${league.id}/giocatore/${p.id}`}
+                    className="block truncate font-bold hover:underline"
+                  >
+                    {p.firstName} {p.lastName}
+                  </Link>
+                  <p className={META}>
                     {p.role} · {p.age} anni · {contractSummary(p, millions)}
-                  </span>
-                </Link>
+                  </p>
+                </div>
                 {!mine && haveTeam && (
                   <Link
                     to={`/lega/${league.id}/mercato?tab=scambi&con=${team.id}&prendi=${p.id}`}
-                    className="inline-flex min-h-11 shrink-0 items-center rounded-lg px-2 text-xs font-semibold text-rosso-700 hover:bg-rosso-50 dark:text-rosso-300 dark:hover:bg-rosso-950"
+                    className={linkButton('secondary', 'shrink-0 px-3')}
+                    aria-label={`Proponi uno scambio per ${p.firstName} ${p.lastName}`}
                   >
                     Proponi
                   </Link>
@@ -198,60 +197,75 @@ export function TeamPage() {
           </ul>
         )}
         {mine && (
-          <Link
-            to={`/lega/${league.id}/mercato?tab=scambi`}
-            className="inline-flex min-h-11 items-center text-sm font-semibold text-rosso-700 hover:underline dark:text-rosso-300"
-          >
+          <Link to={`/lega/${league.id}/mercato?tab=sul-mercato`} className={GHOST_LINK}>
             Cambia la lista nel mercato
           </Link>
         )}
-      </Card>
+      </section>
 
-      <Card className="space-y-2 !p-4">
-        <h2 className="font-semibold">Rosa</h2>
-        {firstYear !== null && (
-          <p className="text-xs text-stampa-500 dark:text-stampa-400">
-            Stipendi dalla stagione {firstYear}-{String((firstYear + 1) % 100).padStart(2, '0')}.
-          </p>
-        )}
-        <ul className="divide-y divide-stampa-100 text-sm dark:divide-stampa-700">
+      <section className="space-y-1">
+        <SectionTitle
+          aside={
+            firstYear !== null
+              ? `stipendi dal ${firstYear}-${String((firstYear + 1) % 100).padStart(2, '0')}`
+              : undefined
+          }
+        >
+          Rosa
+        </SectionTitle>
+        <ul>
           {sorted.map((p) => (
-            <li key={p.id} className="flex flex-wrap items-center gap-x-2 gap-y-0.5 py-2">
-              <span className="w-8 shrink-0 text-center font-mono font-semibold">{overall(p)}</span>
-              <Link
-                to={`/lega/${league.id}/giocatore/${p.id}`}
-                className="min-w-0 flex-1 truncate hover:underline"
-              >
-                {p.firstName} {p.lastName}
-                <span className="ml-1 text-xs text-stampa-500 dark:text-stampa-400">
+            <li key={p.id} className={`flex items-center gap-3 py-2 ${RULE}`}>
+              <OvrBox value={overall(p)} />
+              <div className="min-w-0 flex-1">
+                <Link
+                  to={`/lega/${league.id}/giocatore/${p.id}`}
+                  className="block truncate font-bold hover:underline"
+                >
+                  {p.firstName} {p.lastName}
+                </Link>
+                <p className={META}>
                   {p.role}
                   {p.secondaryRole ? `/${p.secondaryRole}` : ''} · {p.age} anni
-                  {p.injury ? ` · infortunato (${p.injury.gamesRemaining})` : ''}
-                </span>
-              </Link>
-              <span className="ml-10 w-full text-xs text-stampa-600 sm:ml-0 sm:w-auto dark:text-stampa-300">
+                  <span className="sm:hidden"> · {contractSummary(p, millions)}</span>
+                  {p.injury && (
+                    <span className="ml-1.5 not-italic">
+                      <Tag tone="red">Infortunato · {p.injury.gamesRemaining}</Tag>
+                    </span>
+                  )}
+                </p>
+              </div>
+              <span className={`hidden shrink-0 text-right sm:block ${META}`}>
                 {contractSummary(p, millions)}
               </span>
             </li>
           ))}
         </ul>
         {extra.deadMoney.length > 0 && (
-          <div className="pt-2 text-xs text-stampa-600 dark:text-stampa-300">
-            <p className="font-semibold">Stipendi residui dei tagliati</p>
-            <ul>
+          <div className="pt-3">
+            <GroupTitle>Stipendi residui dei tagliati</GroupTitle>
+            <div className="text-sm">
               {extra.deadMoney.map((d, i) => (
-                <li key={i}>
-                  {d.playerName}: {millions(d.salaries[0] ?? 0)} ·{' '}
-                  {d.salaries.length === 1 ? '1 stagione' : `${d.salaries.length} stagioni`}
-                </li>
+                <Leader
+                  key={i}
+                  label={d.playerName}
+                  value={
+                    <>
+                      <b>{millions(d.salaries[0] ?? 0)}</b>{' '}
+                      <i className="text-stampa-600 dark:text-stampa-300">
+                        · {d.salaries.length === 1 ? '1 stagione' : `${d.salaries.length} stagioni`}
+                      </i>
+                    </>
+                  }
+                />
               ))}
-            </ul>
+            </div>
           </div>
         )}
-      </Card>
+      </section>
 
-      <Card className="space-y-3 !p-4">
-        <h2 className="font-semibold">Scelte al draft</h2>
+      <section className="space-y-3">
+        <SectionTitle>Scelte al draft</SectionTitle>
         <PickList
           title="Possedute"
           picks={picks.owned}
@@ -264,28 +278,26 @@ export function TeamPage() {
         )}
         {(swaps.held.length > 0 || swaps.given.length > 0) && (
           <div>
-            <h3 className="text-xs font-semibold tracking-wide text-stampa-500 uppercase dark:text-stampa-400">
-              Swap
-            </h3>
+            <GroupTitle>Swap</GroupTitle>
             <ul className="text-sm">
               {[...swaps.held, ...swaps.given].map((w) => (
-                <li key={w.id} className="py-0.5">
+                <li key={w.id} className={`py-1.5 ${RULE}`}>
                   {swapText(w, teams, team.id)}
                 </li>
               ))}
             </ul>
           </div>
         )}
-      </Card>
+      </section>
     </div>
   );
 }
 
-function pickText(k: PickInfo, teams: Map<string, LeagueTeam>, teamId: string): string {
-  const round = k.round === 1 ? '1° giro' : '2° giro';
+/** Da dove viene e dove va una scelta: "propria", "di BOS → NYK", con la protezione. */
+function pickDetail(k: PickInfo, teams: Map<string, LeagueTeam>, teamId: string): string {
   const from = k.originalTeamId === teamId ? 'propria' : `di ${teams.get(k.originalTeamId)?.code ?? '?'}`;
   const to = k.ownerTeamId === teamId ? '' : ` → ${teams.get(k.ownerTeamId)?.code ?? '?'}`;
-  return `${k.draftYear}, ${round} (${from})${to}${k.protection ? `, protetta top ${k.protection}` : ''}`;
+  return `${from}${to}${k.protection ? `, protetta top ${k.protection}` : ''}`;
 }
 
 function PickList({
@@ -303,14 +315,13 @@ function PickList({
 }) {
   return (
     <div>
-      <h3 className="text-xs font-semibold tracking-wide text-stampa-500 uppercase dark:text-stampa-400">
-        {title}
-      </h3>
-      {picks.length === 0 && <p className="text-sm text-stampa-500 dark:text-stampa-400">{empty}</p>}
+      <GroupTitle>{title}</GroupTitle>
+      {picks.length === 0 && <p className="py-1 text-sm">{empty}</p>}
       <ul className="text-sm">
         {picks.map((k) => (
-          <li key={k.id} className="py-0.5">
-            {pickText(k, teams, teamId)}
+          <li key={k.id} className={`flex flex-wrap items-baseline gap-x-2 py-1.5 ${RULE}`}>
+            <span className="font-semibold">{pickName(k)}</span>
+            <span className={META}>{pickDetail(k, teams, teamId)}</span>
           </li>
         ))}
       </ul>

@@ -1,12 +1,15 @@
-// Turno corrente nella pagina della lega: stato, scadenza, chi è pronto (in tempo reale), il proprio Pronto e, per
-// il commissario, forza l'avanzamento e pausa. Gli avvisi della propria squadra stanno in TurnAlerts: le decisioni
-// in cima alla pagina, prima del Pronto, le notizie da leggere dopo la scheda.
+// Turno corrente nella pagina della lega, come una colonna del giornale: "Il turno" con quanti sono pronti, lo stato
+// della simulazione (in corso, in ritardo, bloccata) o della pausa, le squadre dei manager in righe a puntini con la
+// loro etichetta (in tempo reale), il Pronto rosso con la scadenza sotto e, per il commissario, forza l'avanzamento e
+// pausa. Gli avvisi della propria squadra stanno in TurnAlerts: le decisioni prima del turno, le notizie da leggere
+// accanto alle ultime notizie della lega.
 import { useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router';
 import { refreshAppBadge } from '../lib/appBadge.ts';
 import { friendlyError } from '../lib/errors.ts';
-import type { LeagueDetail } from '../lib/leagues.ts';
-import { readSpoilerFree } from '../lib/replay.ts';
+import { closingLabel, deadlineNote, readinessMark } from '../lib/frontPage.ts';
+import type { LeagueDetail, LeagueTeam } from '../lib/leagues.ts';
+import { LINK_BUTTON, ROW_LINK, TEXT_LINK } from '../lib/linkStyles.ts';
 import {
   alertGroups,
   alertText,
@@ -31,50 +34,16 @@ import {
   timeLeft,
   type AlertItem,
   type Readiness,
-  type RoundPhase,
   type RoundTrouble,
 } from '../lib/turns.ts';
 import { useTurn } from '../lib/turnStore.ts';
 import { useUnsaved } from '../lib/unsaved.ts';
 import { useAsync } from '../lib/useAsync.ts';
 import { ReadyConfirm } from './ReadyConfirm.tsx';
-import { ShareTurn } from './ShareTurn.tsx';
-import { Button, Card, ConfirmButton, ErrorText } from './ui.tsx';
+import { Button, ConfirmButton, ErrorText, Kicker, SectionTitle, Tag } from './ui.tsx';
 
-const BADGE: Record<Readiness, { label: string; className: string }> = {
-  ready: {
-    label: 'Pronto',
-    className: 'bg-stampa-900 text-stampa-25 dark:bg-stampa-100 dark:text-stampa-900',
-  },
-  coach: {
-    label: 'Allenatore',
-    className: 'border border-stampa-900 text-stampa-900 dark:border-stampa-100 dark:text-stampa-100',
-  },
-  blocked: {
-    label: 'Deve decidere',
-    className: 'bg-rosso-600 text-white dark:bg-rosso-500',
-  },
-  waiting: {
-    label: 'In attesa',
-    className: 'bg-stampa-100 text-stampa-700 dark:bg-stampa-700 dark:text-stampa-200',
-  },
-  out: {
-    label: 'Non gioca',
-    className: 'border border-stampa-200 text-stampa-600 dark:border-stampa-600 dark:text-stampa-300',
-  },
-};
-
-// Colore dello stato del turno (la stessa fase della barra in cima alle altre pagine)
-const PHASE_CLASS: Record<RoundPhase, string> = {
-  draft: 'bg-stampa-200 text-stampa-700 dark:bg-stampa-700 dark:text-stampa-200',
-  failed: 'bg-rosso-700 text-white dark:bg-rosso-300 dark:text-stampa-900',
-  late: 'bg-rosso-100 text-rosso-800 dark:bg-rosso-900 dark:text-rosso-100',
-  closing: 'bg-rosso-100 text-rosso-800 dark:bg-rosso-900 dark:text-rosso-100',
-  paused: 'bg-stampa-200 text-stampa-700 dark:bg-stampa-700 dark:text-stampa-200',
-  open: 'bg-stampa-900 text-stampa-25 dark:bg-stampa-100 dark:text-stampa-900',
-};
-
-const LINK = 'font-semibold text-rosso-700 hover:underline dark:text-rosso-300';
+/** Note in corsivo sotto le righe (almeno 13 px, grigio leggibile su carta e inchiostro). */
+const NOTE = 'text-[0.875rem] text-stampa-600 italic dark:text-stampa-300';
 
 // Dove si decide quello che chiede l'avviso
 const ALERT_LINK: Record<string, { to: string; label: string }> = {
@@ -114,8 +83,6 @@ export function TurnCard({
   const [askReady, setAskReady] = useState(false);
   const unsaved = useUnsaved(league.id);
   const [now, setNow] = useState(() => Date.now());
-  // Con i Risultati senza spoiler anche qui il punteggio dell'ultima partita resta nascosto
-  const [spoilerFree] = useState(readSpoilerFree);
 
   // La propria squadra è cambiata (lasciata, liberata dal commissario): avvisi e stato sono di un'altra squadra
   const myTeam = mine?.id ?? null;
@@ -161,7 +128,6 @@ export function TurnCard({
     })),
   );
   const champion = status.championId ? league.teams.find((t) => t.id === status.championId) : null;
-  const code = (id: string) => league.teams.find((t) => t.id === id)?.code ?? '?';
   // Stato del turno e Pronto: la stessa regola della barra in cima alle altre pagine
   const phase = roundPhase(round, { trouble: status.trouble, paused: status.paused, draftPending }, now);
   const stuck = phase === 'failed' || phase === 'late';
@@ -186,180 +152,129 @@ export function TurnCard({
     }
   }
 
-  const title = roundTitle(round.kind, round.number, league.roundStage);
+  const togglePause = () => void run(() => setPaused(league.id, !status.paused));
 
   return (
-    <>
-      <Card className="space-y-3">
-        <div className="flex flex-wrap items-start justify-between gap-2">
-          <div>
-            <p className="text-sm text-stampa-500 dark:text-stampa-400">Turno</p>
-            <p className="text-xl font-semibold">{title}</p>
-          </div>
-          <span className={`rounded-full px-3 py-1 text-xs font-semibold ${PHASE_CLASS[phase]}`}>
-            {PHASE_LABEL[phase]}
-          </span>
-        </div>
+    <section className="space-y-3">
+      <SectionTitle aside={inRound.length > 0 ? `pronti ${readyCount} su ${inRound.length}` : undefined}>
+        Il turno
+      </SectionTitle>
+      <p className="font-titolo text-lg leading-tight font-semibold tracking-wide uppercase">
+        {roundTitle(round.kind, round.number, league.roundStage)}
+      </p>
 
-        {status.lastGame && spoilerFree && (
-          <p className="text-sm">
-            <span className="text-stampa-500 dark:text-stampa-400">
-              Ultima partita
-              {status.lastGame.roundNumber < 82 ? ` (giornata ${status.lastGame.roundNumber + 1})` : ''}:
-            </span>{' '}
-            <span className="font-semibold">
-              {code(status.lastGame.awayTeamId)} – {code(status.lastGame.homeTeamId)}
-            </span>{' '}
-            <Link to={`/lega/${league.id}/risultati/${status.lastGame.roundNumber}`} className={LINK}>
-              Guardala senza spoiler
-            </Link>
-          </p>
-        )}
-        {status.lastGame && !spoilerFree && (
-          <p className="text-sm">
-            <span className="text-stampa-500 dark:text-stampa-400">
-              Ultima partita
-              {status.lastGame.roundNumber < 82 ? ` (giornata ${status.lastGame.roundNumber + 1})` : ''}:
-            </span>{' '}
-            <span className="font-semibold">
-              {code(status.lastGame.awayTeamId)} {status.lastGame.awayScore} – {status.lastGame.homeScore}{' '}
-              {code(status.lastGame.homeTeamId)}
+      {phase === 'closing' && <ClosingBand label={closingLabel(round.kind, round.number)} />}
+      {stuck && (
+        <StuckRound
+          leagueId={league.id}
+          trouble={status.trouble}
+          paused={status.paused}
+          isCommissioner={isCommissioner}
+          now={now}
+          busy={busy}
+          onReopen={(newSeed, withdraw) => void run(() => reopenRound(league.id, newSeed, withdraw))}
+        />
+      )}
+      {open && status.paused && !stuck && (
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-2 border border-dashed border-stampa-600 py-2 pr-1 pl-3 dark:border-stampa-300">
+          <p className="min-w-[12rem] flex-1 text-[0.95rem] leading-snug">
+            <span className="block font-titolo font-semibold tracking-wider uppercase">
+              {PHASE_LABEL.paused}
             </span>
-            {status.lastGame.overtimes > 0 &&
-              ` (${status.lastGame.overtimes > 1 ? `${status.lastGame.overtimes} ` : ''}supplementari)`}
+            <span className="italic">{PAUSED_NOTE}</span>
           </p>
-        )}
+          {/* La riprende il commissario: lo stesso pulsante che prima stava tra le sue azioni */}
+          {isCommissioner && phase === 'paused' && (
+            <Button variant="secondary" disabled={busy} onClick={togglePause}>
+              Riprendi la lega
+            </Button>
+          )}
+        </div>
+      )}
 
-        {draftPending && (
-          <p className="text-sm text-stampa-600 dark:text-stampa-300">
-            Il primo turno parte quando il draft iniziale è finito.
-          </p>
-        )}
-        {round.kind === 'offseason' && (
-          <p className="text-sm text-stampa-600 dark:text-stampa-300">
+      {draftPending && <p className={NOTE}>Il primo turno parte quando il draft iniziale è finito.</p>}
+      {round.kind === 'offseason' && (
+        <div>
+          <p className="text-[0.95rem] leading-snug">
             {champion ? `Stagione finita: campioni i ${champion.fullName}. ` : ''}
             {STAGE_HINT[league.roundStage ?? ''] ?? ''}
           </p>
-        )}
-        {/* Risultati, classifica e mercato stanno nel menu; il draft annuale no: il suo link resta qui */}
-        {round.kind === 'offseason' && (
-          <p className="text-sm">
-            <Link to={`/lega/${league.id}/draft-annuale`} className={LINK}>
-              Draft
-            </Link>
-          </p>
-        )}
-        {/* Riepilogo per il gruppo della lega: dopo la prima partita della squadra */}
-        {mine && status.lastGame && <ShareTurn league={league} me={mine} lastGame={status.lastGame} />}
-        {open && round.deadline && !status.paused && (
-          <p className="text-sm">
-            Scadenza del turno: <span className="font-semibold">{timeLeft(round.deadline, now)}</span>
-          </p>
-        )}
-        {open && round.forcedAt && (
-          <p className="text-sm text-rosso-700 dark:text-rosso-300">
-            Il commissario ha forzato l’avanzamento.
-          </p>
-        )}
-        {open && status.paused && !stuck && (
-          <p className="text-sm text-stampa-600 dark:text-stampa-300">{PAUSED_NOTE}</p>
-        )}
-        {stuck && (
-          <StuckRound
-            leagueId={league.id}
-            trouble={status.trouble}
-            paused={status.paused}
-            isCommissioner={isCommissioner}
-            now={now}
-            busy={busy}
-            onReopen={(newSeed, withdraw) => void run(() => reopenRound(league.id, newSeed, withdraw))}
-          />
-        )}
-
-        <div>
-          <p className="mb-1 text-xs font-semibold tracking-wide text-stampa-500 uppercase dark:text-stampa-400">
-            Pronti {readyCount} su {inRound.length}
-          </p>
-          <ul className="divide-y divide-stampa-100 dark:divide-stampa-700">
-            {humans.map((t) => {
-              const r = readiness(status, t.id, now);
-              return (
-                <li key={t.id} className="flex items-center justify-between gap-2 py-1.5 text-sm">
-                  <span className="flex min-w-0 items-center gap-2">
-                    <span className="w-10 shrink-0 rounded bg-stampa-100 px-1 text-center text-xs font-bold text-stampa-700 dark:bg-stampa-700 dark:text-stampa-200">
-                      {t.code}
-                    </span>
-                    <span className={`truncate ${t.ownerId === userId ? 'font-semibold' : ''}`}>
-                      {t.ownerId === userId ? 'Tu' : (t.ownerName ?? 'Manager')}
-                    </span>
-                  </span>
-                  <span
-                    className={`shrink-0 rounded-full px-2 py-0.5 text-xs font-semibold ${BADGE[r].className}`}
-                  >
-                    {BADGE[r].label}
-                  </span>
-                </li>
-              );
-            })}
-          </ul>
-          {note && open && !status.paused && !draftPending && (
-            <p className="mt-1 text-xs text-stampa-600 dark:text-stampa-300">{note}</p>
-          )}
+          {/* Risultati, classifica e mercato stanno nel menu; il draft annuale no: il suo link resta qui */}
+          <Link to={`/lega/${league.id}/draft-annuale`} className={ROW_LINK}>
+            Vai al draft ›
+          </Link>
         </div>
+      )}
+      {open && round.forcedAt && (
+        <p className="text-[0.875rem] font-semibold text-rosso-700 italic dark:text-rosso-300">
+          Il commissario ha forzato l’avanzamento.
+        </p>
+      )}
 
-        {mine && playing && myState === 'out' && (
-          <p className="text-sm text-stampa-600 dark:text-stampa-300">
-            La tua squadra non gioca in questo turno: non devi fare nulla.
-          </p>
-        )}
-        {mine && action && (
-          <div className="space-y-2">
-            {(myState === 'coach' || myState === 'blocked') && (
-              <p className="text-sm italic text-stampa-700 dark:text-stampa-200">
-                {blocked || myState === 'blocked'
-                  ? 'La squadra è affidata all’allenatore, ma è fermo finché non rispondi alle decisioni in cima alla pagina.'
-                  : 'La squadra è affidata all’allenatore: risulti pronto a ogni turno.'}
-              </p>
-            )}
-            <Button
-              className="w-full sm:w-auto"
-              variant={action === 'unready' ? 'secondary' : 'accent'}
-              disabled={busy}
-              onClick={() => {
-                // Prima di segnarsi pronti: che cosa succede alle decisioni aperte se il turno si chiude
-                if (action === 'ready' && warnings.length > 0) setAskReady(true);
-                else void run(() => setReady(mine.id, action === 'ready', round.id));
-              }}
-            >
-              {action === 'unready' ? 'Non sono più pronto' : 'Sono pronto'}
-            </Button>
-            {askReady && action === 'ready' && warnings.length > 0 && (
-              <ReadyConfirm
-                warnings={warnings}
-                leagueId={league.id}
-                alertsLink={false}
-                unsaved={unsaved !== null}
-                busy={busy}
-                onReady={() => {
-                  setAskReady(false);
-                  void run(() => setReady(mine.id, true, round.id));
-                }}
-                onSaveAndReady={() => {
-                  setAskReady(false);
-                  void run(async () => {
-                    if (unsaved && !(await unsaved.save()))
-                      throw new Error('Salvataggio della squadra non riuscito.');
-                    await setReady(mine.id, true, round.id);
-                  });
-                }}
-                onCancel={() => setAskReady(false)}
-              />
-            )}
-          </div>
-        )}
+      <ul aria-label="Squadre dei manager">
+        {humans.map((t) => (
+          <TeamRow key={t.id} team={t} me={t.ownerId === userId} state={readiness(status, t.id, now)} />
+        ))}
+      </ul>
+      {note && open && !status.paused && !draftPending && <p className={NOTE}>{note}</p>}
 
-        {isCommissioner && playing && (
-          <div className="flex flex-wrap gap-2 border-t border-stampa-100 pt-3 dark:border-stampa-700">
+      {mine && playing && myState === 'out' && (
+        <p className={NOTE}>La tua squadra non gioca in questo turno: non devi fare nulla.</p>
+      )}
+      {mine && action && (
+        <div className="space-y-2 pt-1">
+          {(myState === 'coach' || myState === 'blocked') && (
+            <p className={NOTE}>
+              {blocked || myState === 'blocked'
+                ? 'La squadra è affidata all’allenatore, ma è fermo finché non rispondi alle decisioni prima del turno.'
+                : 'La squadra è affidata all’allenatore: risulti pronto a ogni turno.'}
+            </p>
+          )}
+          {/* Sono pronto è l'azione principale della pagina: l'unico pulsante rosso */}
+          <Button
+            className="min-h-12 w-full text-lg"
+            variant={action === 'unready' ? 'secondary' : 'accent'}
+            disabled={busy}
+            onClick={() => {
+              // Prima di segnarsi pronti: che cosa succede alle decisioni aperte se il turno si chiude
+              if (action === 'ready' && warnings.length > 0) setAskReady(true);
+              else void run(() => setReady(mine.id, action === 'ready', round.id));
+            }}
+          >
+            {action === 'unready' ? 'Non sono più pronto' : 'Sono pronto'}
+          </Button>
+        </div>
+      )}
+      {open && round.deadline && !status.paused && (
+        <p className={`${NOTE} text-center`}>{deadlineNote(timeLeft(round.deadline, now))}</p>
+      )}
+      {mine && askReady && action === 'ready' && warnings.length > 0 && (
+        <ReadyConfirm
+          warnings={warnings}
+          leagueId={league.id}
+          alertsLink={false}
+          unsaved={unsaved !== null}
+          busy={busy}
+          onReady={() => {
+            setAskReady(false);
+            void run(() => setReady(mine.id, true, round.id));
+          }}
+          onSaveAndReady={() => {
+            setAskReady(false);
+            void run(async () => {
+              if (unsaved && !(await unsaved.save()))
+                throw new Error('Salvataggio della squadra non riuscito.');
+              await setReady(mine.id, true, round.id);
+            });
+          }}
+          onCancel={() => setAskReady(false)}
+        />
+      )}
+
+      {isCommissioner && playing && (
+        <div className="space-y-2 border-t border-stampa-300 pt-3 dark:border-stampa-600">
+          <Kicker muted>Commissario</Kicker>
+          <div className="flex flex-wrap gap-2">
             <ConfirmButton
               variant="secondary"
               disabled={busy || round.forcedAt !== null}
@@ -368,25 +283,71 @@ export function TurnCard({
             >
               Forza l’avanzamento
             </ConfirmButton>
-            <Button
-              variant="ghost"
-              disabled={busy}
-              onClick={() => void run(() => setPaused(league.id, !status.paused))}
-            >
-              {status.paused ? 'Riprendi la lega' : 'Metti in pausa'}
-            </Button>
+            {/* Con la lega in pausa "Riprendi la lega" sta nel riquadro della pausa */}
+            {!status.paused && (
+              <Button variant="ghost" disabled={busy} onClick={togglePause}>
+                Metti in pausa
+              </Button>
+            )}
           </div>
-        )}
-        {actionError && <ErrorText>{actionError}</ErrorText>}
-      </Card>
-    </>
+        </div>
+      )}
+      {actionError && <ErrorText>{actionError}</ErrorText>}
+    </section>
+  );
+}
+
+/** Una squadra di un manager nel turno: sigla, manager, puntini e l'etichetta del suo stato. */
+function TeamRow({ team, me, state }: { team: LeagueTeam; me: boolean; state: Readiness }) {
+  const mark = readinessMark(state);
+  return (
+    <li className="flex min-h-8 items-baseline gap-2 text-[0.95rem]">
+      <span className="w-10 shrink-0 font-titolo font-bold">{team.code}</span>
+      <span className={`min-w-0 truncate ${me ? 'font-semibold' : ''}`}>
+        {me ? 'Tu' : (team.ownerName ?? 'Manager')}
+      </span>
+      <span
+        aria-hidden="true"
+        className="min-w-4 flex-1 border-b-2 border-dotted border-stampa-300 dark:border-stampa-600"
+      />
+      {mark.kind === 'tag' ? (
+        <span className="shrink-0">
+          <Tag tone={mark.tone}>{mark.label}</Tag>
+        </span>
+      ) : (
+        <span className="shrink-0 text-[0.875rem] text-stampa-600 italic dark:text-stampa-300">
+          {mark.label}
+        </span>
+      )}
+    </li>
+  );
+}
+
+/** Simulazione in corso: la striscia d'inchiostro con i quadratini che si accendono a turno. */
+function ClosingBand({ label }: { label: string }) {
+  return (
+    <div className="flex min-h-13 flex-wrap items-center gap-x-3 gap-y-1 bg-stampa-900 px-3 py-2 text-stampa-25 dark:bg-stampa-100 dark:text-stampa-900">
+      <span className="font-titolo text-[0.95rem] font-semibold tracking-wider uppercase">{label}</span>
+      <span aria-hidden="true" className="flex gap-1">
+        {[0, 1, 2].map((i) => (
+          <span
+            key={i}
+            className="size-1.5 bg-current motion-safe:animate-pulse"
+            style={{ animationDelay: `${i * 250}ms` }}
+          />
+        ))}
+      </span>
+      <span className="ml-auto text-[0.875rem] text-stampa-200 italic dark:text-stampa-600">
+        di solito pochi secondi
+      </span>
+    </div>
   );
 }
 
 /**
- * Avvisi aperti della propria squadra nella pagina della lega. group 'todo': il riquadro "Da fare" in cima, con le
- * decisioni (avvisi bloccanti) e i loro pulsanti, da prendere prima del Pronto. group 'read': le notizie da leggere
- * (infortuni, esiti del mercato), dopo la scheda del turno. Niente se non ce ne sono.
+ * Avvisi aperti della propria squadra nella pagina della lega. group 'todo': il riquadro "Da decidere prima del
+ * turno", con le decisioni (avvisi bloccanti) e i loro pulsanti, da prendere prima del Pronto. group 'read': le
+ * notizie da leggere (infortuni, esiti del mercato), in righe con i filetti. Niente se non ce ne sono.
  */
 export function TurnAlerts({
   league,
@@ -420,34 +381,55 @@ export function TurnAlerts({
     }
   }
 
+  if (group === 'read')
+    return (
+      <section>
+        <SectionTitle>Da leggere</SectionTitle>
+        <ul>
+          {alerts.map((a) => (
+            <ReadRow
+              key={a.id}
+              alert={a}
+              leagueId={league.id}
+              disabled={busy || !open}
+              onAnswer={() => void answer(a.id)}
+            />
+          ))}
+        </ul>
+        {error && <ErrorText>{error}</ErrorText>}
+      </section>
+    );
+
   return (
-    <Card className={`space-y-3 ${group === 'todo' ? 'border-rosso-300 dark:border-rosso-700' : ''}`}>
-      <div>
-        <h2 className="font-semibold">{group === 'todo' ? `Da fare (${alerts.length})` : 'Da leggere'}</h2>
-        {group === 'todo' && (
-          <p className="text-sm text-stampa-600 dark:text-stampa-300">
-            Decidi prima di premere Sono pronto: finché ci sono decisioni aperte l’allenatore è fermo.
-          </p>
-        )}
-      </div>
-      {alerts.map((a) => (
-        <AlertRow
-          key={a.id}
-          alert={a}
-          leagueId={league.id}
-          disabled={busy || !open}
-          onAnswer={() => void answer(a.id)}
-        />
-      ))}
+    <section className="space-y-2 border border-stampa-900 bg-stampa-25 p-3 sm:p-4 dark:border-stampa-600 dark:bg-stampa-800">
+      <h2 className="flex items-center gap-2 text-base font-semibold tracking-wider">
+        Da decidere prima del turno
+        <span aria-hidden="true" className="bg-rosso-600 px-1.5 text-white dark:bg-rosso-500">
+          {alerts.length}
+        </span>
+        <span className="sr-only">({alerts.length})</span>
+      </h2>
+      <p className={NOTE}>Finché ci sono decisioni aperte l’allenatore è fermo.</p>
+      <ul className="divide-y divide-stampa-300 dark:divide-stampa-600">
+        {alerts.map((a) => (
+          <DecisionRow
+            key={a.id}
+            alert={a}
+            leagueId={league.id}
+            disabled={busy || !open}
+            onAnswer={() => void answer(a.id)}
+          />
+        ))}
+      </ul>
       {error && <ErrorText>{error}</ErrorText>}
-    </Card>
+    </section>
   );
 }
 
 /**
  * Turno rimasto in chiusura: il server riprova da solo ogni 5 minuti, fino a 3 tentativi; poi il turno si ferma
- * e il commissario lo riapre (vede anche l'errore), o qualsiasi membro qualche ora dopo il blocco. Riaperto,
- * torna aperto e tutti confermano di nuovo.
+ * (bordo rosso) e il commissario lo riapre (vede anche l'errore), o qualsiasi membro qualche ora dopo il blocco.
+ * Riaperto, torna aperto e tutti confermano di nuovo.
  */
 function StuckRound({
   leagueId,
@@ -475,13 +457,24 @@ function StuckRound({
   );
   const [withdraw, setWithdraw] = useState(false);
   return (
-    <div className="space-y-2 border-2 border-rosso-600 bg-stampa-25 p-3 text-sm dark:border-rosso-300 dark:bg-stampa-800">
-      <p className="font-semibold text-rosso-800 dark:text-rosso-200">
+    <div
+      className={`space-y-2 border-2 bg-stampa-25 p-3 text-[0.95rem] leading-snug dark:bg-stampa-800 ${
+        failed ? 'border-rosso-600 dark:border-rosso-300' : 'border-stampa-900 dark:border-stampa-100'
+      }`}
+    >
+      <p
+        className={`font-titolo font-semibold tracking-wider uppercase ${
+          failed ? 'text-rosso-700 dark:text-rosso-300' : ''
+        }`}
+      >
+        {PHASE_LABEL[failed ? 'failed' : 'late']}
+      </p>
+      <p className="font-semibold">
         {failed
           ? `La simulazione di questo turno non è riuscita (${MAX_ROUND_ATTEMPTS} tentativi).`
           : 'La simulazione di questo turno non è ancora riuscita.'}
       </p>
-      <p className="text-stampa-700 dark:text-stampa-200">
+      <p>
         {failed
           ? isCommissioner
             ? 'Il turno è fermo finché non lo riapri. Non è stato scritto nulla: riaperto, torna come prima e tutti confermano di nuovo il Pronto.'
@@ -502,10 +495,10 @@ function StuckRound({
         </p>
       )}
       {canReopen && (
-        <label className="flex min-h-11 items-start gap-2 text-stampa-700 dark:text-stampa-200">
+        <label className="flex min-h-11 items-start gap-2">
           <input
             type="checkbox"
-            className="mt-1 size-4 shrink-0"
+            className="mt-1 size-4 shrink-0 accent-stampa-900 dark:accent-stampa-100"
             checked={withdraw}
             onChange={(e) => setWithdraw(e.target.checked)}
           />
@@ -518,7 +511,7 @@ function StuckRound({
       {canReopen && (
         <div className="flex flex-wrap gap-2">
           <ConfirmButton
-            variant="secondary"
+            variant="primary"
             disabled={busy}
             confirmLabel="Confermi? Il turno si riapre"
             onConfirm={() => onReopen(false, withdraw)}
@@ -539,7 +532,8 @@ function StuckRound({
   );
 }
 
-function AlertRow({
+/** Una decisione da prendere: titolo e spiegazione, poi dove si decide (link) e la risposta. */
+function DecisionRow({
   alert,
   leagueId,
   disabled,
@@ -551,42 +545,72 @@ function AlertRow({
   onAnswer: () => void;
 }) {
   const text = alertText(alert);
+  const link = ALERT_LINK[alert.kind];
+  // Alla proposta di scambio si risponde dalla pagina del mercato: il link è l'unica azione, d'inchiostro
+  const answerable = alert.kind !== 'trade_offer';
   return (
-    <div
-      className={`rounded-lg border p-3 text-sm ${
-        alert.blocking
-          ? 'border-rosso-300 bg-rosso-50 dark:border-rosso-700 dark:bg-rosso-950'
-          : 'border-stampa-200 dark:border-stampa-700'
-      }`}
-    >
-      <p className="font-semibold">
-        {text.title}
-        {alert.blocking && (
-          <span className="ml-2 text-xs text-rosso-700 dark:text-rosso-300">blocca l’allenatore</span>
-        )}
+    <li className="space-y-2 py-3 first:pt-1 last:pb-0">
+      <p className="text-[0.95rem] leading-snug">
+        <strong>{text.title}.</strong> {text.body}
       </p>
-      <p className="mt-1 text-stampa-700 dark:text-stampa-200">{text.body}</p>
-      <div className="mt-2 flex flex-wrap gap-2">
-        {ALERT_LINK[alert.kind] && (
+      <div className="flex flex-wrap gap-2">
+        {link && (
           <Link
-            to={`/lega/${leagueId}/${ALERT_LINK[alert.kind]?.to}`}
-            className={`inline-flex min-h-11 items-center rounded-lg px-4 text-sm font-semibold ${
-              alert.kind === 'trade_offer'
-                ? 'bg-rosso-600 text-white hover:bg-rosso-700'
-                : 'border border-stampa-300 hover:bg-stampa-50 dark:border-stampa-600 dark:hover:bg-stampa-800'
-            }`}
+            to={`/lega/${leagueId}/${link.to}`}
+            className={`min-w-[9rem] flex-1 ${answerable ? LINK_BUTTON.secondary : LINK_BUTTON.primary}`}
           >
-            {ALERT_LINK[alert.kind]?.label}
+            {link.label}
           </Link>
         )}
-        {/* Alla proposta di scambio si risponde dalla pagina del mercato: accettarla o rifiutarla chiude l'avviso */}
-        {alert.kind !== 'trade_offer' && (
-          <Button variant={alert.blocking ? 'primary' : 'secondary'} disabled={disabled} onClick={onAnswer}>
+        {answerable && (
+          <Button className="min-w-[9rem] flex-1" disabled={disabled} onClick={onAnswer}>
             {text.action}
           </Button>
         )}
       </div>
-    </div>
+    </li>
+  );
+}
+
+/** Un avviso da leggere (infortunio, esito del mercato): una riga con il filetto e il suo "Ok". */
+function ReadRow({
+  alert,
+  leagueId,
+  disabled,
+  onAnswer,
+}: {
+  alert: AlertItem;
+  leagueId: string;
+  disabled: boolean;
+  onAnswer: () => void;
+}) {
+  const text = alertText(alert);
+  const link = ALERT_LINK[alert.kind];
+  return (
+    <li className="flex flex-wrap items-start gap-x-2 border-b border-stampa-300 py-2 dark:border-stampa-600">
+      <p className="min-w-[12rem] flex-1 py-1 text-[0.95rem] leading-snug">
+        <strong className="font-titolo font-semibold tracking-wide uppercase">{text.title}</strong>{' '}
+        {text.body}
+        {link && (
+          <>
+            {' '}
+            <Link to={`/lega/${leagueId}/${link.to}`} className={TEXT_LINK}>
+              {link.label}
+            </Link>
+          </>
+        )}
+      </p>
+      {/* "Ok" da solo non dice a che cosa: per i lettori di schermo anche il titolo dell'avviso */}
+      <Button
+        variant="ghost"
+        className="shrink-0 px-3"
+        disabled={disabled}
+        aria-label={`${text.action}: ${text.title}`}
+        onClick={onAnswer}
+      >
+        {text.action}
+      </Button>
+    </li>
   );
 }
 

@@ -1,6 +1,8 @@
-// Come si gioca: una guida breve per chi entra in una lega. Le regole complete stanno nel documento di design.
+// Come si gioca: una guida breve per chi entra in una lega, impaginata come un inserto del giornale (sezioni con il
+// filetto, su due colonne da md). Le regole complete stanno nel documento di design.
 import { Link } from 'react-router';
-import { Card, PageTitle } from '../components/ui.tsx';
+import { PageTitle, SectionTitle } from '../components/ui.tsx';
+import { ROW_LINK } from '../lib/linkStyles.ts';
 
 const SECTIONS: { title: string; text: string[] }[] = [
   {
@@ -35,7 +37,7 @@ const SECTIONS: { title: string; text: string[] }[] = [
   {
     title: 'Avvisi e decisioni',
     text: [
-      'Le decisioni arrivano nel riquadro Da fare, in cima alla pagina della lega: proposte di scambio ricevute, rosa sotto 13, giocatori in scadenza, draft, free agency. Prendile prima di premere Sono pronto; in cima alle altre pagine vedi quante ne hai aperte. Gli avvisi da leggere (infortuni, esiti del mercato) stanno sotto il turno.',
+      'Le decisioni arrivano nel riquadro Da decidere prima del turno, nella pagina della lega: proposte di scambio ricevute, rosa sotto 13, giocatori in scadenza, draft, free agency. Prendile prima di premere Sono pronto; in cima alle altre pagine vedi quante ne hai aperte. Gli avvisi da leggere (infortuni, esiti del mercato) stanno accanto alle ultime notizie della lega.',
       'Se il turno si chiude senza risposta, le proposte di scambio sono rifiutate e il resto lo decide la logica del bot (o non si fa: un rinnovo non fatto lascia andare il giocatore).',
     ],
   },
@@ -71,20 +73,22 @@ const SECTIONS: { title: string; text: string[] }[] = [
 
 export function GuidePage() {
   return (
-    <div className="space-y-4">
+    <div className="space-y-6">
       <PageTitle sub="Le regole in breve, per cominciare.">Come si gioca</PageTitle>
-      {SECTIONS.map((s) => (
-        <Card key={s.title} className="space-y-2 !p-4">
-          <h2 className="font-semibold">{s.title}</h2>
-          {s.text.map((t, i) => (
-            <p key={i} className="text-sm text-stampa-700 dark:text-stampa-200">
-              {t}
-            </p>
-          ))}
-        </Card>
-      ))}
-      <p className="text-sm">
-        <Link to="/" className="font-semibold text-rosso-700 hover:underline dark:text-rosso-300">
+      <div className="gap-8 md:columns-2">
+        {SECTIONS.map((s) => (
+          <section key={s.title} className="mb-6 space-y-2 break-inside-avoid">
+            <SectionTitle>{s.title}</SectionTitle>
+            {s.text.map((t, i) => (
+              <p key={i} className="text-[0.95rem] leading-relaxed">
+                {t}
+              </p>
+            ))}
+          </section>
+        ))}
+      </div>
+      <p>
+        <Link to="/" className={ROW_LINK}>
           Torna alle tue leghe
         </Link>
       </p>

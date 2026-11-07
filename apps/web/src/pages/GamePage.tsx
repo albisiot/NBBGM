@@ -1,11 +1,12 @@
-// Una partita: punteggio per quarto, box score delle due squadre, cronaca azione per azione e la partita "dal
-// vivo" (la cronaca rigiocata con punteggio e cronometro che scorrono). La cronaca si scarica solo quando si apre
-// una delle due viste che la usano. Con i Risultati senza spoiler, dal vivo il punteggio finale resta nascosto
-// finché la partita non finisce (o si apre il box score).
+// Una partita come sul giornale: risultato con i parziali, poi il box score come un tabellino (titolari,
+// panchina, totale), la cronaca azione per azione con il tempo a margine e la partita "dal vivo" (la cronaca
+// rigiocata con punteggio e cronometro che scorrono). La cronaca si scarica solo quando si apre una delle due viste
+// che la usano. Con i Risultati senza spoiler, dal vivo il punteggio finale resta nascosto finché la partita non
+// finisce (o si apre il box score).
 import { useCallback, useEffect, useState } from 'react';
 import { Link, useParams, useSearchParams } from 'react-router';
-import { LiveGame } from '../components/LiveGame.tsx';
-import { Card, ErrorText, PageTitle, Segmented, Spinner, TeamCode } from '../components/ui.tsx';
+import { LiveGame, PlayList } from '../components/LiveGame.tsx';
+import { ErrorText, Kicker, Segmented, SectionTitle, Spinner } from '../components/ui.tsx';
 import { useUserId } from '../lib/auth.tsx';
 import { leagueDetail, type LeagueTeam } from '../lib/leagues.ts';
 import { readSpoilerFree } from '../lib/replay.ts';
@@ -16,22 +17,34 @@ import {
   periodLabel,
   roundLabel,
   type BoxLine,
-  type GameDetail,
   type Play,
 } from '../lib/results.ts';
+import {
+  boxTotals,
+  HEAD_ROW,
+  INK_LINK,
+  NOTE,
+  PAPER,
+  partialsText,
+  rowRule,
+  shotLine,
+  STICKY,
+  TABLE,
+  teamHighs,
+} from '../lib/tabellino.ts';
 import { useAsync } from '../lib/useAsync.ts';
-import { overtimeText } from './ResultsPage.tsx';
+import { HiddenScore, overtimeText, ScoreLine } from './ResultsPage.tsx';
 
 type View = 'box' | 'cronaca' | 'dal-vivo';
 const VIEWS: readonly View[] = ['box', 'cronaca', 'dal-vivo'];
+const VIEW_LABEL: Record<View, string> = { box: 'Box score', cronaca: 'Cronaca', 'dal-vivo': 'Dal vivo' };
 
 export function GamePage() {
   const { id = '', gid = '' } = useParams();
   const userId = useUserId();
-  const [search, setSearch] = useSearchParams();
+  const [search] = useSearchParams();
   const asked = search.get('vista') as View | null;
   const view: View = asked && VIEWS.includes(asked) ? asked : 'box';
-  const setView = (v: View) => setSearch(v === 'box' ? {} : { vista: v }, { replace: true });
   const { data, error, loading } = useAsync(async () => {
     const [league, game] = await Promise.all([leagueDetail(id), gameDetail(gid)]);
     return { league, game };
@@ -51,6 +64,8 @@ export function GamePage() {
     if (view !== 'dal-vivo') setRevealedFor(gid);
   }, [view, gid]);
   const hidden = spoilerFree && view === 'dal-vivo' && revealedFor !== gid;
+  // Squadra del box score su telefono (sul computer si vedono tutte e due)
+  const [boxTeam, setBoxTeam] = useState<string | null>(null);
 
   if (loading && !data) return <Spinner />;
   if (error) return <ErrorText>{error}</ErrorText>;
@@ -60,55 +75,109 @@ export function GamePage() {
   const home = team.get(game.homeTeamId);
   const away = team.get(game.awayTeamId);
   const mine = league.teams.find((t) => t.ownerId === userId)?.id;
+  const back = (
+    <Link
+      to={`/lega/${league.id}/risultati/${game.roundNumber}`}
+      className="inline-flex min-h-11 items-center text-sm font-semibold text-rosso-700 italic hover:underline dark:text-rosso-300"
+    >
+      ‹ Risultati
+    </Link>
+  );
   if (game.homeScore === null || !home || !away)
     return (
-      <div className="space-y-4">
-        <PageTitle>
-          {away?.fullName} – {home?.fullName}
-        </PageTitle>
-        <p className="text-sm text-stampa-500 dark:text-stampa-400">La partita non è ancora stata giocata.</p>
+      <div className="space-y-3">
+        {back}
+        <header>
+          <Kicker>{roundLabel(game.roundNumber, game.kind)} · da giocare</Kicker>
+          <h1 className="text-3xl leading-tight font-bold">
+            {away?.fullName} – {home?.fullName}
+          </h1>
+        </header>
+        <p className={NOTE}>La partita non è ancora stata giocata.</p>
       </div>
     );
 
+  const code = (tid: string) => team.get(tid)?.code ?? '?';
+  const shownTeam = boxTeam ?? (mine === home.id ? home.id : away.id);
+  const partials = partialsText(game.quarters);
+
   return (
-    <div className="space-y-4">
-      <PageTitle
-        sub={`${roundLabel(game.roundNumber, game.kind)}${hidden ? '' : ` · ${game.overtimes ? overtimeText(game.overtimes) : 'Finale'}`}`}
-      >
-        {hidden
-          ? `${away.code} – ${home.code}`
-          : `${away.code} ${game.awayScore} – ${game.homeScore} ${home.code}`}
-      </PageTitle>
+    <div className="space-y-3">
+      {back}
+      <header>
+        <Kicker>
+          {hidden
+            ? roundLabel(game.roundNumber, game.kind)
+            : `${game.overtimes ? overtimeText(game.overtimes) : 'Finale'} · ${roundLabel(game.roundNumber, game.kind)}`}
+        </Kicker>
+        <h1 className="text-[2rem] leading-tight font-bold">
+          {hidden ? (
+            <span className="flex flex-wrap items-center gap-x-2 font-titolo tabular-nums">
+              {away.code} <HiddenScore /> – <HiddenScore /> {home.code}
+            </span>
+          ) : (
+            <ScoreLine game={{ ...game, overtimes: 0 }} code={code} size="text-[2rem]" />
+          )}
+        </h1>
+        {!hidden && partials && <p className={NOTE}>Parziali {partials}</p>}
+      </header>
 
-      {!hidden && (
-        <Card className="overflow-x-auto !p-4">
-          <Quarters game={game} away={away} home={home} mine={mine} />
-        </Card>
-      )}
-
-      <Segmented
-        label="Vista"
-        value={view}
-        onChange={setView}
-        options={[
-          { label: 'Box score', value: 'box' },
-          { label: 'Cronaca', value: 'cronaca' },
-          { label: 'Dal vivo', value: 'dal-vivo' },
-        ]}
-      />
-
-      {view === 'box' &&
-        [away, home].map((t) => (
-          <Card key={t.id} className="!p-4">
-            <h2 className="mb-2 flex items-center gap-2 font-semibold">
-              <TeamCode code={t.code} strong={t.id === mine} />
-              <Link to={`/lega/${league.id}/squadre/${t.code}`} className="hover:underline">
-                {t.fullName}
+      <nav aria-label="Vista della partita" className="border-b border-stampa-900 dark:border-stampa-100">
+        <ul className="flex flex-wrap gap-x-5">
+          {VIEWS.map((v) => (
+            <li key={v}>
+              <Link
+                to={{ search: v === 'box' ? '' : `?vista=${v}` }}
+                replace
+                aria-current={view === v ? 'page' : undefined}
+                className={`inline-flex min-h-11 items-center border-b-[3px] font-titolo text-sm tracking-wider whitespace-nowrap uppercase ${
+                  view === v
+                    ? 'border-stampa-900 font-semibold text-stampa-900 dark:border-stampa-50 dark:text-stampa-50'
+                    : 'border-transparent font-medium text-stampa-700 hover:text-stampa-900 dark:text-stampa-300 dark:hover:text-stampa-50'
+                }`}
+              >
+                {VIEW_LABEL[v]}
               </Link>
-            </h2>
-            <BoxTable leagueId={league.id} lines={game.box.filter((l) => l.teamId === t.id)} />
-          </Card>
-        ))}
+            </li>
+          ))}
+        </ul>
+      </nav>
+
+      {view === 'box' && (
+        <>
+          <div className="flex flex-wrap items-center justify-between gap-2 md:hidden">
+            <Segmented
+              label="Squadra"
+              value={shownTeam}
+              onChange={setBoxTeam}
+              options={[away, home].map((t) => ({ label: t.code, value: t.id }))}
+            />
+            <span className={NOTE}>scorri → per le altre colonne</span>
+          </div>
+          {[away, home].map((t) => (
+            <section
+              key={t.id}
+              aria-label={`Tabellino di ${t.fullName}`}
+              className={`space-y-2 md:block ${t.id === shownTeam ? '' : 'hidden'}`}
+            >
+              <div className="hidden md:block">
+                <SectionTitle
+                  aside={t.id === mine ? 'la tua squadra' : t.id === home.id ? 'in casa' : 'in trasferta'}
+                >
+                  <Link to={`/lega/${league.id}/squadre/${t.code}`} className={INK_LINK}>
+                    {t.fullName}
+                  </Link>
+                </SectionTitle>
+              </div>
+              <BoxTable leagueId={league.id} lines={game.box.filter((l) => l.teamId === t.id)} />
+            </section>
+          ))}
+          <p className={NOTE}>
+            Tiri, da 3 e liberi: segnati/tentati. In grassetto il migliore della squadra in punti, rimbalzi e
+            assist.
+          </p>
+        </>
+      )}
       {view !== 'box' && plays.loading && !plays.data && <Spinner label="Carico la cronaca…" />}
       {view !== 'box' && <ErrorText>{plays.error}</ErrorText>}
       {view !== 'box' && plays.data === null && <NoPlays />}
@@ -122,202 +191,146 @@ export function GamePage() {
 
 function NoPlays() {
   return (
-    <p className="rounded-lg bg-stampa-100 px-3 py-2 text-sm text-stampa-600 dark:bg-stampa-800 dark:text-stampa-300">
+    <p className="border border-dashed border-stampa-600 px-3 py-2 text-sm dark:border-stampa-400">
       Cronaca non disponibile: si conserva solo per la stagione in corso, quindi questa partita non si può
-      rivedere dal vivo. Punteggio, parziali e box score restano.
+      rivedere dal vivo. <i>Punteggio, parziali e box score restano.</i>
     </p>
   );
 }
 
-function Quarters({
-  game,
-  away,
-  home,
-  mine,
-}: {
-  game: GameDetail;
-  away: LeagueTeam;
-  home: LeagueTeam;
-  mine: string | undefined;
-}) {
-  const q = game.quarters ?? { home: [], away: [] };
-  const periods = Math.max(q.home.length, q.away.length);
-  const head = Array.from({ length: periods }, (_, i) => (i < 4 ? `${i + 1}°` : `S${i - 3}`));
-  return (
-    <table className="w-full min-w-72 text-sm">
-      <thead>
-        <tr className="text-xs text-stampa-500 dark:text-stampa-400">
-          <th className="text-left font-medium">Squadra</th>
-          {head.map((h) => (
-            <th key={h} className="w-10 text-right font-medium">
-              {h}
-            </th>
-          ))}
-          <th className="w-12 text-right font-medium">Tot</th>
-        </tr>
-      </thead>
-      <tbody>
-        {[
-          { t: away, pts: q.away, score: game.awayScore },
-          { t: home, pts: q.home, score: game.homeScore },
-        ].map(({ t, pts, score }) => (
-          <tr key={t.id}>
-            <td className="py-1">
-              <TeamCode code={t.code} strong={t.id === mine} />
-            </td>
-            {head.map((h, i) => (
-              <td key={h} className="text-right font-mono">
-                {pts[i] ?? ''}
-              </td>
-            ))}
-            <td className="text-right font-mono font-semibold">{score}</td>
-          </tr>
-        ))}
-      </tbody>
-    </table>
-  );
-}
+const COLUMNS = ['Min', 'Pt', 'Rim', 'As', 'Rub', 'Stp', 'PP', 'Tiri', 'Da 3', 'TL', 'F', '+/-'] as const;
+const COLUMN_TITLE: Partial<Record<(typeof COLUMNS)[number], string>> = {
+  Min: 'Minuti',
+  Pt: 'Punti',
+  Rim: 'Rimbalzi',
+  As: 'Assist',
+  Rub: 'Rubate',
+  Stp: 'Stoppate',
+  PP: 'Palle perse',
+  TL: 'Tiri liberi',
+  F: 'Falli',
+  '+/-': 'Più/meno',
+};
 
-const shot = (m: number, a: number) => `${m}-${a}`;
-
-// Colonna del nome fissa a sinistra quando la tabella scorre (su telefono): fondo della scheda sotto
-const STICKY = 'sticky left-0 bg-stampa-25 pl-1 dark:bg-stampa-800';
-
+/** Tabellino di una squadra: titolari, panchina e totale, con la colonna del nome fissa su telefono. */
 function BoxTable({ leagueId, lines }: { leagueId: string; lines: BoxLine[] }) {
-  const total = lines.reduce(
-    (a, l) => ({
-      pts: a.pts + l.pts,
-      fgm: a.fgm + l.fgm,
-      fga: a.fga + l.fga,
-      tpm: a.tpm + l.tpm,
-      tpa: a.tpa + l.tpa,
-      ftm: a.ftm + l.ftm,
-      fta: a.fta + l.fta,
-      reb: a.reb + l.orb + l.drb,
-      ast: a.ast + l.ast,
-      stl: a.stl + l.stl,
-      blk: a.blk + l.blk,
-      tov: a.tov + l.tov,
-      pf: a.pf + l.pf,
-    }),
-    { pts: 0, fgm: 0, fga: 0, tpm: 0, tpa: 0, ftm: 0, fta: 0, reb: 0, ast: 0, stl: 0, blk: 0, tov: 0, pf: 0 },
+  const total = boxTotals(lines);
+  const high = teamHighs(lines);
+  const starters = lines.filter((l) => l.starter);
+  const bench = lines.filter((l) => !l.starter);
+  const td = 'px-1.5 py-1.5 text-right';
+  const best = (v: number, max: number) => (max > 0 && v === max ? 'font-bold' : '');
+  const row = (l: BoxLine, i: number, group: BoxLine[]) => (
+    <tr
+      key={l.playerId}
+      className={`${rowRule(i === group.length - 1 ? 'solid' : 'thin')} ${
+        l.seconds === 0 ? 'text-stampa-600 dark:text-stampa-400' : ''
+      }`}
+    >
+      <th scope="row" className={`${STICKY} ${PAPER} py-1.5 pr-2 pl-1 text-left`}>
+        <span className="flex max-w-[10rem] min-w-0 items-baseline gap-1 sm:max-w-56">
+          <Link
+            to={`/lega/${leagueId}/giocatore/${l.playerId}`}
+            className={`truncate ${l.starter ? 'font-bold' : 'font-normal'} ${INK_LINK}`}
+          >
+            {l.name}
+          </Link>
+          <i className="shrink-0 text-[0.8125rem] font-normal text-stampa-600 dark:text-stampa-300">
+            {l.role}
+          </i>
+        </span>
+      </th>
+      {l.seconds === 0 ? (
+        <td colSpan={COLUMNS.length} className="px-1.5 py-1.5 text-[0.8125rem] italic">
+          non entrato
+        </td>
+      ) : (
+        <>
+          <td className={td}>{Math.round(l.seconds / 60)}</td>
+          <td className={`${td} ${best(l.pts, high.pts)}`}>{l.pts}</td>
+          <td className={`${td} ${best(l.orb + l.drb, high.reb)}`}>{l.orb + l.drb}</td>
+          <td className={`${td} ${best(l.ast, high.ast)}`}>{l.ast}</td>
+          <td className={td}>{l.stl}</td>
+          <td className={td}>{l.blk}</td>
+          <td className={td}>{l.tov}</td>
+          <td className={td}>{shotLine(l.fgm, l.fga)}</td>
+          <td className={td}>{shotLine(l.tpm, l.tpa)}</td>
+          <td className={td}>{shotLine(l.ftm, l.fta)}</td>
+          <td className={td}>{l.pf}</td>
+          <td className={td}>{l.plusMinus > 0 ? `+${l.plusMinus}` : l.plusMinus}</td>
+        </>
+      )}
+    </tr>
   );
-  const th = 'px-1.5 py-1 text-right font-medium';
-  const td = 'px-1.5 py-1 text-right font-mono';
+  const groupHead = (label: string, cols: boolean) => (
+    <tr className={HEAD_ROW}>
+      <th scope="col" className={`${STICKY} ${PAPER} pt-2 pr-2 pb-1 pl-1 text-left`}>
+        {label}
+      </th>
+      {COLUMNS.map((c) => (
+        <th key={c} scope="col" title={COLUMN_TITLE[c]} className="px-1.5 pt-2 pb-1 text-right">
+          {cols ? c : <span className="sr-only">{c}</span>}
+        </th>
+      ))}
+    </tr>
+  );
   return (
-    <div className="overflow-x-auto">
-      <table className="w-full min-w-[42rem] text-sm">
-        <thead>
-          <tr className="border-b border-stampa-200 text-xs text-stampa-500 dark:border-stampa-700 dark:text-stampa-400">
-            <th className={`${STICKY} py-1 pr-2 text-left font-medium`}>Giocatore</th>
-            <th className={th}>MIN</th>
-            <th className={th}>PT</th>
-            <th className={th}>RIM</th>
-            <th className={th}>AS</th>
-            <th className={th}>RUB</th>
-            <th className={th}>STP</th>
-            <th className={th}>PP</th>
-            <th className={th}>TIRI</th>
-            <th className={th}>DA 3</th>
-            <th className={th}>TL</th>
-            <th className={th}>F</th>
-            <th className={th}>+/-</th>
-          </tr>
-        </thead>
-        <tbody>
-          {lines.map((l) => (
-            <tr
-              key={l.playerId}
-              className={`border-b border-stampa-100 dark:border-stampa-700/60 ${l.seconds === 0 ? 'text-stampa-500 dark:text-stampa-400' : ''}`}
+    <div className="relative overflow-x-auto">
+      <table className={`${TABLE} min-w-[42rem]`}>
+        <thead>{groupHead('Titolari', true)}</thead>
+        <tbody>{starters.map((l, i) => row(l, i, starters))}</tbody>
+        {bench.length > 0 && (
+          <tbody>
+            {groupHead('Panchina', false)}
+            {bench.map((l, i) => row(l, i, bench))}
+          </tbody>
+        )}
+        <tfoot>
+          <tr className="font-bold">
+            <th
+              scope="row"
+              className={`${STICKY} ${PAPER} py-1.5 pr-2 pl-1 text-left font-titolo tracking-wider uppercase`}
             >
-              <td className={`${STICKY} max-w-[10rem] truncate py-1 pr-2 sm:max-w-52`}>
-                <Link to={`/lega/${leagueId}/giocatore/${l.playerId}`} className="hover:underline">
-                  {l.name}
-                </Link>
-                <span className="ml-1 text-xs text-stampa-500 dark:text-stampa-400">
-                  {l.role}
-                  {l.starter ? ' · Q' : ''}
-                </span>
-              </td>
-              {l.seconds === 0 ? (
-                <td colSpan={12} className="px-1.5 py-1 text-xs">
-                  Non entrato
-                </td>
-              ) : (
-                <>
-                  <td className={td}>{Math.round(l.seconds / 60)}</td>
-                  <td className={`${td} font-semibold`}>{l.pts}</td>
-                  <td className={td}>{l.orb + l.drb}</td>
-                  <td className={td}>{l.ast}</td>
-                  <td className={td}>{l.stl}</td>
-                  <td className={td}>{l.blk}</td>
-                  <td className={td}>{l.tov}</td>
-                  <td className={td}>{shot(l.fgm, l.fga)}</td>
-                  <td className={td}>{shot(l.tpm, l.tpa)}</td>
-                  <td className={td}>{shot(l.ftm, l.fta)}</td>
-                  <td className={td}>{l.pf}</td>
-                  <td className={td}>{l.plusMinus > 0 ? `+${l.plusMinus}` : l.plusMinus}</td>
-                </>
-              )}
-            </tr>
-          ))}
-          <tr className="font-semibold">
-            <td className={`${STICKY} py-1`}>Totale</td>
-            <td className={td} />
+              Totale
+            </th>
+            <td className={td}>{total.minutes}</td>
             <td className={td}>{total.pts}</td>
             <td className={td}>{total.reb}</td>
             <td className={td}>{total.ast}</td>
             <td className={td}>{total.stl}</td>
             <td className={td}>{total.blk}</td>
             <td className={td}>{total.tov}</td>
-            <td className={td}>{shot(total.fgm, total.fga)}</td>
-            <td className={td}>{shot(total.tpm, total.tpa)}</td>
-            <td className={td}>{shot(total.ftm, total.fta)}</td>
+            <td className={td}>{shotLine(total.fgm, total.fga)}</td>
+            <td className={td}>{shotLine(total.tpm, total.tpa)}</td>
+            <td className={td}>{shotLine(total.ftm, total.fta)}</td>
             <td className={td}>{total.pf}</td>
             <td className={td} />
           </tr>
-        </tbody>
+        </tfoot>
       </table>
-      <p className="mt-1 text-xs text-stampa-500 dark:text-stampa-400">
-        Q = in quintetto. TIRI, DA 3 e TL: segnati-tentati.
-      </p>
     </div>
   );
 }
 
+/** Cronaca di un periodo: il tempo a margine in rosso, la sigla di chi ha l'azione e il punteggio in fondo. */
 function Plays({ plays, away, home }: { plays: Play[]; away: LeagueTeam; home: LeagueTeam }) {
   const periods = [...new Set(plays.map((p) => p[0]))].sort((a, b) => a - b);
   const [period, setPeriod] = useState(periods[0] ?? 1);
   return (
-    <Card className="space-y-3 !p-4">
+    <section className="space-y-3">
       <Segmented
         label="Periodo"
         value={period}
         onChange={setPeriod}
         options={periods.map((p) => ({ label: p <= 4 ? `${p}° q` : `S${p - 4}`, value: p }))}
       />
-      <h2 className="font-semibold">{periodLabel(period)}</h2>
-      <ol className="divide-y divide-stampa-100 text-sm dark:divide-stampa-700">
-        {plays
-          .filter((p) => p[0] === period)
-          .map((p, i) => (
-            <li key={i} className="flex items-start gap-2 py-1.5">
-              <span className="w-10 shrink-0 font-mono text-xs text-stampa-500 dark:text-stampa-400">
-                {clock(p[1])}
-              </span>
-              <span className="w-11 shrink-0">
-                {p[2] && <TeamCode code={p[2] === 'h' ? home.code : away.code} />}
-              </span>
-              <span className="min-w-0 flex-1">{p[3]}</span>
-              <span className="shrink-0 font-mono text-xs text-stampa-600 dark:text-stampa-300">
-                {p[5]}-{p[4]}
-              </span>
-            </li>
-          ))}
-      </ol>
-      <p className="text-xs text-stampa-500 dark:text-stampa-400">
-        Punteggio: {away.code}-{home.code}.
-      </p>
-    </Card>
+      <SectionTitle aside={`punteggio ${away.code}–${home.code}`}>{periodLabel(period)}</SectionTitle>
+      <PlayList
+        plays={plays.filter((p) => p[0] === period)}
+        away={away}
+        home={home}
+        time={(p) => clock(p[1])}
+      />
+    </section>
   );
 }

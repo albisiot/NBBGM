@@ -1,7 +1,8 @@
 // Un errore durante il disegno di una pagina lasciava lo schermo bianco, e nell'app installata su iPhone non
-// c'è nemmeno il pulsante per ricaricare. Qui si mostra un messaggio con "Ricarica" e "Torna alle leghe".
+// c'è nemmeno il pulsante per ricaricare. Qui si mostra un messaggio con "Ricarica" e "Torna alle leghe", nello
+// stile Edicola: un riquadro con il filetto d'inchiostro, come gli avvisi del giornale.
 import { Component, type ErrorInfo, type ReactNode } from 'react';
-import { Button } from './ui.tsx';
+import { Button, Kicker } from './ui.tsx';
 
 interface State {
   error: Error | null;
@@ -39,19 +40,28 @@ export function ErrorScreen({
   return (
     <main
       role="alert"
-      className="mx-auto max-w-md space-y-4 px-4 pt-[calc(var(--spazio-alto)+1.5rem)] pb-8 text-stampa-900 dark:text-stampa-100"
+      className="mx-auto max-w-md space-y-3 px-4 pt-[calc(var(--spazio-alto)+1.5rem)] pb-8 text-stampa-900 dark:text-stampa-50"
     >
-      <h1 className="text-xl font-bold">Qualcosa è andato storto</h1>
-      <p className="text-sm text-stampa-600 dark:text-stampa-300">
-        La pagina si è bloccata per un errore dell’app. Ricarica: le scelte già salvate restano.
-      </p>
-      <div className="flex flex-wrap gap-2">
-        <Button onClick={onReload}>Ricarica</Button>
-        <Button variant="secondary" onClick={onHome}>
-          Torna alle leghe
-        </Button>
+      <p className="font-titolo text-2xl font-bold tracking-wide">NBBGM</p>
+      <div
+        aria-hidden="true"
+        className="h-[5px] border-y border-t-2 border-stampa-900 dark:border-stampa-100"
+      />
+      <div className="space-y-3 border border-stampa-900 bg-stampa-25 p-4 dark:border-stampa-600 dark:bg-stampa-800">
+        <Kicker>Errore dell’app</Kicker>
+        <h1 className="text-2xl leading-tight font-bold">Qualcosa è andato storto</h1>
+        <p className="text-sm leading-relaxed">
+          La pagina si è bloccata per un errore dell’app.{' '}
+          <i className="text-stampa-600 dark:text-stampa-300">Ricarica: le scelte già salvate restano.</i>
+        </p>
+        <div className="flex flex-wrap gap-2">
+          <Button onClick={onReload}>Ricarica</Button>
+          <Button variant="secondary" onClick={onHome}>
+            Torna alle leghe
+          </Button>
+        </div>
       </div>
-      <p className="font-mono text-xs break-words text-stampa-500 dark:text-stampa-400">{error.message}</p>
+      <p className="font-mono text-xs break-words text-stampa-600 dark:text-stampa-300">{error.message}</p>
     </main>
   );
 }

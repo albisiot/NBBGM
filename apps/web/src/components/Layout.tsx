@@ -28,6 +28,8 @@ export function Layout() {
   // Testata intera nell'elenco delle leghe e nella pagina della lega
   const listPage = useMatch('/') !== null;
   const full = leagueHome || listPage;
+  // La pagina della lega da lg in su è una prima pagina a tre colonne: più larga, con testata e menu
+  const width = leagueHome ? 'max-w-4xl lg:max-w-6xl' : 'max-w-4xl';
   // Si rilegge a ogni cambio di lega (per esempio dopo esserne entrati), tenendo l'elenco intanto
   const { data: leagues } = useAsync(() => myLeagues(userId), [userId, current], { keep: true });
   // Numero delle decisioni aperte sull'icona dell'app: all'avvio e al ritorno in primo piano
@@ -48,7 +50,7 @@ export function Layout() {
       <header
         className={`${full ? '' : 'sticky top-0'} z-10 bg-stampa-50 pt-(--spazio-alto) pr-[env(safe-area-inset-right)] pl-[env(safe-area-inset-left)] dark:bg-stampa-900`}
       >
-        <div className="mx-auto max-w-4xl px-4">
+        <div className={`mx-auto px-4 ${width}`}>
           {full ? (
             <>
               <div className="flex items-center gap-2 pt-2">
@@ -78,10 +80,12 @@ export function Layout() {
             </div>
           )}
         </div>
-        {current && <LeagueNav id={current} />}
+        {current && <LeagueNav id={current} width={width} />}
         <UpdateBanner />
       </header>
-      <main className="main-above-nav mx-auto max-w-4xl pt-6 pr-[max(1rem,env(safe-area-inset-right))] pb-[max(1.5rem,env(safe-area-inset-bottom))] pl-[max(1rem,env(safe-area-inset-left))]">
+      <main
+        className={`main-above-nav mx-auto ${width} pt-6 pr-[max(1rem,env(safe-area-inset-right))] pb-[max(1.5rem,env(safe-area-inset-bottom))] pl-[max(1rem,env(safe-area-inset-left))]`}
+      >
         {/* Le pagine arrivano a pezzi (lib/lazyPage.ts): intanto l'intestazione resta e sotto si vede il caricamento */}
         {current && !leagueHome && (
           <Suspense fallback={null}>
@@ -174,7 +178,7 @@ function ProfileLink({ name }: { name: string }) {
   );
 }
 
-function LeagueNav({ id }: { id: string }) {
+function LeagueNav({ id, width }: { id: string; width: string }) {
   const nav = useRef<HTMLElement>(null);
   const { pathname } = useLocation();
   // Voce attiva anche per le pagine sotto una voce (Campionato: risultati, classifica, playoff, partite)
@@ -192,7 +196,7 @@ function LeagueNav({ id }: { id: string }) {
     <nav
       ref={nav}
       aria-label="Menu della lega"
-      className="mx-auto hidden max-w-4xl overflow-x-auto border-b border-stampa-900 px-2 sm:block dark:border-stampa-100"
+      className={`mx-auto hidden ${width} relative overflow-x-auto border-b border-stampa-900 px-2 sm:block dark:border-stampa-100`}
     >
       <ul className="flex justify-center gap-x-5 font-titolo text-[0.95rem] tracking-widest uppercase">
         {LEAGUE_LINKS.map((l) => (
