@@ -1,6 +1,11 @@
 // Stato della lega dal database al motore: il risultato di public.league_state(lega) diventa un LeagueState,
 // con le impostazioni salvate dai manager al posto di quelle del bot. Nel motore le squadre hanno per id la
 // sigla (BOS), i giocatori e le scelte il loro uuid; ids riporta le sigle agli uuid del database.
+//
+// Nel motore l'ordine delle liste conta (a parità di valore vince chi viene prima, per esempio nel pacchetto di uno
+// scambio tra bot o con due swap nello stesso draft): squadre, giocatori, contratti, residui, scelte e swap si
+// mettono qui in un ordine fisso, così un turno ripreso con lo stesso seed rifà esattamente le stesse cose anche se
+// il database restituisse le righe in un altro ordine (league_state le ordina già).
 import { emptyStats, nextConfig, validTactics } from '../../../packages/engine/src/index.ts';
 import type {
   BodyPart,
@@ -210,7 +215,24 @@ export interface StateIds {
   code: Map<string, string>;
 }
 
-export function leagueStateFromRows(r: LeagueStateRows): { state: LeagueState; ids: StateIds } {
+/** Confronto di testi indipendente dalla lingua del sistema (localeCompare non lo è). */
+const byText = (a: string, b: string): number => (a < b ? -1 : a > b ? 1 : 0);
+
+export function leagueStateFromRows(rows: LeagueStateRows): { state: LeagueState; ids: StateIds } {
+  const r: LeagueStateRows = {
+    ...rows,
+    teams: [...rows.teams].sort((a, b) => byText(a.code, b.code)),
+    players: [...rows.players].sort((a, b) => byText(a.id, b.id)),
+    contracts: [...rows.contracts].sort((a, b) => byText(a.player_id, b.player_id)),
+    dead_money: [...rows.dead_money].sort(
+      (a, b) =>
+        byText(a.team_id, b.team_id) ||
+        byText(a.player_name, b.player_name) ||
+        byText(a.salaries.join(','), b.salaries.join(',')),
+    ),
+    draft_picks: [...rows.draft_picks].sort((a, b) => byText(a.id, b.id)),
+    draft_swaps: [...rows.draft_swaps].sort((a, b) => byText(a.id, b.id)),
+  };
   const code = new Map(r.teams.map((t) => [t.id, t.code]));
   const team = new Map(r.teams.map((t) => [t.code, t.id]));
   const codeOf = (id: string) => {

@@ -372,18 +372,22 @@ describe('pulizia notturna', () => {
       insert into cron.job_run_details (end_time) values (now() - interval '10 days'), (now() - interval '1 hour');
     `);
 
-    const r = await one<{ r: { cron_runs: number; play_by_play: number } }>(
-      'select private.daily_cleanup() as r',
-    );
+    const r = await one<{
+      r: { cron_runs: number; play_by_play: number; database_mb: number; warned: number };
+    }>('select private.daily_cleanup() as r');
     expect(r.r.cron_runs).toBe(1);
-    expect(r.r.play_by_play).toBeGreaterThanOrEqual(1);
+    expect(r.r.play_by_play).toBeGreaterThanOrEqual(2);
+    // Il database di prova è piccolo: nessun avviso
+    expect(r.r.database_mb).toBeGreaterThan(0);
+    expect(r.r.warned).toBe(0);
     const kept = await db.query<{ season_id: string; kept: boolean }>(
       `select season_id, play_by_play is not null as kept from public.games
        where league_id = $1 and round_number = 500`,
       [L],
     );
     const bySeason = Object.fromEntries(kept.rows.map((g) => [g.season_id, g.kept]));
-    expect(bySeason).toEqual({ [seasons.current!]: true, [seasons.previous!]: true, [seasons.old!]: false });
+    // Resta solo la cronaca della stagione in corso
+    expect(bySeason).toEqual({ [seasons.current!]: true, [seasons.previous!]: false, [seasons.old!]: false });
     // I punteggi restano
     const old = await one<{ home_score: number }>(
       'select home_score from public.games where season_id = $1 and round_number = 500',
@@ -396,5 +400,241 @@ describe('pulizia notturna', () => {
 
   it('il client non la chiama', async () => {
     await expect(call(U.giulia, 'select private.daily_cleanup()', [])).rejects.toThrow(/permission denied/);
+  });
+});
+
+/** Cambia per un momento una funzione di soglia del database (come owner), poi la rimette com'era. */
+async function withFunction<T>(name: string, body: string, fn: () => Promise<T>): Promise<T> {
+  const def = await one<{ d: string }>('select pg_get_functiondef($1::regprocedure) as d', [name]);
+  const returns = (await one<{ r: string }>('select pg_get_function_result($1::regprocedure) as r', [name]))
+    .r;
+  await db.exec(
+    `create or replace function ${name} returns ${returns} language sql stable set search_path = '' as $f$ ${body} $f$`,
+  );
+  try {
+    return await fn();
+  } finally {
+    await db.exec(def.d);
+  }
+}
+
+describe('spazio del database', () => {
+  it('da 400 MB avvisa i commissari una volta e non lascia creare leghe nuove', async () => {
+    const league = await createLeague('Lega dello spazio', U.luca, 'BOS');
+    const bos = await teamId(league.league_id, 'BOS');
+    const storageAlerts = async () =>
+      (
+        await one<{ n: number }>(
+          `select count(*)::int as n from public.alerts where team_id = $1 and kind = 'storage' and status = 'open'`,
+          [bos],
+        )
+      ).n;
+    await withFunction('private.database_mb()', 'select 431.5::numeric', async () => {
+      const first = await one<{ r: { database_mb: number; warned: number } }>(
+        'select private.daily_cleanup() as r',
+      );
+      expect(first.r.database_mb).toBe(431.5);
+      expect(first.r.warned).toBeGreaterThanOrEqual(1);
+      expect(await storageAlerts()).toBe(1);
+      const payload = await one<{ payload: { mb: number; limit_mb: number }; blocking: boolean }>(
+        `select payload, blocking from public.alerts where team_id = $1 and kind = 'storage'`,
+        [bos],
+      );
+      expect(payload).toEqual({ payload: { mb: 431.5, limit_mb: 500 }, blocking: false });
+      // La notte dopo, con l'avviso non ancora letto, non se ne aggiunge un altro
+      const again = await one<{ r: { warned: number } }>('select private.daily_cleanup() as r');
+      expect(again.r.warned).toBe(0);
+      expect(await storageAlerts()).toBe(1);
+      await expect(createLeague('Una in più', U.sara, 'BOS')).rejects.toThrow(/quasi pieno/);
+    });
+    const ok = await createLeague('Con lo spazio tornato', U.sara, 'BOS');
+    expect(ok.league_id).toBeTruthy();
+  });
+
+  it('in tutto il database al massimo un numero fisso di leghe', async () => {
+    const total = (await one<{ n: number }>('select count(*)::int as n from public.leagues')).n;
+    await withFunction('private.max_leagues_total()', `select ${total}`, async () => {
+      await expect(createLeague('Oltre il limite', U.sara, 'BOS')).rejects.toThrow(/Il server ha già/);
+    });
+    expect((await one<{ n: number }>('select private.max_leagues_total() as n')).n).toBe(30);
+  });
+});
+
+describe('iscrizioni su invito', () => {
+  let league: { league_id: string; invite_code: string };
+  const hook = async (user: Record<string, unknown>) =>
+    (
+      await one<{ r: { error?: { http_code: number; message: string } } }>(
+        'select public.hook_before_user_created($1) as r',
+        [{ metadata: { name: 'before-user-created' }, user: { user_metadata: {}, ...user } }],
+      )
+    ).r;
+
+  beforeAll(async () => {
+    league = await createLeague('Lega degli inviti', U.giulia, 'BOS');
+    await join(U.marco, league.invite_code, 'LAL');
+  });
+
+  it('senza invito l’iscrizione è rifiutata', async () => {
+    const r = await hook({ email: 'sconosciuto@esempio.it', app_metadata: { provider: 'email' } });
+    expect(r.error?.http_code).toBe(403);
+    expect(r.error?.message).toMatch(/solo su invito/);
+    expect(
+      await hook({ email: 'sconosciuto@esempio.it', user_metadata: { invite_code: 'ZZZZZZ' } }),
+    ).toHaveProperty('error');
+  });
+
+  it('con il codice di una lega si entra, scritto in qualunque modo', async () => {
+    const messy = `${league.invite_code.slice(0, 3).toLowerCase()}-${league.invite_code.slice(3)}`;
+    expect(await hook({ email: 'nuovo@esempio.it', user_metadata: { invite_code: messy } })).toEqual({});
+  });
+
+  it('il commissario invita per email; chi si iscrive consuma l’invito', async () => {
+    await expect(
+      call(U.marco, 'select public.invite_email($1, $2)', [league.league_id, 'amico@esempio.it']),
+    ).rejects.toThrow(/Solo il commissario/);
+    await expect(
+      call(U.giulia, 'select public.invite_email($1, $2)', [league.league_id, 'non è una email']),
+    ).rejects.toThrow(/non valido/);
+    await call(U.giulia, 'select public.invite_email($1, $2)', [league.league_id, '  Amico@Esempio.IT ']);
+    // Due volte lo stesso: niente doppioni
+    await call(U.giulia, 'select public.invite_email($1, $2)', [league.league_id, 'amico@esempio.it']);
+    const seen = await call(U.giulia, 'select email from public.signup_invites where league_id = $1', [
+      league.league_id,
+    ]);
+    expect(seen.rows).toEqual([{ email: 'amico@esempio.it' }]);
+    // Gli altri manager non vedono gli inviti
+    const hidden = await call(U.marco, 'select email from public.signup_invites', []);
+    expect(hidden.rows).toEqual([]);
+    // Anche con Google, che non manda metadati
+    expect(
+      await hook({ email: 'AMICO@esempio.it', app_metadata: { provider: 'google', providers: ['google'] } }),
+    ).toEqual({});
+    await db.query(`insert into auth.users (id, email) values (gen_random_uuid(), 'amico@esempio.it')`);
+    const left = await one<{ n: number }>(
+      `select count(*)::int as n from public.signup_invites where email = 'amico@esempio.it'`,
+    );
+    expect(left.n).toBe(0);
+  });
+
+  it('gli inviti si tolgono e hanno un limite per lega', async () => {
+    await call(U.giulia, 'select public.invite_email($1, $2)', [league.league_id, 'uno@esempio.it']);
+    await call(U.giulia, 'select public.remove_invite($1, $2)', [league.league_id, 'UNO@esempio.it']);
+    expect((await hook({ email: 'uno@esempio.it' })).error).toBeTruthy();
+    await withFunction('private.max_invites_per_league()', 'select 2', async () => {
+      await call(U.giulia, 'select public.invite_email($1, $2)', [league.league_id, 'a@esempio.it']);
+      await call(U.giulia, 'select public.invite_email($1, $2)', [league.league_id, 'b@esempio.it']);
+      await expect(
+        call(U.giulia, 'select public.invite_email($1, $2)', [league.league_id, 'c@esempio.it']),
+      ).rejects.toThrow(/già 2 inviti/);
+    });
+  });
+
+  it('l’hook lo chiama solo Supabase Auth', async () => {
+    const can = async (role: string) =>
+      (
+        await one<{ ok: boolean }>(
+          `select has_function_privilege($1, 'public.hook_before_user_created(jsonb)', 'EXECUTE') as ok`,
+          [role],
+        )
+      ).ok;
+    expect(await can('supabase_auth_admin')).toBe(true);
+    for (const role of ['anon', 'authenticated', 'service_role']) expect(await can(role), role).toBe(false);
+    const schema = await one<{ ok: boolean }>(
+      `select has_schema_privilege('supabase_auth_admin', 'public', 'USAGE') as ok`,
+    );
+    expect(schema.ok).toBe(true);
+  });
+});
+
+describe('codice invito nuovo e bandi', () => {
+  let league: { league_id: string; invite_code: string };
+  beforeAll(async () => {
+    league = await createLeague('Lega del codice', U.giulia, 'BOS');
+    await join(U.nicola, league.invite_code, 'LAL');
+  });
+
+  it('il commissario cambia il codice: quello vecchio non vale più', async () => {
+    await expect(
+      call(U.nicola, 'select public.regenerate_invite_code($1)', [league.league_id]),
+    ).rejects.toThrow(/Solo il commissario/);
+    const fresh = (await call(U.giulia, 'select public.regenerate_invite_code($1) as c', [league.league_id]))
+      .rows[0] as { c: string };
+    expect(fresh.c).toMatch(/^[A-HJKMNP-Z2-9]{6}$/);
+    expect(fresh.c).not.toBe(league.invite_code);
+    await expect(join(U.sara, league.invite_code, 'MIA')).rejects.toThrow(/Codice invito non valido/);
+    await join(U.sara, fresh.c, 'MIA');
+    expect(await isMember(league.league_id, U.sara)).toBe(true);
+    league.invite_code = fresh.c;
+  });
+
+  it('il commissario vede gli esclusi e toglie il bando', async () => {
+    await call(U.giulia, 'select public.expel_manager($1)', [await teamId(league.league_id, 'LAL')]);
+    await expect(join(U.nicola, league.invite_code, 'LAL')).rejects.toThrow(/ti ha escluso/);
+    await expect(
+      call(U.sara, 'select * from public.league_bans_list($1)', [league.league_id]),
+    ).rejects.toThrow(/Solo il commissario/);
+    const bans = await call(U.giulia, 'select user_id, display_name from public.league_bans_list($1)', [
+      league.league_id,
+    ]);
+    expect(bans.rows).toEqual([{ user_id: U.nicola, display_name: 'Nicola' }]);
+    await expect(
+      call(U.sara, 'select public.unban_manager($1, $2)', [league.league_id, U.nicola]),
+    ).rejects.toThrow(/Solo il commissario/);
+    await call(U.giulia, 'select public.unban_manager($1, $2)', [league.league_id, U.nicola]);
+    await join(U.nicola, league.invite_code, 'LAL');
+    expect(await isMember(league.league_id, U.nicola)).toBe(true);
+  });
+});
+
+describe('cambi di squadra durante una simulazione', () => {
+  let league: { league_id: string; invite_code: string };
+  const setRound = (sql: string) =>
+    db.query(
+      `update public.rounds set ${sql}
+       where id = (select current_round_id from public.leagues where id = $1)`,
+      [league.league_id],
+    );
+
+  beforeAll(async () => {
+    league = await createLeague('Lega del lock', U.giulia, 'BOS');
+    await db.query(`insert into auth.users (id, email) values ($1, 'tommaso@nbbgm.test')`, [
+      stableUuid('user:tommaso-commissario'),
+    ]);
+  });
+
+  it('non si entra mentre il turno si simula; con il turno fermo sì', async () => {
+    await setRound(`state = 'closing', closing_started_at = now(), attempts = 1`);
+    await expect(join(U.marco, league.invite_code, 'DAL')).rejects.toThrow(/si sta simulando/);
+    expect(await isMember(league.league_id, U.marco)).toBe(false);
+    // Fermo dopo l'ultimo tentativo: nessuno sta scrivendo, si entra (la ripresa leggerà lo stato nuovo)
+    await setRound(`attempts = 3, failed_at = now()`);
+    await join(U.marco, league.invite_code, 'DAL');
+    expect(await isMember(league.league_id, U.marco)).toBe(true);
+    // Lo stesso per il commissario che libera una squadra con il turno bloccato
+    await call(U.giulia, 'select public.free_team($1)', [await teamId(league.league_id, 'DAL')]);
+    expect(await isMember(league.league_id, U.marco)).toBe(false);
+    // In chiusura da più di 5 minuti: anche
+    await setRound(`failed_at = null, closing_started_at = now() - interval '6 minutes'`);
+    await join(U.marco, league.invite_code, 'DAL');
+    expect(await isMember(league.league_id, U.marco)).toBe(true);
+  });
+
+  it('un account non si cancella mentre una sua lega simula il turno', async () => {
+    const tommaso = stableUuid('user:tommaso-commissario');
+    await setRound(`state = 'open', closing_started_at = null, attempts = 0, failed_at = null`);
+    await join(tommaso, league.invite_code, 'PHX');
+    await setRound(`state = 'closing', closing_started_at = now(), attempts = 1`);
+    await expect(db.query('delete from auth.users where id = $1', [tommaso])).rejects.toThrow(
+      /si sta simulando/,
+    );
+    expect(await isMember(league.league_id, tommaso)).toBe(true);
+    await setRound(`state = 'open', closing_started_at = null, attempts = 0`);
+    await db.query('delete from auth.users where id = $1', [tommaso]);
+    expect(await isMember(league.league_id, tommaso)).toBe(false);
+    const phx = await one<{ owner_id: string | null }>('select owner_id from public.teams where id = $1', [
+      await teamId(league.league_id, 'PHX'),
+    ]);
+    expect(phx.owner_id).toBeNull();
   });
 });

@@ -222,6 +222,72 @@ export async function expelManager(teamId: string): Promise<void> {
   if (error) throw error;
 }
 
+/** Il commissario passa il ruolo a un altro manager della lega: da quel momento è un manager come gli altri. */
+export async function transferCommissioner(leagueId: string, userId: string): Promise<void> {
+  const { error } = await supabase.rpc('transfer_commissioner', { p_league: leagueId, p_user: userId });
+  if (error) throw error;
+}
+
+/** Il commissario cambia il codice invito: quello vecchio (e il suo link) non vale più. */
+export async function regenerateInviteCode(leagueId: string): Promise<string> {
+  const { data, error } = await supabase.rpc('regenerate_invite_code', { p_league: leagueId });
+  if (error) throw error;
+  return data as string;
+}
+
+export interface EmailInvite {
+  email: string;
+  createdAt: string;
+}
+
+/** Email invitate dal commissario (possono iscriversi anche con Google); chi si iscrive esce dall'elenco. */
+export async function listInvites(leagueId: string): Promise<EmailInvite[]> {
+  const { data, error } = await supabase
+    .from('signup_invites')
+    .select('email, created_at')
+    .eq('league_id', leagueId)
+    .order('created_at');
+  // App pubblicata prima della migrazione: nessun invito
+  if (error?.code === '42P01' || error?.code === 'PGRST205') return [];
+  if (error) throw error;
+  return ((data ?? []) as { email: string; created_at: string }[]).map((r) => ({
+    email: r.email,
+    createdAt: r.created_at,
+  }));
+}
+
+export async function inviteEmail(leagueId: string, email: string): Promise<void> {
+  const { error } = await supabase.rpc('invite_email', { p_league: leagueId, p_email: email });
+  if (error) throw error;
+}
+
+export async function removeInvite(leagueId: string, email: string): Promise<void> {
+  const { error } = await supabase.rpc('remove_invite', { p_league: leagueId, p_email: email });
+  if (error) throw error;
+}
+
+export interface BannedUser {
+  userId: string;
+  name: string;
+}
+
+/** Chi il commissario ha escluso dalla lega. */
+export async function listBans(leagueId: string): Promise<BannedUser[]> {
+  const { data, error } = await supabase.rpc('league_bans_list', { p_league: leagueId });
+  if (error?.code === 'PGRST202') return [];
+  if (error) throw error;
+  return ((data ?? []) as { user_id: string; display_name: string }[]).map((r) => ({
+    userId: r.user_id,
+    name: r.display_name,
+  }));
+}
+
+/** Il commissario toglie il bando: l'escluso può rientrare con il codice invito. */
+export async function unbanManager(leagueId: string, userId: string): Promise<void> {
+  const { error } = await supabase.rpc('unban_manager', { p_league: leagueId, p_user: userId });
+  if (error) throw error;
+}
+
 /** Il manager esce dalla lega: la sua squadra torna al bot. */
 export async function leaveLeague(leagueId: string): Promise<void> {
   const { error } = await supabase.rpc('leave_league', { p_league: leagueId });

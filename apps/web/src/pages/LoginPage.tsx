@@ -1,10 +1,11 @@
 // Accesso: Google oppure codice di 6 cifre via email (niente link magico: su iPhone si aprirebbe in Safari e
-// non nella PWA installata).
+// non nella PWA installata). L'iscrizione è solo su invito: chi arriva dal link d'invito (#/entra/CODICE) manda
+// il codice con la richiesta, e se il server rifiuta un account nuovo senza invito lo si chiede qui.
 import { useEffect, useState, type FormEvent } from 'react';
 import { Button, Card, ErrorText, TextInput } from '../components/ui.tsx';
 import { friendlyError, normalizeOtp } from '../lib/errors.ts';
 import { currentPlatform, preferEmailCode } from '../lib/install.ts';
-import { rememberPage } from '../lib/returnTo.ts';
+import { inviteCodeFromHash, isInviteRequired, oauthError, rememberPage } from '../lib/returnTo.ts';
 import { supabase } from '../lib/supabase.ts';
 
 const RESEND_SECONDS = 60;
@@ -14,8 +15,17 @@ export function LoginPage() {
   const [sentTo, setSentTo] = useState<string | null>(null);
   const [code, setCode] = useState('');
   const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  // Iscrizione con Google rifiutata (email non invitata): l'errore torna nell'indirizzo
+  const [error, setError] = useState<string | null>(() => oauthError(window.location.search));
   const [wait, setWait] = useState(0);
+  const [invite, setInvite] = useState(() => inviteCodeFromHash(window.location.hash) ?? '');
+  const [askInvite, setAskInvite] = useState(false);
+
+  // L'errore di Google, letto, esce dall'indirizzo (resta la pagina dopo #)
+  useEffect(() => {
+    if (new URLSearchParams(window.location.search).has('error'))
+      window.history.replaceState(null, '', window.location.pathname + window.location.hash);
+  }, []);
   // Nell'app installata su iPhone Google si apre nel browser e l'accesso resta lì: meglio il codice via email
   const [emailFirst] = useState(() => preferEmailCode(currentPlatform()));
 
@@ -31,12 +41,17 @@ export function LoginPage() {
     if (!address) return;
     setBusy(true);
     setError(null);
+    // Il codice invito vale solo per un account nuovo (metadati dell'iscrizione): chi c'è già entra come prima
+    const code = invite.toUpperCase().replace(/[^A-Z0-9]/g, '');
     const { error } = await supabase.auth.signInWithOtp({
       email: address,
-      options: { shouldCreateUser: true },
+      options: { shouldCreateUser: true, ...(code ? { data: { invite_code: code } } : {}) },
     });
     setBusy(false);
-    if (error) return setError(friendlyError(error));
+    if (error) {
+      if (isInviteRequired(error.message)) setAskInvite(true);
+      return setError(friendlyError(error));
+    }
     setSentTo(address);
     setCode('');
     setWait(RESEND_SECONDS);
@@ -106,6 +121,17 @@ export function LoginPage() {
                 onChange={(e) => setEmail(e.target.value)}
                 placeholder="nome@esempio.it"
               />
+              {askInvite && (
+                <TextInput
+                  label="Codice invito della lega"
+                  hint="Te lo dà chi ha creato la lega: sono 6 caratteri, gli stessi del link d’invito."
+                  autoComplete="off"
+                  autoCapitalize="characters"
+                  value={invite}
+                  onChange={(e) => setInvite(e.target.value)}
+                  placeholder="ABC234"
+                />
+              )}
               <Button type="submit" className="w-full" disabled={busy || !email.trim()}>
                 {busy ? 'Invio…' : 'Mandami il codice'}
               </Button>

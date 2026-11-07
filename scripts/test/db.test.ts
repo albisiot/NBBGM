@@ -101,17 +101,28 @@ describe('permessi', () => {
       'expel_manager(uuid)',
       'force_round(uuid)',
       'free_team(uuid)',
+      'invite_email(uuid,text)',
       'join_league(text,text)',
+      'league_bans_list(uuid)',
       'league_preview(text)',
       'leave_league(uuid)',
       'player_scouting(uuid)',
-      'reopen_round(uuid,boolean)',
+      'regenerate_invite_code(uuid)',
+      'remove_invite(uuid,text)',
+      'reopen_round(uuid,boolean,boolean)',
       'round_error(uuid)',
       'round_readiness(uuid)',
       'save_push_subscription(text,text,text,text)',
       'set_ready(uuid,boolean,uuid)',
       'team_balance(uuid)',
+      'transfer_commissioner(uuid,uuid)',
+      'unban_manager(uuid,uuid)',
     ]);
+    // Solo il server registra l'esito degli invii delle notifiche; l'hook delle iscrizioni solo Supabase Auth
+    for (const role of ['anon', 'authenticated'])
+      expect(rows.some((r) => r.name === 'push_failed(text[],text[])' && r.role === role)).toBe(false);
+    expect(rows.some((r) => r.name === 'push_failed(text[],text[])' && r.role === 'service_role')).toBe(true);
+    expect(rows.some((r) => r.name === 'hook_before_user_created(jsonb)')).toBe(false);
     // Solo il server salva l'errore di una simulazione fallita
     for (const role of ['anon', 'authenticated'])
       expect(rows.some((r) => r.name === 'record_round_error(uuid,text)' && r.role === role)).toBe(false);
@@ -166,6 +177,8 @@ describe('permessi', () => {
       'private.round_due(uuid)',
       'private.coach_active(uuid,uuid)',
       'private.team_readiness(uuid)',
+      'private.function_headers()',
+      'private.database_mb()',
     ]) {
       for (const role of ['anon', 'authenticated', 'service_role']) {
         const ok = await db.query<{ ok: boolean }>(`select has_function_privilege($1, $2, 'EXECUTE') as ok`, [

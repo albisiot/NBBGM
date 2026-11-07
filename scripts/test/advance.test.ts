@@ -192,6 +192,36 @@ describe('una sola simulazione per turno', () => {
     const first = serverTurn(rows, claim, { newId: ids() });
     const again = serverTurn(rows, claim, { newId: ids() });
     expect(JSON.stringify(again.payload)).toBe(JSON.stringify(first.payload));
+    // Le stesse righe in un altro ordine danno lo stesso turno: il motore le rimette in ordine fisso
+    const reversed = <T>(xs: T[]): T[] => [...xs].reverse();
+    const shuffled: LeagueStateRows = {
+      ...rows,
+      teams: reversed(rows.teams),
+      players: reversed(rows.players),
+      contracts: reversed(rows.contracts),
+      dead_money: reversed(rows.dead_money),
+      injuries: reversed(rows.injuries),
+      draft_picks: reversed(rows.draft_picks),
+      draft_swaps: reversed(rows.draft_swaps),
+      team_settings: reversed(rows.team_settings),
+    };
+    expect(rows.contracts.length).toBeGreaterThan(100);
+    expect(rows.draft_picks.length).toBeGreaterThan(100);
+    expect(JSON.stringify(serverTurn(shuffled, claim, { newId: ids() }).payload)).toBe(
+      JSON.stringify(first.payload),
+    );
+    // E il database le dà già in ordine, con l'id come ultimo criterio
+    const sorted = (xs: string[]) => [...xs].sort();
+    for (const [name, list] of [
+      ['contracts', rows.contracts.map((c) => c.player_id)],
+      ['draft_picks', rows.draft_picks.map((k) => k.id)],
+      ['draft_swaps', rows.draft_swaps.map((w) => w.id)],
+      ['injuries', rows.injuries.map((i) => i.player_id)],
+      ['team_settings', rows.team_settings.map((x) => x.team_id)],
+      ['coach_delegations', (rows.coach_delegations ?? []).map((d) => d.team_id)],
+      ['draft_lists', (rows.draft_lists ?? []).map((d) => d.team_id)],
+    ] as const)
+      expect(list, name).toEqual(sorted([...list]));
 
     // Prima dei 5 minuti nessuno la riprende
     expect((await advance()).advanced).toBe(false);
@@ -632,5 +662,181 @@ describe('turni bloccati in chiusura', () => {
     expect((await roundRow(round.id)).seed).toBe(seed);
     await allReady();
     expect(await advance()).toMatchObject({ advanced: true, reason: 'ready' });
+  });
+});
+
+describe('turni bloccati senza commissario', () => {
+  const claim = () => serviceRpc(db).rpc<TurnClaim | null>('try_close_round', { p_league: LEAGUE });
+  const row = async (id: string) =>
+    (
+      await db.query<{ state: string; failed_at: string | null; last_error: string | null; age: number }>(
+        `select state, failed_at, last_error, extract(epoch from now() - created_at)::int as age
+         from public.rounds where id = $1`,
+        [id],
+      )
+    ).rows[0]!;
+  /** Un turno chiuso la cui Edge Function è morta tre volte senza salvare nulla (tempo o memoria). */
+  async function killedThreeTimes() {
+    await allReady();
+    const round = await current();
+    expect(await claim()).toMatchObject({ round_id: round.id, reclaimed: false });
+    await db.query(
+      `update public.rounds set attempts = 3, closing_started_at = now() - interval '6 minutes' where id = $1`,
+      [round.id],
+    );
+    expect((await advance()).advanced).toBe(false);
+    return round;
+  }
+  const reopen = (user: string, newSeed = false, withdraw = false) =>
+    asUser(db, user, (tx) => tx.query('select public.reopen_round($1, $2, $3)', [LEAGUE, newSeed, withdraw]));
+
+  it('una simulazione interrotta lascia il suo errore alla ripresa', async () => {
+    const round = await killedThreeTimes();
+    const r = await row(round.id);
+    expect(r.failed_at).not.toBeNull();
+    expect(r.last_error).toMatch(/Simulazione interrotta/);
+    expect(r.last_error).toMatch(/tempo o la memoria/);
+    // Un tentativo che ha salvato il suo errore non diventa "interrotto": la ripresa lo rifà e basta
+    await reopen(ANNA);
+    await allReady();
+    await expect(
+      advanceLeague(serviceRpc(db), LEAGUE, {
+        newId: randomUUID,
+        botProposals: false,
+        playGame: () => {
+          throw new Error('motore rotto');
+        },
+      }),
+    ).rejects.toThrow(/motore rotto/);
+    await db.query(
+      `update public.rounds set closing_started_at = now() - interval '6 minutes' where id = $1`,
+      [round.id],
+    );
+    expect(await claim()).toMatchObject({ round_id: round.id, reclaimed: true });
+    expect((await row(round.id)).last_error).toBe('motore rotto');
+    // Questo tentativo invece muore senza dire nulla: l'ultimo errore è di prima del suo inizio
+    await db.query(
+      `update public.rounds set last_error_at = now() - interval '10 minutes',
+         closing_started_at = now() - interval '6 minutes' where id = $1`,
+      [round.id],
+    );
+    expect(await advance()).toMatchObject({ advanced: true, reclaimed: true });
+    expect((await row(round.id)).last_error).toMatch(/Simulazione interrotta/);
+  });
+
+  it('dopo 6 ore dal blocco qualsiasi membro riapre, anche ritirando il mercato in sospeso', async () => {
+    const round = await killedThreeTimes();
+    // Una proposta di scambio a Carla (con il suo avviso) e un'offerta di Bruno a uno svincolato
+    const offer = await db.query<{ id: string }>(
+      `insert into public.trade_offers (league_id, from_team_id, to_team_id, status, created_round_id)
+       values ($1, $2, $3, 'pending', $4) returning id`,
+      [LEAGUE, LAL, NYK, round.id],
+    );
+    await db.query(
+      `insert into public.alerts (league_id, team_id, kind, blocking, payload, round_id)
+       values ($1, $2, 'trade_offer', true, jsonb_build_object('trade_id', $3::text), $4)`,
+      [LEAGUE, NYK, offer.rows[0]!.id, round.id],
+    );
+    const free = await db.query<{ id: string }>(
+      'select id from public.players where league_id = $1 and team_id is null and not retired limit 1',
+      [LEAGUE],
+    );
+    await db.query(
+      `insert into public.free_agent_bids (league_id, round_id, team_id, player_id, salaries)
+       values ($1, $2, $3, $4, '{1500000}')`,
+      [LEAGUE, round.id, LAL, free.rows[0]!.id],
+    );
+
+    // Appena fermo lo riapre solo il commissario
+    await expect(reopen(BRUNO)).rejects.toThrow(/Solo il commissario.*6 ore/);
+    await db.query(`update public.rounds set failed_at = now() - interval '5 hours' where id = $1`, [
+      round.id,
+    ]);
+    await expect(reopen(CARLA)).rejects.toThrow(/Solo il commissario/);
+    // Chi non è nella lega mai
+    await expect(reopen('00000000-0000-0000-0000-0000000000aa')).rejects.toThrow(/Non fai parte/);
+    await db.query(`update public.rounds set failed_at = now() - interval '7 hours' where id = $1`, [
+      round.id,
+    ]);
+    await reopen(BRUNO, false, true);
+
+    const r = await row(round.id);
+    expect(r.state).toBe('open');
+    // Anche l'orologio del ritmo riparte da adesso
+    expect(r.age).toBeLessThan(5);
+    const status = async (sql: string) =>
+      (await db.query<{ s: string }>(sql, [offer.rows[0]!.id])).rows[0]!.s;
+    expect(await status('select status as s from public.trade_offers where id = $1')).toBe('withdrawn');
+    expect(
+      await status(
+        `select status as s from public.alerts where kind = 'trade_offer' and payload ->> 'trade_id' = $1::text`,
+      ),
+    ).toBe('expired');
+    const bids = await db.query<{ status: string }>(
+      'select status from public.free_agent_bids where round_id = $1',
+      [round.id],
+    );
+    expect(bids.rows.map((b) => b.status)).toEqual(['withdrawn']);
+    await allReady();
+    expect(await advance()).toMatchObject({ advanced: true, reason: 'ready' });
+  });
+
+  it('con tutti gli allenatori il turno riaperto aspetta di nuovo il ritmo massimo', async () => {
+    for (const [, team] of MANAGERS)
+      await db.query(
+        `insert into public.coach_delegations (team_id, league_id, active) values ($1, $2, true)
+         on conflict (team_id) do update set active = true, until_round = null, until_at = null`,
+        [team, LEAGUE],
+      );
+    await pastPace();
+    const round = await current();
+    expect(await claim()).toMatchObject({ round_id: round.id, reason: 'coach' });
+    await db.query(
+      `update public.rounds set attempts = 3, closing_started_at = now() - interval '6 minutes' where id = $1`,
+      [round.id],
+    );
+    expect((await advance()).advanced).toBe(false);
+    await reopen(ANNA);
+    // Prima tornava subito in chiusura: il ritmo si contava dall'apertura vera del turno
+    expect((await advance()).advanced).toBe(false);
+    expect((await current()).state).toBe('open');
+    await pastPace();
+    expect(await advance()).toMatchObject({ advanced: true, reason: 'coach' });
+    await db.query('delete from public.coach_delegations where league_id = $1', [LEAGUE]);
+  });
+});
+
+describe('passaggio del commissario', () => {
+  const transfer = (user: string, to: string) =>
+    asUser(db, user, (tx) => tx.query('select public.transfer_commissioner($1, $2)', [LEAGUE, to]));
+  const roles = async () =>
+    Object.fromEntries(
+      (
+        await db.query<{ user_id: string; role: string }>(
+          'select user_id, role from public.league_members where league_id = $1',
+          [LEAGUE],
+        )
+      ).rows.map((r) => [r.user_id, r.role]),
+    );
+
+  it('il commissario passa il ruolo a un manager; poi è un manager come gli altri', async () => {
+    await expect(transfer(BRUNO, CARLA)).rejects.toThrow(/Solo il commissario/);
+    await expect(transfer(ANNA, ANNA)).rejects.toThrow(/un altro manager/);
+    await expect(transfer(ANNA, '00000000-0000-0000-0000-0000000000aa')).rejects.toThrow(
+      /solo un manager della lega/,
+    );
+    await transfer(ANNA, BRUNO);
+    const league = await db.query<{ c: string }>(
+      'select commissioner_id as c from public.leagues where id = $1',
+      [LEAGUE],
+    );
+    expect(league.rows[0]!.c).toBe(BRUNO);
+    expect(await roles()).toMatchObject({ [ANNA]: 'manager', [BRUNO]: 'commissioner', [CARLA]: 'manager' });
+    // Ora forza Bruno, non più Anna
+    await expect(
+      asUser(db, ANNA, (tx) => tx.query('select public.force_round($1)', [LEAGUE])),
+    ).rejects.toThrow(/Solo il commissario/);
+    await transfer(BRUNO, ANNA);
+    expect(await roles()).toMatchObject({ [ANNA]: 'commissioner', [BRUNO]: 'manager' });
   });
 });

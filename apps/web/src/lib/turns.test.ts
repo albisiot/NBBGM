@@ -4,6 +4,8 @@ import {
   barView,
   coachActive,
   countsAsReady,
+  MEMBER_REOPEN_HOURS,
+  memberReopenAt,
   readiness,
   readinessNote,
   readyWarnings,
@@ -163,6 +165,14 @@ describe('testi', () => {
   });
 });
 
+describe('avviso dello spazio', () => {
+  it('dice quanto occupa il database', () => {
+    const t = alertText({ kind: 'storage', payload: { mb: 412.3, limit_mb: 500 } });
+    expect(t.title).toBe('Database quasi pieno');
+    expect(t.body).toContain('412.3 MB su 500');
+  });
+});
+
 describe('turno fermo in chiusura', () => {
   const closing = (startedMinutesAgo: number) => ({
     ...(status().round as NonNullable<TurnStatus['round']>),
@@ -179,6 +189,14 @@ describe('turno fermo in chiusura', () => {
     expect(roundStuck(closing(6), { attempts: 1, failedAt: null }, NOW)).toBe(true);
     expect(roundStuck(closing(6), null, NOW)).toBe(true);
     expect(roundStuck(closing(1), { attempts: 3, failedAt: new Date(NOW).toISOString() }, NOW)).toBe(true);
+  });
+
+  it('gli altri membri lo riaprono solo qualche ora dopo il blocco', () => {
+    expect(memberReopenAt(null)).toBeNull();
+    expect(memberReopenAt({ attempts: 1, failedAt: null })).toBeNull();
+    const failedAt = new Date(NOW).toISOString();
+    expect(memberReopenAt({ attempts: 3, failedAt })).toBe(NOW + MEMBER_REOPEN_HOURS * 3600_000);
+    expect(MEMBER_REOPEN_HOURS).toBe(6);
   });
 });
 

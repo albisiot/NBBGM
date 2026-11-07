@@ -361,10 +361,30 @@ export async function roundError(leagueId: string): Promise<string | null> {
   return (data as string | null) ?? null;
 }
 
-/** Il commissario riapre il turno fermo in chiusura; con newSeed la simulazione si rifà con un caso diverso. */
-export async function reopenRound(leagueId: string, newSeed: boolean): Promise<void> {
-  const { error } = await supabase.rpc('reopen_round', { p_league: leagueId, p_new_seed: newSeed });
+/**
+ * Riapre il turno fermo in chiusura (il commissario, o qualsiasi membro MEMBER_REOPEN_HOURS ore dopo il blocco);
+ * con newSeed la simulazione si rifà con un caso diverso, con withdrawMarket si ritirano offerte, scambi, tagli e
+ * rinnovi in sospeso di tutta la lega.
+ */
+export async function reopenRound(leagueId: string, newSeed: boolean, withdrawMarket = false): Promise<void> {
+  const { error } = await supabase.rpc('reopen_round', {
+    p_league: leagueId,
+    p_new_seed: newSeed,
+    p_withdraw_market: withdrawMarket,
+  });
   if (error) throw error;
+}
+
+/** Ore dopo il blocco del turno oltre le quali lo riapre qualsiasi membro (private.member_reopen_hours). */
+export const MEMBER_REOPEN_HOURS = 6;
+
+/**
+ * Da quando un membro che non è il commissario può riaprire il turno bloccato (null se non è bloccato): il
+ * commissario può sempre.
+ */
+export function memberReopenAt(trouble: RoundTrouble | null): number | null {
+  if (!trouble?.failedAt) return null;
+  return Date.parse(trouble.failedAt) + MEMBER_REOPEN_HOURS * 3600_000;
 }
 
 export async function setPaused(leagueId: string, paused: boolean): Promise<void> {
@@ -443,6 +463,12 @@ export function alertText(a: Pick<AlertItem, 'kind' | 'payload'>): {
       };
     case 'market':
       return { title: 'Mercato', body: String(p.text ?? ''), action: 'Ok' };
+    case 'storage':
+      return {
+        title: 'Database quasi pieno',
+        body: `Il database del gioco occupa ${String(p.mb)} MB su ${String(p.limit_mb ?? 500)}: per ora non si creano leghe nuove. Se avete leghe che non giocate più, eliminatele dalla loro pagina.`,
+        action: 'Ok',
+      };
     case 'draft_pick': {
       const picks = Array.isArray(p.picks) ? (p.picks as number[]) : [];
       return {

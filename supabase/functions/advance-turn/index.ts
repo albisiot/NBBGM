@@ -1,10 +1,12 @@
 // Edge Function advance-turn: chiude e simula il turno corrente di una lega, se è il momento. La chiamano il
 // database (pg_net) all'ultimo Pronto o quando il commissario forza, e pg_cron per scadenze, ritmo degli
 // allenatori e riprese. Chi chiama non decide nulla: try_close_round controlla nel database se il turno va
-// chiuso e lascia passare solo la prima chiamata, apply_turn scrive tutto in una sola transazione.
+// chiuso e lascia passare solo la prima chiamata, apply_turn scrive tutto in una sola transazione. Con il segreto
+// NBBGM_FUNCTIONS_SECRET configurato accetta solo le chiamate del database (intestazione x-nbbgm-secret).
 //
 // POST { league_id }  ->  { advanced: false } | { advanced: true, reason, next_round, summary }
 import { createClient } from 'npm:@supabase/supabase-js@2.118.0';
+import { SECRET_ENV, trustedCaller } from '../_shared/secret.ts';
 import { advanceLeague, type ServerDb } from '../_shared/turn.ts';
 
 const CORS = {
@@ -30,6 +32,7 @@ function serverKey(): string {
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: CORS });
   if (req.method !== 'POST') return json({ error: 'Metodo non ammesso' }, 405);
+  if (!trustedCaller(req.headers, Deno.env.get(SECRET_ENV))) return json({ error: 'Non autorizzato' }, 401);
   const body = (await req.json().catch(() => null)) as { league_id?: unknown } | null;
   const leagueId = typeof body?.league_id === 'string' ? body.league_id : '';
   if (!/^[0-9a-f-]{36}$/i.test(leagueId)) return json({ error: 'Lega mancante' }, 400);

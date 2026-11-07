@@ -2,10 +2,12 @@
 // le scrive se nel frattempo nessun'altra richiesta ha fatto avanzare il draft.
 //
 // POST { league_id, action: 'start' | 'pick' | 'tick' | 'to-list', player_id? }  ->  { next, state, picks }
-// tick si può chiamare anche senza utente (pg_cron): sceglie solo se il tempo della chiamata è scaduto.
+// tick si può chiamare anche senza utente (pg_cron): sceglie solo se il tempo della chiamata è scaduto. Con il
+// segreto NBBGM_FUNCTIONS_SECRET configurato, il tick senza utente lo accetta solo dal database (x-nbbgm-secret).
 import { createClient } from 'npm:@supabase/supabase-js@2.118.0';
 import { DraftError, planDraft, type DraftAction } from '../../../packages/engine/src/index.ts';
 import { applyArgs, snapshotFromRow, type DraftSnapshotRow } from '../_shared/draft.ts';
+import { SECRET_ENV, trustedCaller } from '../_shared/secret.ts';
 
 const CORS = {
   'Access-Control-Allow-Origin': '*',
@@ -57,6 +59,8 @@ Deno.serve(async (req) => {
     // Il tempo scaduto lo controlla anche pg_cron, senza utente: tick sceglie solo se la scadenza è passata
     const token = (req.headers.get('Authorization') ?? '').replace(/^Bearer\s+/i, '');
     const system = body?.action === 'tick' && !token;
+    if (system && !trustedCaller(req.headers, Deno.env.get(SECRET_ENV)))
+      throw new RequestError('Non autorizzato', 401);
     let userId = '';
     if (!system) {
       if (!token) throw new RequestError('Devi accedere', 401);

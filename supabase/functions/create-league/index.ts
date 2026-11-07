@@ -139,6 +139,9 @@ Deno.serve(async (req) => {
     });
     const { data, error } = await admin.rpc('insert_league', { p_league: payload });
     if (error?.hint === 'league_limit') throw new RequestError(LEAGUE_LIMIT_MESSAGE, 409);
+    // Limite di tutto il database o spazio quasi esaurito: il messaggio del database è già per il manager
+    if (error?.hint === 'league_limit_total' || error?.hint === 'storage_full')
+      throw new RequestError(error.message, 409);
     if (error) throw new Error(`Scrittura della lega: ${error.message}`);
     return json(data);
   } catch (e) {

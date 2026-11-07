@@ -1,5 +1,12 @@
 import { describe, expect, it } from 'vitest';
-import { saveReturnTo, takeReturnTo, type ReturnStorage } from './returnTo.ts';
+import {
+  inviteCodeFromHash,
+  isInviteRequired,
+  oauthError,
+  saveReturnTo,
+  takeReturnTo,
+  type ReturnStorage,
+} from './returnTo.ts';
 
 function memory(): ReturnStorage & { size: () => number } {
   const m = new Map<string, string>();
@@ -44,5 +51,32 @@ describe('pagina da riaprire dopo il login con Google', () => {
     const s = memory();
     saveReturnTo('#/entra/ABC123', s);
     expect(takeReturnTo('?code=xyz', '#/profilo', s)).toBeNull();
+  });
+});
+
+describe('iscrizione su invito', () => {
+  it('prende il codice dalla pagina d’invito, scritto in qualunque modo', () => {
+    expect(inviteCodeFromHash('#/entra/ABC234')).toBe('ABC234');
+    expect(inviteCodeFromHash('#/entra/abc-234')).toBe('ABC234');
+    expect(inviteCodeFromHash('#/entra/abc%20234?x=1')).toBe('ABC234');
+    expect(inviteCodeFromHash('#/entra')).toBeNull();
+    expect(inviteCodeFromHash('#/entra/AB')).toBeNull();
+    expect(inviteCodeFromHash('#/lega/ABC234')).toBeNull();
+    expect(inviteCodeFromHash('')).toBeNull();
+    expect(inviteCodeFromHash('#/entra/%E0%A4%A')).toBeNull();
+  });
+
+  it('riconosce il rifiuto per mancanza d’invito', () => {
+    expect(isInviteRequired('Iscrizione solo su invito: entra dal link della lega')).toBe(true);
+    expect(isInviteRequired('Codice sbagliato o scaduto.')).toBe(false);
+  });
+
+  it('legge l’errore di Google dall’indirizzo', () => {
+    expect(oauthError('?code=abc')).toBeNull();
+    expect(oauthError('')).toBeNull();
+    expect(oauthError('?error=access_denied&error_description=Iscrizione+solo+su+invito')).toBe(
+      'Iscrizione solo su invito',
+    );
+    expect(oauthError('?error=server_error')).toBe('Accesso con Google non riuscito.');
   });
 });

@@ -30,7 +30,7 @@ function serverKey(): string {
 
 // Errori del database che il manager deve leggere così come sono
 const USER_ERRORS =
-  /turno è già in chiusura|non trovata|già decisa|già chiusa|Niente da cambiare|Squadra non/;
+  /turno è già in chiusura|non trovata|già decisa|già chiusa|Niente da cambiare|Squadra non|proposte a questa squadra/;
 
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: CORS });

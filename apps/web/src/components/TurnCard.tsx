@@ -10,6 +10,8 @@ import {
   countsAsReady,
   forceRound,
   MAX_ROUND_ATTEMPTS,
+  MEMBER_REOPEN_HOURS,
+  memberReopenAt,
   readiness,
   readinessNote,
   readyWarnings,
@@ -246,8 +248,9 @@ export function TurnCard({
             trouble={status.trouble}
             paused={status.paused}
             isCommissioner={isCommissioner}
+            now={now}
             busy={busy}
-            onReopen={(newSeed) => void run(() => reopenRound(league.id, newSeed))}
+            onReopen={(newSeed, withdraw) => void run(() => reopenRound(league.id, newSeed, withdraw))}
           />
         )}
 
@@ -378,13 +381,15 @@ export function TurnCard({
 
 /**
  * Turno rimasto in chiusura: il server riprova da solo ogni 5 minuti, fino a 3 tentativi; poi il turno si ferma
- * e il commissario lo riapre (vede anche l'errore). Riaperto, torna aperto e tutti confermano di nuovo.
+ * e il commissario lo riapre (vede anche l'errore), o qualsiasi membro qualche ora dopo il blocco. Riaperto,
+ * torna aperto e tutti confermano di nuovo.
  */
 function StuckRound({
   leagueId,
   trouble,
   paused,
   isCommissioner,
+  now,
   busy,
   onReopen,
 }: {
@@ -392,19 +397,23 @@ function StuckRound({
   trouble: RoundTrouble | null;
   paused: boolean;
   isCommissioner: boolean;
+  now: number;
   busy: boolean;
-  onReopen: (newSeed: boolean) => void;
+  onReopen: (newSeed: boolean, withdrawMarket: boolean) => void;
 }) {
   const failed = trouble?.failedAt != null;
+  const memberAt = memberReopenAt(trouble);
+  const canReopen = isCommissioner || (memberAt !== null && now >= memberAt);
   const { data: lastError } = useAsync(
     () => (isCommissioner ? roundError(leagueId) : Promise.resolve(null)),
     [leagueId, isCommissioner, trouble?.attempts, trouble?.failedAt],
   );
   const [confirm, setConfirm] = useState<'same' | 'new' | null>(null);
+  const [withdraw, setWithdraw] = useState(false);
   const click = (choice: 'same' | 'new') => {
     if (confirm !== choice) return setConfirm(choice);
     setConfirm(null);
-    onReopen(choice === 'new');
+    onReopen(choice === 'new', withdraw);
   };
   return (
     <div className="space-y-2 rounded-lg border border-red-300 bg-red-50 p-3 text-sm dark:border-red-800 dark:bg-red-950">
@@ -417,7 +426,11 @@ function StuckRound({
         {failed
           ? isCommissioner
             ? 'Il turno è fermo finché non lo riapri. Non è stato scritto nulla: riaperto, torna come prima e tutti confermano di nuovo il Pronto.'
-            : 'Il turno è fermo finché il commissario non lo riapre. Non è stato scritto nulla.'
+            : canReopen
+              ? `Il commissario non l’ha riaperto in ${MEMBER_REOPEN_HOURS} ore: ora puoi riaprirlo tu. Non è stato scritto nulla.`
+              : `Il turno è fermo finché il commissario non lo riapre${
+                  memberAt !== null ? ` (dalle ${clockTime(memberAt)} potrà farlo chiunque nella lega)` : ''
+                }. Non è stato scritto nulla.`
           : paused
             ? 'Il server riproverà quando la lega non sarà più in pausa.'
             : `Il server riprova da solo ogni 5 minuti${
@@ -427,7 +440,21 @@ function StuckRound({
       {isCommissioner && lastError && (
         <p className="font-mono text-xs break-words text-red-800 dark:text-red-200">Errore: {lastError}</p>
       )}
-      {isCommissioner && (
+      {canReopen && (
+        <label className="flex min-h-11 items-start gap-2 text-slate-700 dark:text-slate-200">
+          <input
+            type="checkbox"
+            className="mt-1 size-4 shrink-0"
+            checked={withdraw}
+            onChange={(e) => setWithdraw(e.target.checked)}
+          />
+          <span>
+            Ritira anche offerte agli svincolati, scambi, tagli e rinnovi in sospeso di tutta la lega (se il
+            blocco dipende dal mercato)
+          </span>
+        </label>
+      )}
+      {canReopen && (
         <div className="flex flex-wrap gap-2">
           <Button variant="secondary" disabled={busy} onClick={() => click('same')}>
             {confirm === 'same' ? 'Confermi? Il turno si riapre' : 'Riapri il turno'}
@@ -490,4 +517,13 @@ function AlertRow({
       </div>
     </div>
   );
+}
+
+/** "14:05" (o "6 nov, 14:05" se non è oggi), nell'ora del dispositivo. */
+function clockTime(ms: number): string {
+  const d = new Date(ms);
+  const time = d.toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit' });
+  return d.toDateString() === new Date().toDateString()
+    ? time
+    : `${d.toLocaleDateString('it-IT', { day: 'numeric', month: 'short' })}, ${time}`;
 }

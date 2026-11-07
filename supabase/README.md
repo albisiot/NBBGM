@@ -27,24 +27,31 @@ Senza `--remote` i comandi `db` puntano al database locale di Docker.
 
 ## Migrazioni
 
-| File                                     | Contenuto                                                                                                                                                                                                        |
-| ---------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `20261105090000_schema.sql`              | Le tabelle del modello dati (CLAUDE.md, Modello dati essenziale), più `league_members` e `dead_money`.                                                                                                           |
-| `20261105090100_security.sql`            | RLS su ogni tabella, permessi minimi, `player_hidden` e `base_*` chiuse al client, controllo di quintetto e minuti, profilo per ogni nuovo utente.                                                               |
-| `20261105090200_turns.sql`               | `set_ready`, `round_all_ready`, `close_round`, `reclaim_round` e `apply_turn`.                                                                                                                                   |
-| `20261105100000_private_helpers.sql`     | Le funzioni delle policy passano nello schema `private`, che l'API non espone; `coach_ready` e `round_all_ready` solo per il server.                                                                             |
-| `20261105100100_foreign_key_indexes.sql` | Un indice per ogni chiave esterna.                                                                                                                                                                               |
-| `20261105110000_leagues.sql`             | `insert_league` (solo server), `league_preview` e `join_league` per entrare con il codice invito.                                                                                                                |
-| `20261105120000_initial_draft.sql`       | Draft iniziale: tabelle, liste dei preferiti (solo del manager), `draft_snapshot` e `apply_draft_picks` (solo server), `insert_league` esteso.                                                                   |
-| `20261105130000_roster.sql`              | `league_state` (solo server: lo stato della lega per il motore) e `player_scouting` (stime dei valori nascosti per la scheda giocatore).                                                                         |
-| `20261105140000_advance.sql`             | Avanzamento dei turni: `try_close_round`, `force_round`, `answer_alert`, `set_ready` che chiama advance-turn, pg_net, pg_cron, tempo reale.                                                                      |
-| `20261105140100_pause_deadline.sql`      | La pausa ferma anche la scadenza: alla ripresa la scadenza del turno aperto riparte da adesso.                                                                                                                   |
-| `20261105150000_postseason.sql`          | Play-in e playoff: si gioca anche lì, conta solo chi ha una partita nel turno, `league_state` con le serie; `leagues.seed` non più leggibile dal client.                                                         |
-| `20261105160000_market.sql`              | Mercato: `market_write` (solo server, a turno aperto), `apply_round`, `roster_requests`, protezioni negli scambi, `team_balance`; niente scritture dirette su offerte e scambi, saldo non leggibile dagli altri. |
-| `20261105170000_offseason.sql`           | Offseason a turni: `rounds.stage`, prospetti (`players.draft_prospect`), `draft_order`, `draft_lists` (del manager), `apply_round` con draft e stagione nuova, l'offseason si gioca.                             |
-| `20261106120000_chronicle.sql`           | Cronaca della lega: `transactions.team_codes`, le sigle delle squadre citate, ricavate dal testo da un trigger (anche per le righe già scritte), con gli indici per leggerla dalla più recente.                  |
-| `20261106130000_season_history.sql`      | Storico: `player_seasons` (statistiche di regular season salvate a fine regular season, per i membri), `apply_round` con la sezione `player_seasons`, stagioni già giocate ricostruite dai box score.            |
-| `20261106140000_push.sql`                | Notifiche push: `push_subscriptions` e `notification_settings` (ognuno le sue), coda `push_outbox` (solo server) riempita dai trigger, `push_take` e `push_gone` per la Edge Function, job `nbbgm-notifiche`.    |
+| File                                      | Contenuto                                                                                                                                                                                                                                           |
+| ----------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `20261105090000_schema.sql`               | Le tabelle del modello dati (CLAUDE.md, Modello dati essenziale), più `league_members` e `dead_money`.                                                                                                                                              |
+| `20261105090100_security.sql`             | RLS su ogni tabella, permessi minimi, `player_hidden` e `base_*` chiuse al client, controllo di quintetto e minuti, profilo per ogni nuovo utente.                                                                                                  |
+| `20261105090200_turns.sql`                | `set_ready`, `round_all_ready`, `close_round`, `reclaim_round` e `apply_turn`.                                                                                                                                                                      |
+| `20261105100000_private_helpers.sql`      | Le funzioni delle policy passano nello schema `private`, che l'API non espone; `coach_ready` e `round_all_ready` solo per il server.                                                                                                                |
+| `20261105100100_foreign_key_indexes.sql`  | Un indice per ogni chiave esterna.                                                                                                                                                                                                                  |
+| `20261105110000_leagues.sql`              | `insert_league` (solo server), `league_preview` e `join_league` per entrare con il codice invito.                                                                                                                                                   |
+| `20261105120000_initial_draft.sql`        | Draft iniziale: tabelle, liste dei preferiti (solo del manager), `draft_snapshot` e `apply_draft_picks` (solo server), `insert_league` esteso.                                                                                                      |
+| `20261105130000_roster.sql`               | `league_state` (solo server: lo stato della lega per il motore) e `player_scouting` (stime dei valori nascosti per la scheda giocatore).                                                                                                            |
+| `20261105140000_advance.sql`              | Avanzamento dei turni: `try_close_round`, `force_round`, `answer_alert`, `set_ready` che chiama advance-turn, pg_net, pg_cron, tempo reale.                                                                                                         |
+| `20261105140100_pause_deadline.sql`       | La pausa ferma anche la scadenza: alla ripresa la scadenza del turno aperto riparte da adesso.                                                                                                                                                      |
+| `20261105150000_postseason.sql`           | Play-in e playoff: si gioca anche lì, conta solo chi ha una partita nel turno, `league_state` con le serie; `leagues.seed` non più leggibile dal client.                                                                                            |
+| `20261105160000_market.sql`               | Mercato: `market_write` (solo server, a turno aperto), `apply_round`, `roster_requests`, protezioni negli scambi, `team_balance`; niente scritture dirette su offerte e scambi, saldo non leggibile dagli altri.                                    |
+| `20261105170000_offseason.sql`            | Offseason a turni: `rounds.stage`, prospetti (`players.draft_prospect`), `draft_order`, `draft_lists` (del manager), `apply_round` con draft e stagione nuova, l'offseason si gioca.                                                                |
+| `20261106120000_chronicle.sql`            | Cronaca della lega: `transactions.team_codes`, le sigle delle squadre citate, ricavate dal testo da un trigger (anche per le righe già scritte), con gli indici per leggerla dalla più recente.                                                     |
+| `20261106130000_season_history.sql`       | Storico: `player_seasons` (statistiche di regular season salvate a fine regular season, per i membri), `apply_round` con la sezione `player_seasons`, stagioni già giocate ricostruite dai box score.                                               |
+| `20261106140000_push.sql`                 | Notifiche push: `push_subscriptions` e `notification_settings` (ognuno le sue), coda `push_outbox` (solo server) riempita dai trigger, `push_take` e `push_gone` per la Edge Function, job `nbbgm-notifiche`.                                       |
+| `20261106170000_function_secret.sql`      | Segreto delle chiamate del database alle Edge Functions: `private.function_headers` (intestazione `x-nbbgm-secret` se in `private.settings` c'è `functions_secret`), usata da `private.kick`.                                                       |
+| `20261106170100_stuck_rounds_members.sql` | Turni bloccati: `transfer_commissioner`, `reopen_round` anche per i membri 6 ore dopo il blocco, con il ritmo che riparte e il mercato in sospeso da ritirare a scelta; errore dei tentativi interrotti (`rounds.last_error_at`).                   |
+| `20261106170200_invites.sql`              | Iscrizioni su invito: `signup_invites`, `invite_email`, `remove_invite`, hook `hook_before_user_created` (solo `supabase_auth_admin`); `regenerate_invite_code`, `league_bans_list`, `unban_manager`.                                               |
+| `20261106170300_storage_limits.sql`       | Spazio: cronaca solo della stagione in corso, misura notturna con avviso `storage` ai commissari da 400 MB, niente leghe nuove sopra 400 MB e al massimo 30 leghe in tutto.                                                                         |
+| `20261106170400_push_throttle.sql`        | Notifiche: decisioni raggruppate (`private.push_throttle`, una ogni 5 minuti per persona, turno e tipo), "Turno nuovo" solo a chi gioca, `push_failed` (iscrizioni rifiutate 3 volte di fila), al massimo 5 proposte alla stessa squadra per turno. |
+| `20261106170500_league_state_order.sql`   | `league_state` con un ordine fisso in ogni lista (stesso seed, stesso turno anche in una ripresa).                                                                                                                                                  |
+| `20261106170600_join_lock.sql`            | `join_league` e cancellazione dell'account con il lock del turno; `private.lock_open_round` rifiuta solo mentre una simulazione può essere in corso.                                                                                                |
 
 `supabase db advisors` lascia solo avvisi voluti:
 
@@ -56,9 +63,11 @@ Senza `--remote` i comandi `db` puntano al database locale di Docker.
 ## Chi può fare cosa
 
 - **Manager** (utente autenticato): legge le leghe di cui fa parte; cambia solo impostazioni e allenatore della propria squadra, e solo a turno aperto; preme Pronto con `set_ready`, risponde agli avvisi con `answer_alert` e legge il proprio saldo con `team_balance`. Offerte agli svincolati, scambi, tagli e rinnovi passano dalla Edge Function market: il client non scrive direttamente `free_agent_bids`, `trade_offers` e `roster_requests`. Le offerte agli svincolati le vede solo chi le fa; scambi e avvisi solo le squadre coinvolte; il bilancio la propria squadra (il commissario tutte).
-- **Commissario:** in più cambia nome, scadenza, ritmo e pausa della lega e forza l'avanzamento (`force_round`).
+- **Commissario:** in più cambia nome, scadenza, ritmo e pausa della lega e forza l'avanzamento (`force_round`); riapre il turno bloccato (`reopen_round`) e ne vede l'errore (`round_error`); libera ed espelle i manager (`free_team`, `expel_manager`), vede gli esclusi e toglie il bando (`league_bans_list`, `unban_manager`); cambia il codice invito (`regenerate_invite_code`), invita per email (`invite_email`, `remove_invite`, e legge `signup_invites` della sua lega); passa il ruolo a un altro manager (`transfer_commissioner`); elimina la lega (`delete_league`).
+- **Membri:** 6 ore dopo il blocco di un turno (`failed_at`) lo riapre anche chi non è il commissario (`reopen_round`).
 - **Notifiche:** ognuno vede e scrive solo le proprie iscrizioni (con `save_push_subscription` e `delete_push_subscription`) e le proprie preferenze (`notification_settings`). La coda `push_outbox` la legge solo il server.
 - **Senza login:** niente.
+- **Supabase Auth** (`supabase_auth_admin`): solo l'hook delle iscrizioni (`hook_before_user_created`).
 - **Server** (`service_role`, Edge Functions): tutto il resto. Solo lui chiude il turno (`try_close_round`) e scrive il risultato (`apply_turn`), e solo lui legge `player_hidden` e i dati di partenza.
 
 ## Edge Functions
@@ -69,11 +78,46 @@ Senza `--remote` i comandi `db` puntano al database locale di Docker.
 - **market** (`functions/market/index.ts`): `POST { league_id, action }` con il JWT dell'utente. Azioni: `bid`, `withdraw_bid`, `propose_trade`, `respond_trade`, `withdraw_trade`, `release`, `renew`, `withdraw_request`. Legge lo stato con `league_state`, controlla l'azione con il motore (`checkMarketAction` in `_shared/market.ts`: rosa, cap, bilancio, trade deadline, regola Stepien, protezioni, swap, richieste degli svincolati) e la scrive con `market_write`, che la accetta solo se il turno è ancora quello aperto. Tutto si esegue alla chiusura del turno: advance-turn passa il risultato ad `apply_round`, che scrive le sezioni del mercato e chiama `apply_turn`.
 - **push** (`functions/push/index.ts`): `POST` senza corpo né utente. La chiamano il database con pg_net (quando mette in coda una notifica) e pg_cron. Prende la coda con `push_take`, fa un messaggio per persona e lega (`_shared/push.ts`), lo cifra e lo manda a ogni dispositivo (`_shared/webpush.ts`, Web Push con WebCrypto, senza librerie) e cancella le iscrizioni scadute con `push_gone`. Risponde `{ taken, messages, sent, gone, failed }`. Senza le chiavi VAPID svuota la coda e non manda nulla.
 - Il `tick` di **draft** si può chiamare anche senza utente (lo fa pg_cron): sceglie solo se il tempo della chiamata è scaduto.
-- Il codice comune a funzioni e script sta in `functions/_shared/`: `league.ts`, `draft.ts`, `state.ts` (stato della lega dal database al motore), `turn.ts` (un turno: dal motore alle sezioni di `apply_turn`), `push.ts` e `webpush.ts` (notifiche).
+- **advance-turn**, **push** e il `tick` di **draft** senza utente, con il segreto `NBBGM_FUNCTIONS_SECRET` configurato, accettano solo le chiamate del database (intestazione `x-nbbgm-secret`): vedi "Segreto delle Edge Functions" qui sotto.
+- Il codice comune a funzioni e script sta in `functions/_shared/`: `league.ts`, `draft.ts`, `state.ts` (stato della lega dal database al motore), `turn.ts` (un turno: dal motore alle sezioni di `apply_turn`), `push.ts` e `webpush.ts` (notifiche), `secret.ts` (segreto delle chiamate dal database).
+
+## Segreto delle Edge Functions
+
+advance-turn, push e il `tick` del draft hanno `verify_jwt` spento perché li chiamano pg_net e pg_cron, senza utente. Il database manda con ogni chiamata l'intestazione `x-nbbgm-secret` con il valore di `private.settings` (chiave `functions_secret`, almeno 32 caratteri: `private.function_headers`); la funzione la confronta con il suo segreto `NBBGM_FUNCTIONS_SECRET` e risponde 401 senza toccare il database. Finché manca la riga nel database l'intestazione non parte; finché manca il segreto della funzione si accetta tutto come prima. Una chiamata rifiutata conta comunque come invocazione: il segreto impedisce agli altri di far girare turni e notifiche, non di fare richieste.
+
+Per attivarlo, una volta, dopo che la migrazione `20261106170000_function_secret.sql` è applicata (con il login della CLI come Owner e il progetto collegato, vedi sopra). L'ordine conta: prima il database, poi le funzioni, così nessuna chiamata resta senza intestazione.
+
+1. Crea un segreto sul tuo computer (64 caratteri esadecimali), e non metterlo nel repository:
+
+   ```
+   node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
+   ```
+
+2. Scrivilo nel database, dalla console SQL della dashboard (SQL Editor):
+
+   ```sql
+   insert into private.settings (key, value)
+   values ('functions_secret', '<segreto>')
+   on conflict (key) do update set value = excluded.value;
+   ```
+
+   Controllo: `select private.function_headers();` mostra `x-nbbgm-secret`.
+
+3. Mettilo tra i segreti delle Edge Functions:
+
+   ```
+   npx.cmd --yes supabase@3.0.0 secrets set --remote NBBGM_FUNCTIONS_SECRET=<segreto>
+   ```
+
+   In alternativa dalla dashboard: Edge Functions > Secrets, con lo stesso nome. Le funzioni lo leggono alla chiamata successiva, senza ripubblicarle.
+
+4. Prova: un turno che avanza (Pronto di tutti, o avanzamento forzato) e, in `select status_code, created from net._http_response order by created desc limit 5;`, risposte 200 e non 401.
+
+Per cambiarlo: togli prima il segreto dalle funzioni (`secrets unset --remote NBBGM_FUNCTIONS_SECRET`), aggiorna la riga del database, poi rimetti il segreto nuovo. Per spegnerlo: `secrets unset` e `delete from private.settings where key = 'functions_secret';`.
 
 ## Notifiche push
 
-Il database mette in coda (`push_outbox`) una notifica quando la lega passa al turno successivo (non a chi ha l'allenatore attivo), quando arriva un avviso bloccante e, nel draft iniziale dal vivo, quando la propria scelta entra nelle prossime 3 chiamate; solo per chi ha un dispositivo iscritto e quel tipo acceso nel profilo. La prima notifica di una transazione chiama la Edge Function `push` con pg_net (lo stesso `functions_url` di `private.settings` che usa advance-turn); il job pg_cron `nbbgm-notifiche` riprova ogni minuto e butta le notifiche più vecchie di 10 minuti. Su iPhone le notifiche arrivano da iOS 16.4 e solo nell'app installata sulla schermata Home.
+Il database mette in coda (`push_outbox`) una notifica quando la lega passa al turno successivo (non a chi ha l'allenatore attivo), quando arriva un avviso bloccante e, nel draft iniziale dal vivo, quando la propria scelta entra nelle prossime 3 chiamate; solo per chi ha un dispositivo iscritto e quel tipo acceso nel profilo. La prima notifica di una transazione chiama la Edge Function `push` con pg_net (lo stesso `functions_url` di `private.settings` che usa advance-turn); il job pg_cron `nbbgm-notifiche` riprova ogni minuto e butta le notifiche più vecchie di 10 minuti. Su iPhone le notifiche arrivano da iOS 16.4 e solo nell'app installata sulla schermata Home. Le notifiche di decisione uguali (stessa persona, stesso turno, stesso tipo di avviso) arrivano al massimo una ogni 5 minuti (`private.push_throttle`); "Turno nuovo" non arriva a chi in play-in e playoff non gioca il turno.
 
 Finché mancano le chiavi l'app non mostra nulla delle notifiche, nessuno si iscrive e la coda resta vuota. Per attivarle, una volta:
 
@@ -90,7 +134,7 @@ Finché mancano le chiavi l'app non mostra nulla delle notifiche, nessuno si isc
 4. Fai un push su `main` (o lancia a mano i workflow Supabase e GitHub Pages): `supabase.yml` applica la migrazione `20261106140000_push.sql` e pubblica la funzione `push` (`verify_jwt = false` in `config.toml`, come advance-turn); `pages.yml` pubblica l'app con la chiave. In `private.settings` non serve nulla di nuovo: basta la riga `functions_url` che c'è già.
 5. Prova: dal telefono, Profilo > Notifiche > Attiva su questo dispositivo (su iPhone prima installa l'app), poi un turno che avanza. Le risposte della funzione si vedono in `net._http_response` e nei log della funzione nella dashboard; la coda con `select * from public.push_outbox;` (si svuota in pochi secondi).
 
-Per provarle in locale serve la build (il service worker c'è solo lì): `VITE_VAPID_PUBLIC_KEY` in `apps/web/.env.local`, `pnpm build` e `vite preview`. Se si cambiano le chiavi, le iscrizioni vecchie non valgono più: ognuno riattiva le notifiche dal profilo (le iscrizioni scadute si cancellano da sole al primo invio).
+Per provarle in locale serve la build (il service worker c'è solo lì): `VITE_VAPID_PUBLIC_KEY` in `apps/web/.env.local`, `pnpm build` e `vite preview`. Se si cambiano le chiavi, le iscrizioni vecchie non valgono più: l'app le rifà da sola quando la si riapre (`syncPush`), e sul server quelle rifiutate 3 volte di fila (400, 401, 403) si cancellano (`push_failed`); quelle scadute (404, 410) al primo invio.
 
 ## Accesso (Auth)
 
@@ -99,15 +143,36 @@ Per provarle in locale serve la build (il service worker c'è solo lì): `VITE_V
 - Google: provider attivo (client OAuth del progetto Google Cloud `NBBGM-pro`, redirect `https://sojimrnmsrbntgfsgxmj.supabase.co/auth/v1/callback`). L'app Google è in Test: entra solo chi è tra gli utenti di prova.
 - App Google ancora in Test: per pubblicarla, in Google Auth Platform servono home page `https://albisiot.github.io/NBBGM/` e informativa privacy `https://albisiot.github.io/NBBGM/privacy.html`, con il dominio verificato in Google Search Console.
 
+### Iscrizioni su invito
+
+La registrazione è aperta finché l'hook "before user created" è spento. La migrazione `20261106170200_invites.sql` prepara la funzione `public.hook_before_user_created`: accetta un account nuovo solo se la sua email è stata invitata da un commissario (`signup_invites`, dalla gestione della lega) oppure se l'iscrizione porta un codice invito valido (l'app lo manda con il codice via email quando si entra dal link d'invito, o lo chiede se il server rifiuta). Con Google non si mandano metadati: chi entra con Google la prima volta va invitato per email. Chi ha già un account entra come prima.
+
+Per attivarlo, una volta, dopo che la migrazione è applicata:
+
+1. Prima, se qualche amico deve ancora iscriversi con Google, il commissario della sua lega lo invita per email (gestione della lega > Inviti). Con il link della lega e il codice via email non serve.
+2. Dashboard > Authentication > Auth Hooks > Add hook > "Before User Created": tipo Postgres, schema `public`, funzione `hook_before_user_created`, attivo. In alternativa con la CLI, come le altre impostazioni Auth (`config push --workdir <cartella>` da una cartella temporanea), con un `config.toml` che dichiara solo:
+
+   ```toml
+   [auth.hook.before_user_created]
+   enabled = true
+   uri = "pg-functions://postgres/public/hook_before_user_created"
+   ```
+
+3. Prova: da una finestra anonima, con un'email nuova e senza link d'invito, "Mandami il codice" risponde "Iscrizione solo su invito..." e chiede il codice invito; con il link della lega (`#/entra/CODICE`) l'email arriva.
+
+Per spegnerlo: lo stesso interruttore nella dashboard (o `enabled = false`).
+
 ## GitHub Actions
 
 - `.github/workflows/supabase.yml` pubblica migrazioni ed Edge Functions dopo che i Controlli (`ci.yml`) sono passati su un push a `main`, sullo stesso commit (`workflow_run`), oppure a mano da Actions. Pubblica a ogni push: migrazioni già applicate e funzioni uguali non cambiano nulla. Allo stesso modo `pages.yml` pubblica l'app. Serve il segreto del repository `SUPABASE_ACCESS_TOKEN` (token personale, da supabase.com > Account preferences > Access Tokens) e la variabile `SUPABASE_PROJECT_REF`: con `--remote=<progetto>` la CLI usa i permessi del token, senza la password del database. Senza il segreto il job avvisa e non pubblica nulla: si continua con la CLI da qui.
+- Entrambi pubblicano solo se il commit è ancora la punta di `main` (`git ls-remote origin refs/heads/main`): rilanciare un vecchio controllo, o due push i cui controlli finiscono in ordine inverso, non riporta in produzione un commit più vecchio; il run lo scrive nel log ("non è più la punta di main") e salta. L'avvio a mano funziona solo dal ramo `main`.
+- Il job di `supabase.yml` usa l'environment `supabase`, che GitHub crea al primo run. Per chiuderlo, una volta: Settings > Environments > `supabase` > Deployment branches and tags > Selected branches and tags > aggiungi `main`; poi, nello stesso environment, Environment secrets > Add secret `SUPABASE_ACCESS_TOKEN` con lo stesso token, e togli il segreto omonimo del repository (Settings > Secrets and variables > Actions). Così il token lo legge solo il job di pubblicazione da `main`. Facoltativo: Required reviewers, per approvare ogni pubblicazione su Supabase.
 - Il token è dell'account mondiali2014 (Owner), limitato al progetto NBBGM con i soli permessi che servono: Project Settings in lettura, Database in lettura e scrittura, Database Config in lettura, Edge Functions in lettura e scrittura, Production Branches in lettura. Quando scade se ne crea uno uguale (supabase.com > Account preferences > Access Tokens) e si sostituisce il segreto su GitHub.
 
 ## Turni, pg_net e pg_cron
 
 - Il turno si chiude quando `private.round_due` dà un motivo: `forced` (il commissario), `deadline` (scadenza passata, solo se la lega ne ha una), `ready` (tutti pronti e almeno un Pronto premuto) o `coach` (tutti con l'allenatore, passato il ritmo massimo dall'apertura del turno). Mai con il draft iniziale in corso, con la lega in pausa (salvo `forced`) e, fino alla Fase 12, nei turni di offseason. In play-in e playoff devono essere pronte solo le squadre umane con una partita nel turno.
-- pg_net chiama le Edge Functions all'indirizzo in `private.settings` (`functions_url`), che non è segreto. In un progetto nuovo va scritto una volta:
+- pg_net chiama le Edge Functions all'indirizzo in `private.settings` (`functions_url`), che non è segreto, con l'intestazione `x-nbbgm-secret` se in `private.settings` c'è anche `functions_secret` (vedi "Segreto delle Edge Functions"). In un progetto nuovo va scritto una volta:
 
   ```sql
   insert into private.settings (key, value)
@@ -117,8 +182,8 @@ Per provarle in locale serve la build (il service worker c'è solo lì): `VITE_V
   Senza quella riga, e dove non c'è pg_net (PGlite), le chiamate non partono.
 
 - pg_cron esegue `private.cron_tick()` ogni 15 secondi (job `nbbgm-turni`): turni da chiudere, turni fermi in chiusura da più di 5 minuti (non con la lega in pausa) e scelte del draft dal vivo con il tempo scaduto. Le esecuzioni si vedono in `cron.job_run_details`, le risposte delle funzioni in `net._http_response`.
-- Turni bloccati: ogni simulazione è un tentativo (`rounds.attempts`); l'errore lo salva advance-turn con `record_round_error` (in `rounds.last_error`). Dopo 3 tentativi falliti il turno si ferma (`rounds.failed_at`) e aspetta il commissario, che vede l'errore nella pagina della lega e lo riapre (`reopen_round`, con lo stesso seed o con uno nuovo). Dalla console SQL: `select id, attempts, last_error, failed_at from public.rounds where state = 'closing';`.
-- Ogni notte alle 3:23 UTC pg_cron esegue `private.daily_cleanup()` (job `nbbgm-pulizia`): toglie lo storico di pg_cron più vecchio di 3 giorni e la cronaca delle partite (`games.play_by_play`) delle stagioni prima della precedente. Si può lanciare anche a mano: `select private.daily_cleanup();`.
+- Turni bloccati: ogni simulazione è un tentativo (`rounds.attempts`); l'errore lo salva advance-turn con `record_round_error` (in `rounds.last_error`). Dopo 3 tentativi falliti il turno si ferma (`rounds.failed_at`) e aspetta il commissario, che vede l'errore nella pagina della lega e lo riapre (`reopen_round`, con lo stesso seed o con uno nuovo, e a scelta ritirando il mercato in sospeso di tutta la lega); 6 ore dopo il blocco lo può riaprire qualsiasi membro. La riapertura fa ripartire scadenza e ritmo degli allenatori. Un tentativo interrotto senza errore (tempo o memoria della Edge Function) lo scrive la ripresa successiva: "Simulazione interrotta...". Dalla console SQL: `select id, attempts, last_error, failed_at from public.rounds where state = 'closing';`.
+- Ogni notte alle 3:23 UTC pg_cron esegue `private.daily_cleanup()` (job `nbbgm-pulizia`): toglie lo storico di pg_cron più vecchio di 3 giorni e la cronaca delle partite (`games.play_by_play`) delle stagioni passate (resta solo quella in corso), poi misura il database: da 400 MB manda ai commissari un avviso `storage` (uno finché non lo leggono). Sopra 400 MB non si creano leghe nuove, e in tutto se ne creano al massimo 30. Si può lanciare anche a mano: `select private.daily_cleanup();` (restituisce anche `database_mb`).
 - Tempo reale: `rounds`, `ready_flags`, `coach_delegations` e `alerts` sono nella pubblicazione `supabase_realtime`; la RLS decide che cosa arriva a ciascuno.
 - Offseason: turni `offseason` con `stage` draft, renewals, fa1-fa4, preparation. Alla chiusura della finale advance-turn fa fine stagione, lottery e ordine del draft (`draft_order`, `draft_lottery`) e scrive la classe del draft come prospetti; alla chiusura del draft fa le 60 scelte e fa scalare i contratti (chi scade resta con un contratto senza stipendi fino al turno dei rinnovi); alla chiusura della preparazione nasce la riga nuova di `seasons` con il suo calendario (`new_games` di `apply_round`). Dopo il draft `league_state` dà ancora la stagione vecchia: la configurazione della nuova la ricava il motore (`nextConfig`).
 - Post-season: il tabellone non si salva come stato. advance-turn lo ricostruisce dalle partite giocate (`replayPostseason` nel motore), aggiorna `playoff_series` e mette in `games` le partite del turno successivo (senza punteggio), così tutti vedono chi gioca.
@@ -135,4 +200,4 @@ La Edge Function simula il turno con il pacchetto engine e passa il risultato ad
 
 ## Test
 
-`pnpm test` prova le migrazioni su PGlite (Postgres in WebAssembly) con lo stesso seed: `scripts/test/db.test.ts`; l'avanzamento dei turni con i tre account del seed è in `scripts/test/advance.test.ts` (compresi i turni bloccati); strumenti del commissario, cancellazione di leghe e account, limite delle leghe e pulizia notturna in `scripts/test/commissioner.test.ts`; cronaca, storico delle stagioni e notifiche (cifratura compresa, decifrata come fa il browser) in `scripts/test/chronicle.test.ts`, `history.test.ts` e `push.test.ts`; `scripts/test/functions.test.ts` controlla che le Edge Functions, tolti i tipi, siano JavaScript valido e che la pubblicazione aspetti i Controlli. Non servono Docker né un progetto Supabase; `scripts/src/db/shim.sql` ricrea ruoli, `auth.users` e `auth.uid()` come in Supabase. I permessi di ogni ruolo su tabelle e funzioni sono stati confrontati con quelli del progetto vero e coincidono (169 voci, con "Automatically expose new tables" acceso o spento).
+`pnpm test` prova le migrazioni su PGlite (Postgres in WebAssembly) con lo stesso seed: `scripts/test/db.test.ts`; l'avanzamento dei turni con i tre account del seed è in `scripts/test/advance.test.ts` (compresi i turni bloccati); strumenti del commissario, cancellazione di leghe e account, limite delle leghe e pulizia notturna in `scripts/test/commissioner.test.ts`; cronaca, storico delle stagioni e notifiche (cifratura compresa, decifrata come fa il browser) in `scripts/test/chronicle.test.ts`, `history.test.ts` e `push.test.ts`; `scripts/test/functions.test.ts` controlla che le Edge Functions, tolti i tipi, siano JavaScript valido e che la pubblicazione aspetti i Controlli e pubblichi solo la punta di `main`; `scripts/test/secret.test.ts` prova il segreto delle chiamate dal database. Non servono Docker né un progetto Supabase; `scripts/src/db/shim.sql` ricrea ruoli, `auth.users` e `auth.uid()` come in Supabase. I permessi di ogni ruolo su tabelle e funzioni sono stati confrontati con quelli del progetto vero e coincidono (169 voci, con "Automatically expose new tables" acceso o spento).

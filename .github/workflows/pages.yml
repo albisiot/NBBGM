@@ -1,8 +1,10 @@
 # Pubblica l'app su GitHub Pages dopo che i Controlli (ci.yml) sono passati su un push a main (o a mano, da
-# Actions), con lo stesso commit che i Controlli hanno provato. URL e chiave publishable di Supabase sono fatti
-# per stare nel browser: arrivano dalle variabili del repository (Settings > Secrets and variables > Actions >
-# Variables): SUPABASE_URL e SUPABASE_PUBLISHABLE_KEY. VAPID_PUBLIC_KEY (facoltativa) è la chiave pubblica delle
-# notifiche push: senza, l'app non le propone.
+# Actions, solo dal ramo main), con lo stesso commit che i Controlli hanno provato. Pubblica solo se quel commit è
+# ancora la punta di main: rilanciare un vecchio controllo, o due push i cui controlli finiscono in ordine inverso,
+# non riporta in produzione un commit più vecchio (il run lo dice nel log e salta). URL e chiave publishable di
+# Supabase sono fatti per stare nel browser: arrivano dalle variabili del repository (Settings > Secrets and
+# variables > Actions > Variables): SUPABASE_URL e SUPABASE_PUBLISHABLE_KEY. VAPID_PUBLIC_KEY (facoltativa) è la
+# chiave pubblica delle notifiche push: senza, l'app non le propone.
 name: GitHub Pages
 
 on:
@@ -23,37 +25,61 @@ concurrency:
 
 jobs:
   build:
-    # Solo dopo Controlli riusciti su un push a main di questo repository (non una pull request da un fork)
+    # Solo dopo Controlli riusciti su un push a main di questo repository (non una pull request da un fork), o a
+    # mano dal ramo main
     if: >-
-      github.event_name == 'workflow_dispatch' ||
+      (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main') ||
       (github.event.workflow_run.conclusion == 'success' &&
        github.event.workflow_run.event == 'push' &&
        github.event.workflow_run.head_branch == 'main' &&
        github.event.workflow_run.head_repository.full_name == github.repository)
     runs-on: ubuntu-latest
+    outputs:
+      skip: ${{ steps.tip.outputs.skip }}
     steps:
       - uses: actions/checkout@v7
         with:
           ref: ${{ github.event.workflow_run.head_sha || github.sha }}
+      - name: Solo la punta di main
+        id: tip
+        env:
+          SHA: ${{ github.event.workflow_run.head_sha || github.sha }}
+        run: |
+          TIP="$(git ls-remote origin refs/heads/main | cut -f1)"
+          if [ -z "$TIP" ]; then
+            echo "::error::Non riesco a leggere la punta di main"
+            exit 1
+          fi
+          if [ "$TIP" != "$SHA" ]; then
+            echo "::notice::Il commit $SHA non è più la punta di main ($TIP): non pubblico, ci pensa il run del commit più recente"
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          fi
       - uses: pnpm/action-setup@v6
+        if: steps.tip.outputs.skip != 'true'
       - uses: actions/setup-node@v7
+        if: steps.tip.outputs.skip != 'true'
         with:
           node-version: 24
           cache: pnpm
       - run: pnpm install --frozen-lockfile
+        if: steps.tip.outputs.skip != 'true'
       - name: Build dell'app
+        if: steps.tip.outputs.skip != 'true'
         run: pnpm --filter @nbbgm/web build
         env:
           VITE_SUPABASE_URL: ${{ vars.SUPABASE_URL }}
           VITE_SUPABASE_PUBLISHABLE_KEY: ${{ vars.SUPABASE_PUBLISHABLE_KEY }}
           VITE_VAPID_PUBLIC_KEY: ${{ vars.VAPID_PUBLIC_KEY }}
       - uses: actions/configure-pages@v6
+        if: steps.tip.outputs.skip != 'true'
       - uses: actions/upload-pages-artifact@v5
+        if: steps.tip.outputs.skip != 'true'
         with:
           path: apps/web/dist
 
   deploy:
     needs: build
+    if: needs.build.outputs.skip != 'true'
     runs-on: ubuntu-latest
     environment:
       name: github-pages

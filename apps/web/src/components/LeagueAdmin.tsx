@@ -1,7 +1,8 @@
 // Gestione della lega nella sua pagina: il commissario cambia scadenza dei turni e ritmo con gli allenatori,
-// libera le squadre dei manager, li espelle o elimina la lega; gli altri possono lasciarla. Le azioni
-// distruttive chiedono conferma.
-import { useState } from 'react';
+// libera le squadre dei manager, li espelle, passa il ruolo a un altro manager o elimina la lega; cambia il codice
+// invito, invita gli amici per email e toglie i bandi. Gli altri possono lasciare la lega. Le azioni distruttive
+// chiedono conferma.
+import { useState, type FormEvent } from 'react';
 import { useNavigate } from 'react-router';
 import { friendlyError } from '../lib/errors.ts';
 import {
@@ -10,14 +11,22 @@ import {
   deleteLeague,
   expelManager,
   freeTeam,
+  inviteEmail,
   leaveLeague,
+  listBans,
+  listInvites,
   PACE_OPTIONS,
   paceLabel,
+  regenerateInviteCode,
+  removeInvite,
   sameLeagueName,
+  transferCommissioner,
+  unbanManager,
   updateTurnSettings,
   withCurrent,
   type LeagueDetail,
 } from '../lib/leagues.ts';
+import { useAsync } from '../lib/useAsync.ts';
 import { LAST_LEAGUE_KEY } from './Layout.tsx';
 import { Button, Card, ErrorText, TextInput } from './ui.tsx';
 
@@ -40,6 +49,8 @@ export function LeagueAdmin({
   const [pending, setPending] = useState<Pending>(null);
   const [confirmLeave, setConfirmLeave] = useState(false);
   const [typedName, setTypedName] = useState('');
+  const [heir, setHeir] = useState('');
+  const [confirmHeir, setConfirmHeir] = useState(false);
 
   async function run(action: () => Promise<void>, after: () => void) {
     setBusy(true);
@@ -96,6 +107,8 @@ export function LeagueAdmin({
     <Card className="space-y-4">
       <TurnSettings league={league} onChange={onChange} />
 
+      <Invitations league={league} onChange={onChange} />
+
       <div className="space-y-2 border-t border-slate-100 pt-4 dark:border-slate-700">
         <h2 className="font-semibold">Manager</h2>
         {managers.length === 0 ? (
@@ -135,6 +148,45 @@ export function LeagueAdmin({
         )}
       </div>
 
+      {managers.length > 0 && (
+        <div className="space-y-2 border-t border-slate-100 pt-4 dark:border-slate-700">
+          <h2 className="font-semibold">Passa il ruolo di commissario</h2>
+          <p className="text-sm text-slate-600 dark:text-slate-300">
+            Il nuovo commissario gestisce turni, manager e lega; tu resti in lega come manager della tua
+            squadra.
+          </p>
+          <label className="block text-sm">
+            Nuovo commissario
+            <select
+              className={SELECT}
+              value={heir}
+              onChange={(e) => {
+                setHeir(e.target.value);
+                setConfirmHeir(false);
+              }}
+            >
+              <option value="">Scegli un manager</option>
+              {managers.map((t) => (
+                <option key={t.id} value={t.ownerId ?? ''}>
+                  {t.ownerName ?? 'Manager'} ({t.code})
+                </option>
+              ))}
+            </select>
+          </label>
+          <Button
+            variant="secondary"
+            disabled={busy || heir === ''}
+            onClick={() => {
+              if (!confirmHeir) return setConfirmHeir(true);
+              setConfirmHeir(false);
+              void run(() => transferCommissioner(league.id, heir), onChange);
+            }}
+          >
+            {confirmHeir ? 'Confermi? Non sarai più commissario' : 'Passa il ruolo'}
+          </Button>
+        </div>
+      )}
+
       <form
         className="space-y-2 border-t border-slate-100 pt-4 dark:border-slate-700"
         onSubmit={(e) => {
@@ -159,6 +211,129 @@ export function LeagueAdmin({
       </form>
       <ErrorText>{error}</ErrorText>
     </Card>
+  );
+}
+
+/**
+ * Inviti: codice nuovo (il link vecchio smette di valere), email invitate (con Google ci si iscrive solo così:
+ * l'iscrizione è su invito) ed esclusi, a cui il commissario può togliere il bando.
+ */
+function Invitations({ league, onChange }: { league: LeagueDetail; onChange: () => void }) {
+  const invites = useAsync(() => listInvites(league.id), [league.id]);
+  const bans = useAsync(() => listBans(league.id), [league.id]);
+  const [email, setEmail] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [confirmCode, setConfirmCode] = useState(false);
+  const [confirmUnban, setConfirmUnban] = useState<string | null>(null);
+
+  async function run(action: () => Promise<unknown>, after: () => void) {
+    setBusy(true);
+    setError(null);
+    try {
+      await action();
+      after();
+    } catch (e) {
+      setError(friendlyError(e));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  function invite(e: FormEvent) {
+    e.preventDefault();
+    const address = email.trim();
+    if (!address) return;
+    void run(
+      () => inviteEmail(league.id, address),
+      () => {
+        setEmail('');
+        invites.reload();
+      },
+    );
+  }
+
+  return (
+    <div className="space-y-3 border-t border-slate-100 pt-4 dark:border-slate-700">
+      <h2 className="font-semibold">Inviti</h2>
+      <p className="text-sm text-slate-600 dark:text-slate-300">
+        Ci si iscrive a NBBGM solo su invito: chi apre il link della lega si iscrive con il codice via email.
+        Chi vuole entrare con Google va invitato per email.
+      </p>
+      <form className="flex flex-wrap items-end gap-2" onSubmit={invite}>
+        <div className="min-w-0 flex-1">
+          <TextInput
+            label="Invita per email"
+            type="email"
+            inputMode="email"
+            autoComplete="off"
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+            placeholder="amico@esempio.it"
+          />
+        </div>
+        <Button type="submit" variant="secondary" disabled={busy || !email.trim()}>
+          Invita
+        </Button>
+      </form>
+      {(invites.data ?? []).length > 0 && (
+        <ul className="divide-y divide-slate-100 text-sm dark:divide-slate-700">
+          {(invites.data ?? []).map((i) => (
+            <li key={i.email} className="flex items-center justify-between gap-2 py-1">
+              <span className="min-w-0 truncate">{i.email}</span>
+              <Button
+                variant="ghost"
+                disabled={busy}
+                onClick={() => void run(() => removeInvite(league.id, i.email), invites.reload)}
+              >
+                Togli
+              </Button>
+            </li>
+          ))}
+        </ul>
+      )}
+      <div className="space-y-1">
+        <Button
+          variant="secondary"
+          disabled={busy}
+          onClick={() => {
+            if (!confirmCode) return setConfirmCode(true);
+            setConfirmCode(false);
+            void run(() => regenerateInviteCode(league.id), onChange);
+          }}
+        >
+          {confirmCode ? 'Confermi? Il codice di adesso non varrà più' : 'Cambia il codice invito'}
+        </Button>
+        <p className="text-xs text-slate-500 dark:text-slate-400">
+          Con il codice nuovo il link vecchio non funziona più: chi è uscito dalla lega non rientra senza il
+          codice nuovo.
+        </p>
+      </div>
+      {(bans.data ?? []).length > 0 && (
+        <div className="space-y-1">
+          <h3 className="text-sm font-semibold">Esclusi</h3>
+          <ul className="divide-y divide-slate-100 text-sm dark:divide-slate-700">
+            {(bans.data ?? []).map((b) => (
+              <li key={b.userId} className="flex items-center justify-between gap-2 py-1">
+                <span className="min-w-0 truncate">{b.name}</span>
+                <Button
+                  variant="ghost"
+                  disabled={busy}
+                  onClick={() => {
+                    if (confirmUnban !== b.userId) return setConfirmUnban(b.userId);
+                    setConfirmUnban(null);
+                    void run(() => unbanManager(league.id, b.userId), bans.reload);
+                  }}
+                >
+                  {confirmUnban === b.userId ? 'Confermi? Potrà rientrare' : 'Togli il bando'}
+                </Button>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+      <ErrorText>{error ?? invites.error ?? bans.error}</ErrorText>
+    </div>
   );
 }
 

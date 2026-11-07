@@ -5,6 +5,8 @@
 create role anon nologin noinherit;
 create role authenticated nologin noinherit;
 create role service_role nologin noinherit bypassrls;
+-- Il ruolo con cui Supabase Auth chiama gli hook (before user created)
+create role supabase_auth_admin nologin noinherit;
 
 create schema auth;
 grant usage on schema auth to anon, authenticated, service_role;

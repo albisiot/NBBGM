@@ -1,5 +1,7 @@
 // Notifiche push dal server: la coda del database (push_take) diventa un messaggio per persona e lega, cifrato e
-// mandato a ogni dispositivo iscritto; le iscrizioni scadute (404, 410) si cancellano (push_gone).
+// mandato a ogni dispositivo iscritto; le iscrizioni scadute (404, 410) si cancellano (push_gone), quelle
+// rifiutate più volte di fila (400, 401, 403: per esempio dopo un cambio delle chiavi VAPID) le conta e le
+// cancella il database (push_failed).
 // Comune alla Edge Function push (Deno) e ai test (Node). I testi stanno qui, in italiano.
 import { pushRequest, type PushOptions, type VapidKeys } from './webpush.ts';
 
@@ -26,6 +28,8 @@ export interface SubscriptionRow {
   endpoint: string;
   p256dh: string;
   auth: string;
+  /** Rifiuti di fila del servizio push (dal 20261106170400). */
+  failures?: number;
 }
 
 export interface PushBatch {
@@ -216,10 +220,16 @@ export interface DeliveryReport {
   taken: number;
   messages: number;
   sent: number;
-  /** Iscrizioni scadute, cancellate. */
+  /** Iscrizioni cancellate: scadute (404, 410) o rifiutate troppe volte di fila. */
   gone: number;
   failed: number;
 }
+
+/**
+ * Risposte del servizio push che dicono che l'iscrizione, così com'è, non funzionerà più: chiavi VAPID cambiate
+ * (401, 403) o iscrizione non valida (400). Non lo sono 413 (messaggio troppo lungo), 429 e gli errori 5xx.
+ */
+export const PERMANENT_FAILURES: ReadonlySet<number> = new Set([400, 401, 403]);
 
 /**
  * Svuota la coda e manda le notifiche. Senza chiavi VAPID (keys null) la coda si svuota senza mandare nulla:
@@ -246,6 +256,9 @@ export async function deliverPush(
   const gone: string[] = batch.subscriptions
     .filter((s) => !pushEndpointAllowed(s.endpoint))
     .map((s) => s.endpoint);
+  // Rifiuti permanenti, e invii riusciti di chi ne aveva avuti (il conto torna a zero)
+  const refused: string[] = [];
+  const recovered: string[] = [];
   await Promise.all(
     messages.flatMap((m) =>
       batch.subscriptions
@@ -255,8 +268,13 @@ export async function deliverPush(
             const req = await pushRequest(s, JSON.stringify(m.payload), keys, m.options);
             const res = await send(req.url, req.init);
             if (res.status === 404 || res.status === 410) gone.push(s.endpoint);
-            else if (res.status >= 200 && res.status < 300) report.sent++;
-            else report.failed++;
+            else if (res.status >= 200 && res.status < 300) {
+              report.sent++;
+              if ((s.failures ?? 0) > 0) recovered.push(s.endpoint);
+            } else {
+              report.failed++;
+              if (PERMANENT_FAILURES.has(res.status)) refused.push(s.endpoint);
+            }
           } catch {
             report.failed++;
           }
@@ -265,6 +283,12 @@ export async function deliverPush(
   );
   const unique = [...new Set(gone)];
   if (unique.length > 0) report.gone = await db.rpc<number>('push_gone', { p_endpoints: unique });
+  // Un'iscrizione con più messaggi nello stesso giro conta un rifiuto solo
+  if (refused.length > 0 || recovered.length > 0)
+    report.gone += await db.rpc<number>('push_failed', {
+      p_failed: [...new Set(refused)],
+      p_ok: [...new Set(recovered)],
+    });
   return report;
 }
 

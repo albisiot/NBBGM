@@ -72,3 +72,33 @@ export function restorePage(): void {
     // Come sopra: si apre la home
   }
 }
+
+/**
+ * Codice invito della pagina d'invito (#/entra/CODICE), per iscriversi: l'iscrizione è solo su invito e il server
+ * accetta un account nuovo con un codice valido nei metadati. Null se la pagina non è un invito.
+ */
+export function inviteCodeFromHash(hash: string): string | null {
+  const m = /^#\/entra\/([^/?#]+)/.exec(hash);
+  if (!m?.[1]) return null;
+  let code: string;
+  try {
+    code = decodeURIComponent(m[1]);
+  } catch {
+    return null;
+  }
+  code = code.toUpperCase().replace(/[^A-Z0-9]/g, '');
+  return code.length === 6 ? code : null;
+}
+
+/** L'iscrizione è stata rifiutata perché manca l'invito (messaggio dell'hook del server). */
+export const isInviteRequired = (message: string): boolean => /solo su invito/i.test(message);
+
+/**
+ * Errore tornato da Google nell'indirizzo (?error_description=...), per esempio l'iscrizione rifiutata perché
+ * l'email non è invitata. Null se non c'è.
+ */
+export function oauthError(search: string): string | null {
+  const params = new URLSearchParams(search);
+  if (!params.has('error')) return null;
+  return params.get('error_description') || 'Accesso con Google non riuscito.';
+}

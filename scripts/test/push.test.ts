@@ -454,3 +454,154 @@ describe('notifiche sul database', () => {
     expect((await take()).notifications).toEqual([]);
   });
 });
+
+describe('notifiche più tranquille', () => {
+  const currentRound = async () =>
+    (await q<{ id: string }>('select current_round_id as id from public.leagues where id = $1', [LEAGUE]))[0]!
+      .id;
+  const alert = (team: string, kind: string, round: string) =>
+    asService(db, (tx) =>
+      tx.query(
+        `insert into public.alerts (league_id, team_id, kind, blocking, round_id) values ($1, $2, $3, true, $4)`,
+        [LEAGUE, team, kind, round],
+      ),
+    );
+  const decisions = async () =>
+    (await take()).notifications.filter((n) => n.kind === 'decision').map((n) => [n.user_id, n.detail]);
+
+  it('le decisioni uguali dello stesso turno arrivano una ogni 5 minuti', async () => {
+    await take();
+    const round = await currentRound();
+    await alert(BOS, 'trade_offer', round);
+    expect(await decisions()).toEqual([[ANNA, 'trade_offer']]);
+    // Proposta ritirata e rifatta: l'avviso c'è, il telefono non vibra di nuovo
+    await alert(BOS, 'trade_offer', round);
+    await alert(BOS, 'trade_offer', round);
+    expect(await decisions()).toEqual([]);
+    // Un'altra decisione dello stesso turno passa
+    await alert(BOS, 'roster_minimum', round);
+    expect(await decisions()).toEqual([[ANNA, 'roster_minimum']]);
+    // Passati 5 minuti, la stessa decisione torna ad avvisare; pg_cron intanto toglie i raggruppamenti scaduti
+    await db.query(`update private.push_throttle set last_at = now() - interval '6 minutes'`);
+    await db.query('select private.push_retry()');
+    expect((await q<{ n: number }>('select count(*)::int as n from private.push_throttle'))[0]!.n).toBe(0);
+    await alert(BOS, 'trade_offer', round);
+    expect(await decisions()).toEqual([[ANNA, 'trade_offer']]);
+    // Un turno diverso è un'altra decisione (i turni dell'offseason possono correre veloci)
+    const other = (
+      await q<{ id: string }>(
+        `select id from public.rounds where league_id = $1 and id <> $2 order by number limit 1`,
+        [LEAGUE, round],
+      )
+    )[0]!.id;
+    await alert(BOS, 'trade_offer', other);
+    expect(await decisions()).toEqual([[ANNA, 'trade_offer']]);
+    await db.query(`update public.alerts set status = 'resolved' where league_id = $1 and status = 'open'`, [
+      LEAGUE,
+    ]);
+  });
+
+  it('al massimo 5 proposte alla stessa squadra nello stesso turno, con una notifica sola', async () => {
+    await take();
+    // Il test di prima ha appena avvisato Anna di una proposta in questo turno
+    await db.query('delete from private.push_throttle');
+    const round = await currentRound();
+    const propose = () =>
+      serviceRpc(db).rpc('market_write', {
+        p_league: LEAGUE,
+        p_round: round,
+        p_team: LAL,
+        p_action: { kind: 'propose_trade', to_team_id: BOS },
+      });
+    for (let i = 0; i < 5; i++) await propose();
+    await expect(propose()).rejects.toThrow(/già fatto 5 proposte a questa squadra in questo turno/);
+    expect(await decisions()).toEqual([[ANNA, 'trade_offer']]);
+    // Verso un'altra squadra si propone ancora
+    await serviceRpc(db).rpc('market_write', {
+      p_league: LEAGUE,
+      p_round: round,
+      p_team: LAL,
+      p_action: { kind: 'propose_trade', to_team_id: NYK },
+    });
+    await db.query(
+      `update public.trade_offers set status = 'withdrawn' where league_id = $1 and status = 'pending'`,
+      [LEAGUE],
+    );
+    await db.query(`update public.alerts set status = 'expired' where league_id = $1 and status = 'open'`, [
+      LEAGUE,
+    ]);
+  });
+
+  it('"Turno nuovo" non arriva a chi in playoff non gioca il turno', async () => {
+    await subscribe(BRUNO, 'https://fcm.googleapis.com/fcm/send/bruno', await browser());
+    const before = await currentRound();
+    const season = (
+      await q<{ id: string }>('select current_season_id as id from public.leagues where id = $1', [LEAGUE])
+    )[0]!.id;
+    const bot = (
+      await q<{ id: string }>(
+        'select id from public.teams where league_id = $1 and owner_id is null order by code limit 1',
+        [LEAGUE],
+      )
+    )[0]!.id;
+    // Un turno di playoff in cui gioca solo Boston (Anna) contro un bot; Bruno è eliminato
+    const playoff = (
+      await q<{ id: string }>(
+        `insert into public.rounds (league_id, season_id, number, kind) values ($1, $2, 500, 'playoffs')
+         returning id`,
+        [LEAGUE, season],
+      )
+    )[0]!.id;
+    await db.query(
+      `insert into public.games (league_id, season_id, round_number, kind, home_team_id, away_team_id)
+       values ($1, $2, 500, 'playoffs', $3, $4)`,
+      [LEAGUE, season, BOS, bot],
+    );
+    await take();
+    await db.query('update public.leagues set current_round_id = $2 where id = $1', [LEAGUE, playoff]);
+    const turns = (await take()).notifications.filter((n) => n.kind === 'turn').map((n) => n.user_id);
+    expect(turns).toEqual([ANNA]);
+    // Si torna com'era
+    await db.query('update public.leagues set current_round_id = $2 where id = $1', [LEAGUE, before]);
+    await db.query('delete from public.games where league_id = $1 and round_number = 500', [LEAGUE]);
+    await db.query('delete from public.rounds where id = $1', [playoff]);
+    const back = (await take()).notifications.filter((n) => n.kind === 'turn').map((n) => n.user_id);
+    expect(back.sort()).toEqual([ANNA, BRUNO].sort());
+  });
+
+  it('un’iscrizione rifiutata 3 volte di fila si cancella; un invio riuscito azzera il conto', async () => {
+    const keys = { ...(await generateVapidKeys()), subject: 'mailto:prova@nbbgm.test' };
+    const brunoEndpoint = 'https://fcm.googleapis.com/fcm/send/bruno';
+    const failures = async () =>
+      (
+        await q<{ failures: number }>('select failures from public.push_subscriptions where endpoint = $1', [
+          brunoEndpoint,
+        ])
+      )[0]?.failures;
+    let status = 403;
+    const round = await currentRound();
+    const send = async (url: string) => ({ status: url === brunoEndpoint ? status : 201 });
+    const notify = async (kind: string) => {
+      await alert(LAL, kind, round);
+      return deliverPush(serviceRpc(db), keys, send);
+    };
+    expect(await notify('renewals')).toMatchObject({ failed: 1, gone: 0 });
+    expect(await failures()).toBe(1);
+    // Un errore del servizio (5xx, 429) non conta
+    status = 503;
+    expect(await notify('free_agency')).toMatchObject({ failed: 1, gone: 0 });
+    expect(await failures()).toBe(1);
+    status = 201;
+    expect(await notify('draft_pick')).toMatchObject({ sent: 1 });
+    expect(await failures()).toBe(0);
+    status = 401;
+    await notify('preparation');
+    await notify('roster_minimum');
+    expect(await failures()).toBe(2);
+    expect(await notify('trade_offer')).toMatchObject({ failed: 1, gone: 1 });
+    expect(await failures()).toBeUndefined();
+    await db.query(`update public.alerts set status = 'resolved' where league_id = $1 and status = 'open'`, [
+      LEAGUE,
+    ]);
+  });
+});

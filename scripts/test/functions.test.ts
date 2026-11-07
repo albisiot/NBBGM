@@ -34,6 +34,26 @@ describe('Edge Functions', () => {
     }
   });
 
+  it('pubblicano solo la punta di main, anche a mano', () => {
+    for (const file of ['supabase.yml', 'pages.yml']) {
+      const workflow = readFileSync(join(ROOT, '.github', 'workflows', file), 'utf8');
+      // L'avvio a mano vale solo dal ramo main
+      expect(workflow, file).toContain(
+        "(github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main')",
+      );
+      // Un commit che non è più la punta di main non si pubblica: il controllo viene prima di build e deploy
+      const tip = workflow.indexOf('git ls-remote origin refs/heads/main');
+      expect(tip, file).toBeGreaterThan(0);
+      expect(workflow, file).toContain('if [ "$TIP" != "$SHA" ]; then');
+      const publish = file === 'pages.yml' ? 'pnpm install' : 'db push';
+      expect(workflow.indexOf(publish), file).toBeGreaterThan(tip);
+    }
+    const pages = readFileSync(join(ROOT, '.github', 'workflows', 'pages.yml'), 'utf8');
+    expect(pages).toContain("if: needs.build.outputs.skip != 'true'");
+    const supabase = readFileSync(join(ROOT, '.github', 'workflows', 'supabase.yml'), 'utf8');
+    expect(supabase).toMatch(/environment:\s+name: supabase/);
+  });
+
   it.each(FUNCTIONS)('%s è JavaScript valido, tolti i tipi', (name) => {
     const js = ts.transpileModule(readFileSync(join(DIR, name, 'index.ts'), 'utf8'), {
       compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ESNext },
