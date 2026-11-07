@@ -43,9 +43,11 @@ export function Layout() {
       className={`min-h-dvh bg-stampa-50 text-stampa-900 dark:bg-stampa-900 dark:text-stampa-50 ${current ? 'has-bottom-nav' : ''}`}
     >
       {/* Testata del giornale: intera nell'elenco delle leghe e nella pagina della lega (NBBGM grande, data, lega),
-          su una riga sola e fissa in alto nelle altre pagine, dove serve spazio */}
+          su una riga sola e fissa in alto nelle altre pagine, dove serve spazio. Sotto l'area sicura in alto
+          mezzo rem in più: su iPhone la fascia appena sotto la barra di stato è sfumata dal sistema, e la testata
+          attaccata all'area sicura sembrava sfocata */}
       <header
-        className={`${full ? '' : 'sticky top-0'} z-10 bg-stampa-50 pt-[env(safe-area-inset-top)] pr-[env(safe-area-inset-right)] pl-[env(safe-area-inset-left)] dark:bg-stampa-900`}
+        className={`${full ? '' : 'sticky top-0'} z-10 bg-stampa-50 pt-[calc(env(safe-area-inset-top)+0.5rem)] pr-[env(safe-area-inset-right)] pl-[env(safe-area-inset-left)] dark:bg-stampa-900`}
       >
         <div className="mx-auto max-w-4xl px-4">
           {full ? (

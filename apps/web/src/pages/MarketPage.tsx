@@ -875,7 +875,7 @@ function NewTrade({
       : null;
 
   return (
-    <div ref={card} className="scroll-mt-28">
+    <div ref={card} className="scroll-mt-[calc(env(safe-area-inset-top)+7.5rem)]">
       <Card className="space-y-3 !p-4">
         <h2 className="font-semibold">Nuova proposta</h2>
         <select
