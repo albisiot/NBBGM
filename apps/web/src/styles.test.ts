@@ -36,3 +36,18 @@ describe('colori del tema scuro (seconda analisi)', () => {
     expect(html).toContain('<meta name="color-scheme" content="light dark" />');
   });
 });
+
+describe('menu della lega in basso su telefono (funzioni nuove)', () => {
+  it('pagina e pezzi fissi in basso stanno sopra la barra, fuori dai layer di Tailwind', () => {
+    const at = css.indexOf('.has-bottom-nav .main-above-nav');
+    expect(at).toBeGreaterThan(0);
+    const media = css.lastIndexOf('@media (max-width: 39.99rem)', at);
+    const before = css.slice(0, media);
+    const depth = (before.match(/\{/g) ?? []).length - (before.match(/\}/g) ?? []).length;
+    expect(depth).toBe(0);
+    const block = css.slice(media, css.indexOf('}\n}', at) + 3);
+    expect(block).toContain('padding-bottom: calc(3.5rem + env(safe-area-inset-bottom) + 1.5rem);');
+    expect(block).toContain('.has-bottom-nav .dock-above-nav');
+    expect(block).toContain('bottom: calc(3.5rem + env(safe-area-inset-bottom));');
+  });
+});

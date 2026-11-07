@@ -1,21 +1,56 @@
-// Una partita: punteggio per quarto, box score delle due squadre e cronaca azione per azione.
-import { useState } from 'react';
-import { Link, useParams } from 'react-router';
+// Una partita: punteggio per quarto, box score delle due squadre, cronaca azione per azione e la partita "dal
+// vivo" (la cronaca rigiocata con punteggio e cronometro che scorrono). La cronaca si scarica solo quando si apre
+// una delle due viste che la usano. Con i Risultati senza spoiler, dal vivo il punteggio finale resta nascosto
+// finché la partita non finisce (o si apre il box score).
+import { useCallback, useEffect, useState } from 'react';
+import { Link, useParams, useSearchParams } from 'react-router';
+import { LiveGame } from '../components/LiveGame.tsx';
 import { Card, ErrorText, PageTitle, Segmented, Spinner, TeamCode } from '../components/ui.tsx';
 import { useUserId } from '../lib/auth.tsx';
 import { leagueDetail, type LeagueTeam } from '../lib/leagues.ts';
-import { clock, gameDetail, periodLabel, roundLabel, type BoxLine, type GameDetail } from '../lib/results.ts';
+import { readSpoilerFree } from '../lib/replay.ts';
+import {
+  clock,
+  gameDetail,
+  gamePlays,
+  periodLabel,
+  roundLabel,
+  type BoxLine,
+  type GameDetail,
+  type Play,
+} from '../lib/results.ts';
 import { useAsync } from '../lib/useAsync.ts';
 import { overtimeText } from './ResultsPage.tsx';
+
+type View = 'box' | 'cronaca' | 'dal-vivo';
+const VIEWS: readonly View[] = ['box', 'cronaca', 'dal-vivo'];
 
 export function GamePage() {
   const { id = '', gid = '' } = useParams();
   const userId = useUserId();
-  const [view, setView] = useState<'box' | 'plays'>('box');
+  const [search, setSearch] = useSearchParams();
+  const asked = search.get('vista') as View | null;
+  const view: View = asked && VIEWS.includes(asked) ? asked : 'box';
+  const setView = (v: View) => setSearch(v === 'box' ? {} : { vista: v }, { replace: true });
   const { data, error, loading } = useAsync(async () => {
     const [league, game] = await Promise.all([leagueDetail(id), gameDetail(gid)]);
     return { league, game };
   }, [id, gid]);
+  // La cronaca (circa 20 KB) solo quando serve, poi resta per la partita
+  const [wantPlays, setWantPlays] = useState(view !== 'box');
+  useEffect(() => {
+    if (view !== 'box') setWantPlays(true);
+  }, [view]);
+  const plays = useAsync(() => (wantPlays ? gamePlays(gid) : Promise.resolve(undefined)), [gid, wantPlays]);
+  // Senza spoiler: il punteggio finale si vede solo a fine replay o aprendo box score e cronaca
+  const [spoilerFree] = useState(readSpoilerFree);
+  // Rivelato per quella partita: passando a un'altra (la pagina resta montata) si riparte nascosti
+  const [revealedFor, setRevealedFor] = useState<string | null>(null);
+  const reveal = useCallback(() => setRevealedFor(gid), [gid]);
+  useEffect(() => {
+    if (view !== 'dal-vivo') setRevealedFor(gid);
+  }, [view, gid]);
+  const hidden = spoilerFree && view === 'dal-vivo' && revealedFor !== gid;
 
   if (loading && !data) return <Spinner />;
   if (error) return <ErrorText>{error}</ErrorText>;
@@ -38,14 +73,18 @@ export function GamePage() {
   return (
     <div className="space-y-4">
       <PageTitle
-        sub={`${roundLabel(game.roundNumber, game.kind)} · ${game.overtimes ? overtimeText(game.overtimes) : 'Finale'}`}
+        sub={`${roundLabel(game.roundNumber, game.kind)}${hidden ? '' : ` · ${game.overtimes ? overtimeText(game.overtimes) : 'Finale'}`}`}
       >
-        {away.code} {game.awayScore} – {game.homeScore} {home.code}
+        {hidden
+          ? `${away.code} – ${home.code}`
+          : `${away.code} ${game.awayScore} – ${game.homeScore} ${home.code}`}
       </PageTitle>
 
-      <Card className="overflow-x-auto !p-4">
-        <Quarters game={game} away={away} home={home} mine={mine} />
-      </Card>
+      {!hidden && (
+        <Card className="overflow-x-auto !p-4">
+          <Quarters game={game} away={away} home={home} mine={mine} />
+        </Card>
+      )}
 
       <Segmented
         label="Vista"
@@ -53,11 +92,12 @@ export function GamePage() {
         onChange={setView}
         options={[
           { label: 'Box score', value: 'box' },
-          { label: 'Cronaca', value: 'plays' },
+          { label: 'Cronaca', value: 'cronaca' },
+          { label: 'Dal vivo', value: 'dal-vivo' },
         ]}
       />
 
-      {view === 'box' ? (
+      {view === 'box' &&
         [away, home].map((t) => (
           <Card key={t.id} className="!p-4">
             <h2 className="mb-2 flex items-center gap-2 font-semibold">
@@ -68,11 +108,24 @@ export function GamePage() {
             </h2>
             <BoxTable leagueId={league.id} lines={game.box.filter((l) => l.teamId === t.id)} />
           </Card>
-        ))
-      ) : (
-        <Plays game={game} away={away} home={home} />
+        ))}
+      {view !== 'box' && plays.loading && !plays.data && <Spinner label="Carico la cronaca…" />}
+      {view !== 'box' && <ErrorText>{plays.error}</ErrorText>}
+      {view !== 'box' && plays.data === null && <NoPlays />}
+      {view === 'cronaca' && plays.data && <Plays plays={plays.data} away={away} home={home} />}
+      {view === 'dal-vivo' && plays.data && (
+        <LiveGame key={gid} plays={plays.data} away={away} home={home} mine={mine} onFinished={reveal} />
       )}
     </div>
+  );
+}
+
+function NoPlays() {
+  return (
+    <p className="rounded-lg bg-slate-100 px-3 py-2 text-sm text-slate-600 dark:bg-slate-800 dark:text-slate-300">
+      Cronaca non disponibile: si conserva solo per la stagione in corso, quindi questa partita non si può
+      rivedere dal vivo. Punteggio, parziali e box score restano.
+    </p>
   );
 }
 
@@ -232,16 +285,9 @@ function BoxTable({ leagueId, lines }: { leagueId: string; lines: BoxLine[] }) {
   );
 }
 
-function Plays({ game, away, home }: { game: GameDetail; away: LeagueTeam; home: LeagueTeam }) {
-  const periods = [...new Set(game.plays.map((p) => p[0]))].sort((a, b) => a - b);
+function Plays({ plays, away, home }: { plays: Play[]; away: LeagueTeam; home: LeagueTeam }) {
+  const periods = [...new Set(plays.map((p) => p[0]))].sort((a, b) => a - b);
   const [period, setPeriod] = useState(periods[0] ?? 1);
-  if (!game.plays.length)
-    return (
-      <p className="text-sm text-slate-500 dark:text-slate-400">
-        Cronaca non disponibile: si conserva per la stagione in corso e per quella prima. Punteggi e box score
-        restano.
-      </p>
-    );
   return (
     <Card className="space-y-3 !p-4">
       <Segmented
@@ -252,7 +298,7 @@ function Plays({ game, away, home }: { game: GameDetail; away: LeagueTeam; home:
       />
       <h2 className="font-semibold">{periodLabel(period)}</h2>
       <ol className="divide-y divide-slate-100 text-sm dark:divide-slate-700">
-        {game.plays
+        {plays
           .filter((p) => p[0] === period)
           .map((p, i) => (
             <li key={i} className="flex items-start gap-2 py-1.5">

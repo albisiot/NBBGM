@@ -9,6 +9,7 @@ import { navScrollDelta } from '../lib/navScroll.ts';
 import { watchPushSubscription } from '../lib/pushWatch.ts';
 import { onResume } from '../lib/resume.ts';
 import { useAsync } from '../lib/useAsync.ts';
+import { BottomNav } from './BottomNav.tsx';
 import { Spinner } from './ui.tsx';
 import { UpdateBanner } from './UpdateBanner.tsx';
 
@@ -34,7 +35,9 @@ export function Layout() {
   useEffect(() => watchPushSubscription(userId), [userId]);
 
   return (
-    <div className="min-h-dvh bg-slate-50 text-slate-900 dark:bg-slate-900 dark:text-slate-100">
+    <div
+      className={`min-h-dvh bg-slate-50 text-slate-900 dark:bg-slate-900 dark:text-slate-100 ${current ? 'has-bottom-nav' : ''}`}
+    >
       <header className="sticky top-0 z-10 border-b border-slate-200 bg-white/95 pt-[env(safe-area-inset-top)] pr-[env(safe-area-inset-right)] pl-[env(safe-area-inset-left)] backdrop-blur dark:border-slate-700 dark:bg-slate-900/95">
         <div className="mx-auto flex max-w-4xl items-center gap-3 px-4 py-2">
           <Link to="/" className="text-lg font-bold text-orange-600">
@@ -74,7 +77,7 @@ export function Layout() {
         {current && <LeagueNav id={current} />}
         <UpdateBanner />
       </header>
-      <main className="mx-auto max-w-4xl pt-6 pr-[max(1rem,env(safe-area-inset-right))] pb-[max(1.5rem,env(safe-area-inset-bottom))] pl-[max(1rem,env(safe-area-inset-left))]">
+      <main className="main-above-nav mx-auto max-w-4xl pt-6 pr-[max(1rem,env(safe-area-inset-right))] pb-[max(1.5rem,env(safe-area-inset-bottom))] pl-[max(1rem,env(safe-area-inset-left))]">
         {/* Le pagine arrivano a pezzi (lib/lazyPage.ts): intanto l'intestazione resta e sotto si vede il caricamento */}
         {current && !leagueHome && (
           <Suspense fallback={null}>
@@ -85,6 +88,8 @@ export function Layout() {
           <Outlet />
         </Suspense>
       </main>
+      {/* Su telefono il menu della lega sta in basso (quattro voci e Altro); da sm in su in alto */}
+      {current && <BottomNav id={current} links={LEAGUE_LINKS} />}
     </div>
   );
 }
@@ -113,7 +118,11 @@ function LeagueNav({ id }: { id: string }) {
     if (delta !== 0) el.scrollLeft += delta;
   }, [pathname, id]);
   return (
-    <nav ref={nav} aria-label="Menu della lega" className="mx-auto max-w-4xl overflow-x-auto px-2">
+    <nav
+      ref={nav}
+      aria-label="Menu della lega"
+      className="mx-auto hidden max-w-4xl overflow-x-auto px-2 sm:block"
+    >
       <ul className="flex gap-1 text-sm">
         {LEAGUE_LINKS.map((l) => (
           <li key={l.to}>

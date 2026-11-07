@@ -70,7 +70,6 @@ export interface BoxLine {
 
 export interface GameDetail extends SeasonGame {
   quarters: { home: number[]; away: number[] } | null;
-  plays: Play[];
   box: BoxLine[];
 }
 
@@ -156,7 +155,7 @@ export async function playoffSeries(seasonId: string): Promise<Series[]> {
 
 export async function gameDetail(gameId: string): Promise<GameDetail | null> {
   const [game, stats] = await Promise.all([
-    supabase.from('games').select(`${GAME_COLUMNS}, quarters, play_by_play`).eq('id', gameId).maybeSingle(),
+    supabase.from('games').select(`${GAME_COLUMNS}, quarters`).eq('id', gameId).maybeSingle(),
     supabase
       .from('player_game_stats')
       .select(
@@ -167,10 +166,7 @@ export async function gameDetail(gameId: string): Promise<GameDetail | null> {
   if (game.error) throw game.error;
   if (stats.error) throw stats.error;
   if (!game.data) return null;
-  const g = game.data as unknown as GameRow & {
-    quarters: { home: number[]; away: number[] } | null;
-    play_by_play: Play[] | null;
-  };
+  const g = game.data as unknown as GameRow & { quarters: { home: number[]; away: number[] } | null };
   type StatRow = {
     player_id: string;
     team_id: string;
@@ -219,7 +215,18 @@ export async function gameDetail(gameId: string): Promise<GameDetail | null> {
     }))
     // Titolari per primi, poi per minuti
     .sort((a, b) => Number(b.starter) - Number(a.starter) || b.seconds - a.seconds);
-  return { ...toGame(g), quarters: g.quarters, plays: g.play_by_play ?? [], box };
+  return { ...toGame(g), quarters: g.quarters, box };
+}
+
+/**
+ * Cronaca di una partita (circa 20 KB): si legge solo quando il manager apre la cronaca o la partita dal vivo. Null
+ * se non c'è più: si conserva solo per la stagione in corso (private.play_by_play_seasons).
+ */
+export async function gamePlays(gameId: string): Promise<Play[] | null> {
+  const { data, error } = await supabase.from('games').select('play_by_play').eq('id', gameId).maybeSingle();
+  if (error) throw error;
+  const plays = (data as { play_by_play: Play[] | null } | null)?.play_by_play ?? null;
+  return plays && plays.length > 0 ? plays : null;
 }
 
 /** Squadre nell'ordine che usa il server (per sigla): da questo dipende il sorteggio degli spareggi. */

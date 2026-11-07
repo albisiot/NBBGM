@@ -21,6 +21,7 @@ import { LoginPage } from './pages/LoginPage.tsx';
 // Le pagine arrivano a pezzi quando si aprono (lib/lazyPage.ts); l'accesso no, perché è la prima cosa che si vede
 const AnnualDraftPage = lazyPage(() => import('./pages/AnnualDraftPage.tsx'), 'AnnualDraftPage');
 const ChroniclePage = lazyPage(() => import('./pages/ChroniclePage.tsx'), 'ChroniclePage');
+const ComparePage = lazyPage(() => import('./pages/ComparePage.tsx'), 'ComparePage');
 const CreateLeaguePage = lazyPage(() => import('./pages/CreateLeaguePage.tsx'), 'CreateLeaguePage');
 const DraftPage = lazyPage(() => import('./pages/DraftPage.tsx'), 'DraftPage');
 const GamePage = lazyPage(() => import('./pages/GamePage.tsx'), 'GamePage');
@@ -72,6 +73,7 @@ const routes = createRoutesFromElements(
       <Route path="lega/:id/squadra" element={<RosterPage />} />
       <Route path="lega/:id/squadre/:code" element={<TeamPage />} />
       <Route path="lega/:id/giocatore/:pid" element={<PlayerPage />} />
+      <Route path="lega/:id/confronta" element={<ComparePage />} />
       <Route path="lega/:id/risultati" element={<ResultsPage />} />
       <Route path="lega/:id/risultati/:round" element={<ResultsPage />} />
       <Route path="lega/:id/partita/:gid" element={<GamePage />} />

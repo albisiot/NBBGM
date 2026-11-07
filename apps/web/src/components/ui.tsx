@@ -257,7 +257,7 @@ export function Toast({ message, onClose }: { message: ToastMessage | null; onCl
     </div>
   );
   return (
-    <div className="pointer-events-none fixed inset-x-0 bottom-0 z-40 flex flex-col items-center px-3 pb-[max(0.75rem,env(safe-area-inset-bottom))]">
+    <div className="dock-above-nav pointer-events-none fixed inset-x-0 bottom-0 z-40 flex flex-col items-center px-3 pb-[max(0.75rem,env(safe-area-inset-bottom))]">
       <div role="status" aria-live="polite" className="flex w-full justify-center">
         {message?.ok && card(message)}
       </div>

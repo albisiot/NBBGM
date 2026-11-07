@@ -387,7 +387,7 @@ export function RosterPage() {
         }}
       />
 
-      <div className="fixed inset-x-0 bottom-0 z-10 border-t border-slate-200 bg-white/95 pt-3 pr-[max(0.75rem,env(safe-area-inset-right))] pb-[max(0.75rem,env(safe-area-inset-bottom))] pl-[max(0.75rem,env(safe-area-inset-left))] backdrop-blur dark:border-slate-700 dark:bg-slate-900/95">
+      <div className="dock-above-nav fixed inset-x-0 bottom-0 z-10 border-t border-slate-200 bg-white/95 pt-3 pr-[max(0.75rem,env(safe-area-inset-right))] pb-[max(0.75rem,env(safe-area-inset-bottom))] pl-[max(0.75rem,env(safe-area-inset-left))] backdrop-blur dark:border-slate-700 dark:bg-slate-900/95">
         <div className="mx-auto flex max-w-4xl items-center justify-between gap-3">
           <div className="min-w-0 text-sm">
             {problems.length > 0 ? (

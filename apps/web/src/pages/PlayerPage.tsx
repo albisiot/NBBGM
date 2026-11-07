@@ -9,9 +9,10 @@ import {
   type BodyPart,
 } from '@nbbgm/engine';
 import { useState } from 'react';
-import { useParams } from 'react-router';
+import { Link, useParams } from 'react-router';
 import { Button, Card, ConfirmButton, ErrorText, PageTitle, Spinner } from '../components/ui.tsx';
 import { useUserId } from '../lib/auth.tsx';
+import { compareWith } from '../lib/compare.ts';
 import { formatSalary } from '../lib/draft.ts';
 import { friendlyError } from '../lib/errors.ts';
 import { leagueDetail } from '../lib/leagues.ts';
@@ -77,6 +78,12 @@ export function PlayerPage() {
       >
         {p.firstName} {p.lastName}
       </PageTitle>
+      <Link
+        to={compareWith(id, p.id)}
+        className="inline-flex min-h-11 items-center rounded-lg border border-slate-300 px-4 text-sm font-semibold hover:bg-slate-50 dark:border-slate-600 dark:hover:bg-slate-800"
+      >
+        Confronta con altri giocatori
+      </Link>
 
       <div className="grid gap-4 md:grid-cols-2">
         <Card>

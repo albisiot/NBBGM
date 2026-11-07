@@ -11,10 +11,12 @@ import {
   salaryRun,
   snapToAsk,
   typicalYears,
+  type Ratings,
   type SeasonConfig,
 } from '@nbbgm/engine';
 import { FunctionsHttpError } from '@supabase/supabase-js';
 import type { RosterPlayer } from './roster.ts';
+import { SKILL_GROUPS, skillOf, type SkillKey } from './skills.ts';
 import { supabase } from './supabase.ts';
 
 export type MarketAction =
@@ -429,7 +431,8 @@ export interface FreeAgentRow<P> {
   minimum: number;
 }
 
-export type FreeAgentSort = 'overall' | 'potential' | 'age' | 'ask';
+/** Ordinamento: overall, potenziale stimato, età, richiesta o un gruppo di abilità (bisogni della squadra). */
+export type FreeAgentSort = 'overall' | 'potential' | 'age' | 'ask' | `skill:${SkillKey}`;
 export type AgeBand = 'all' | 'young' | 'prime' | 'veteran';
 /** Richiesta: tutte, al minimo, fino al minimo + 2 o + 5 milioni, dentro lo spazio sotto il cap. */
 export type AskBand = 'all' | 'min' | 'min2' | 'min5' | 'space';
@@ -470,6 +473,7 @@ export const FA_SORTS: { value: FreeAgentSort; label: string }[] = [
   { value: 'potential', label: 'Potenziale' },
   { value: 'age', label: 'Età' },
   { value: 'ask', label: 'Richiesta' },
+  ...SKILL_GROUPS.map((g) => ({ value: `skill:${g.key}` as FreeAgentSort, label: g.label })),
 ];
 
 /** Svincolati per pagina; "Mostra altri" ne aggiunge altrettanti. */
@@ -505,6 +509,7 @@ export function filterFreeAgents<
     secondaryRole: string | null;
     age: number;
     scoutedPotential: number;
+    ratings?: Partial<Ratings>;
   },
 >(rows: readonly FreeAgentRow<P>[], q: FreeAgentQuery, space: number): FreeAgentRow<P>[] {
   const words = plain(q.name).split(/\s+/).filter(Boolean);
@@ -528,12 +533,16 @@ export function filterFreeAgents<
         return true;
     }
   };
-  const key: Record<FreeAgentSort, (r: FreeAgentRow<P>) => number> = {
+  const fixed: Record<'overall' | 'potential' | 'age' | 'ask', (r: FreeAgentRow<P>) => number> = {
     overall: (r) => -r.ovr,
     potential: (r) => -r.p.scoutedPotential,
     age: (r) => r.p.age,
     ask: (r) => r.ask,
   };
+  const skill = q.sort.startsWith('skill:') ? (q.sort.slice(6) as SkillKey) : null;
+  const sortKey = skill
+    ? (r: FreeAgentRow<P>) => -skillOf(r.p.ratings, skill)
+    : fixed[q.sort as keyof typeof fixed];
   const name = (r: FreeAgentRow<P>) => `${r.p.lastName} ${r.p.firstName}`;
   return rows
     .filter((r) => {
@@ -543,5 +552,5 @@ export function filterFreeAgents<
       const full = plain(`${r.p.firstName} ${r.p.lastName}`);
       return words.every((w) => full.includes(w));
     })
-    .sort((a, b) => key[q.sort](a) - key[q.sort](b) || b.ovr - a.ovr || name(a).localeCompare(name(b), 'it'));
+    .sort((a, b) => sortKey(a) - sortKey(b) || b.ovr - a.ovr || name(a).localeCompare(name(b), 'it'));
 }

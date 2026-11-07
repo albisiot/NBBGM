@@ -22,3 +22,19 @@
     font-size: 1rem;
   }
 }
+
+/*
+ * Menu della lega in basso su telefono (BottomNav, sotto sm): alto 3,5rem più l'area sicura in basso. Nelle pagine
+ * della lega (has-bottom-nav) la pagina lascia spazio sotto, e quello che sta fisso in basso (barra Salva di
+ * Squadra, messaggi) si appoggia sopra la barra invece di coprirla: l'area sicura la tiene già la barra. Fuori dai
+ * layer di Tailwind, quindi vale sopra le utility bottom-0 e pb-[...] dei componenti.
+ */
+@media (max-width: 39.99rem) {
+  .has-bottom-nav .main-above-nav {
+    padding-bottom: calc(3.5rem + env(safe-area-inset-bottom) + 1.5rem);
+  }
+  .has-bottom-nav .dock-above-nav {
+    bottom: calc(3.5rem + env(safe-area-inset-bottom));
+    padding-bottom: 0.75rem;
+  }
+}

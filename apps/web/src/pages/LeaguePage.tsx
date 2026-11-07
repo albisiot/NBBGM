@@ -1,6 +1,6 @@
 // Pagina della lega: turno corrente con chi è pronto (in tempo reale), avvisi, codice invito, squadre con i
 // loro manager (o il bot) e impostazioni. Risultati, classifiche e mercato arrivano con le fasi successive.
-import { useEffect, useState } from 'react';
+import { Suspense, useEffect, useState } from 'react';
 import { Link, useParams, useSearchParams } from 'react-router';
 import { LatestNews } from '../components/ChronicleText.tsx';
 import { LeagueAdmin } from '../components/LeagueAdmin.tsx';
@@ -16,7 +16,11 @@ import {
   statusLabel,
   type LeagueTeam,
 } from '../lib/leagues.ts';
+import { lazyPart } from '../lib/lazyPage.ts';
 import { useAsync } from '../lib/useAsync.ts';
+
+// La cerimonia di fine stagione arriva a pezzi (con il motore, per i premi): serve una volta l'anno
+const CeremonyCard = lazyPart(() => import('../components/CeremonyCard.tsx'), 'CeremonyCard');
 
 export function LeaguePage() {
   const { id = '' } = useParams();
@@ -67,6 +71,22 @@ export function LeaguePage() {
       </Card>
 
       {mine && <WelcomeCard leagueId={league.id} teamName={mine.fullName} />}
+
+      {/* Dopo la finale: campione e premi, finché il manager non la chiude (poi resta nello Storico) */}
+      {league.roundKind === 'offseason' && league.seasonId && league.seasonYear !== null && (
+        <Suspense fallback={null}>
+          <CeremonyCard
+            key={league.seasonId}
+            league={league}
+            season={{
+              id: league.seasonId,
+              year: league.seasonYear,
+              phase: league.seasonPhase ?? 'offseason',
+              current: true,
+            }}
+          />
+        </Suspense>
+      )}
 
       <TurnCard league={league} userId={userId} onRoundChange={reload} />
 

@@ -105,7 +105,11 @@ describe('permessi', () => {
       'join_league(text,text)',
       'league_bans_list(uuid)',
       'league_preview(text)',
+      // Media della lega per i bisogni della squadra (funzioni nuove): legge con la RLS di chi chiama
+      'league_skill_profile(uuid)',
       'leave_league(uuid)',
+      // Stato di tutte le proprie leghe per l'elenco (funzioni nuove): legge con la RLS di chi chiama
+      'my_leagues_status()',
       'player_scouting(uuid)',
       'regenerate_invite_code(uuid)',
       'remove_invite(uuid,text)',
@@ -214,6 +218,9 @@ describe('permessi', () => {
       'team_settings:DELETE',
       'team_settings:INSERT',
       'team_settings:UPDATE',
+      // Giocatori sul mercato (funzioni nuove): la propria squadra, a turno aperto
+      'trade_block:DELETE',
+      'trade_block:INSERT',
     ]);
   });
 

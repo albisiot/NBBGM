@@ -2,7 +2,9 @@
 // classifica finale di regular season. I premi seguono formule fisse (packages/engine/src/season/awards.ts); per
 // la stagione in corso sono provvisori.
 import { AWARD_FORMULA, AWARD_LABEL, seasonAwards, type StandingsLine } from '@nbbgm/engine';
+import { useState } from 'react';
 import { Link, useParams, useSearchParams } from 'react-router';
+import { CeremonyCard } from '../components/CeremonyCard.tsx';
 import { Card, ErrorText, PageTitle, Spinner, TeamCode } from '../components/ui.tsx';
 import { useUserId } from '../lib/auth.tsx';
 import {
@@ -94,8 +96,26 @@ export function HistoryPage() {
           </select>
         </label>
       )}
+      {season && done.some((f) => f.seasonId === season.id) && (
+        <CeremonyButton key={`cerimonia-${season.id}`} league={league} season={season} />
+      )}
       {season && <SeasonDetail key={season.id} league={league} season={season} mine={mine} />}
     </div>
+  );
+}
+
+/** La cerimonia di fine stagione, da rivedere quando si vuole. */
+function CeremonyButton({ league, season }: { league: LeagueDetail; season: LeagueSeason }) {
+  const [open, setOpen] = useState(false);
+  if (open) return <CeremonyCard league={league} season={season} inHistory onClose={() => setOpen(false)} />;
+  return (
+    <button
+      type="button"
+      onClick={() => setOpen(true)}
+      className="inline-flex min-h-11 items-center gap-2 rounded-lg border border-amber-300 bg-amber-50 px-4 text-sm font-semibold text-amber-900 hover:bg-amber-100 dark:border-amber-700 dark:bg-amber-950 dark:text-amber-100 dark:hover:bg-amber-900"
+    >
+      <span aria-hidden="true">🏆</span> Cerimonia della stagione {seasonLabel(season.year)}
+    </button>
   );
 }
 

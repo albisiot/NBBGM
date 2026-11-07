@@ -1,5 +1,6 @@
-// Pagina di una squadra della lega (anche delle altre): record, rosa con overall, ruoli e contratti, scelte al
-// draft possedute con protezioni e swap. Il bilancio resta riservato. Da qui si propone uno scambio con lei.
+// Pagina di una squadra della lega (anche delle altre): record, giocatori sul mercato, rosa con overall, ruoli e
+// contratti, scelte al draft possedute con protezioni e swap. Il bilancio resta riservato. Da qui si propone uno
+// scambio con lei.
 import { overall } from '@nbbgm/engine';
 import { Link, useParams } from 'react-router';
 import { Card, ErrorText, PageTitle, Spinner, TeamCode } from '../components/ui.tsx';
@@ -24,6 +25,7 @@ import {
   teamSwaps,
   type SwapInfo,
 } from '../lib/teams.ts';
+import { botTradeBlock, tradeBlock } from '../lib/tradeBlock.ts';
 import { useAsync } from '../lib/useAsync.ts';
 import { useRoundChange } from '../lib/useRoundChange.ts';
 import { currentStandings } from '../lib/useSeason.ts';
@@ -34,7 +36,7 @@ async function load(leagueId: string, code: string) {
   const league = await leagueDetail(leagueId);
   const team = league?.teams.find((t) => t.code === code.toUpperCase());
   if (!league || !team) return null;
-  const [roster, extra, picks, swaps, config, standings] = await Promise.all([
+  const [roster, extra, picks, swaps, config, standings, block] = await Promise.all([
     teamRoster(team.id),
     teamExtra(team.id),
     leaguePicks(league.id, team.id),
@@ -44,9 +46,14 @@ async function load(leagueId: string, code: string) {
       : Promise.resolve(null),
     // Record e posto in conference: dalla classifica, senza scaricare tutte le partite se non servono
     league.seasonId ? currentStandings({ ...league, seasonId: league.seasonId }) : Promise.resolve(null),
+    // Giocatori sul mercato: i bot non ne scrivono (la lista si ricava dalla strategia)
+    team.ownerId ? tradeBlock(league.id, team.id) : Promise.resolve(null),
   ]);
   const line = standings?.[team.conference].find((l) => l.teamId === team.id) ?? null;
-  return { league, team, roster, extra, picks, swaps, config, line };
+  const onBlock = block
+    ? roster.filter((p) => block.get(team.id)?.has(p.id))
+    : botTradeBlock(roster, extra.strategy);
+  return { league, team, roster, extra, picks, swaps, config, line, onBlock };
 }
 
 export function TeamPage() {
@@ -151,6 +158,53 @@ export function TeamPage() {
             Cronaca della squadra
           </Link>
         </div>
+      </Card>
+
+      <Card className="space-y-2 !p-4">
+        <h2 className="font-semibold">Sul mercato</h2>
+        <p className="text-xs text-slate-500 dark:text-slate-400">
+          {team.ownerId
+            ? mine
+              ? 'I giocatori che hai messo sul mercato: li vede tutta la lega.'
+              : 'I giocatori che il manager ha messo sul mercato. È un’indicazione: lo scambio va proposto.'
+            : `Secondo la strategia del bot (${STRATEGY_LABEL[extra.strategy]}): è indicativo, decide la sua valutazione.`}
+        </p>
+        {data.onBlock.length === 0 ? (
+          <p className="text-sm text-slate-500 dark:text-slate-400">Nessun giocatore.</p>
+        ) : (
+          <ul className="divide-y divide-slate-100 text-sm dark:divide-slate-700">
+            {data.onBlock.map((p) => (
+              <li key={p.id} className="flex items-center gap-2 py-1">
+                <span className="w-8 shrink-0 text-center font-mono font-semibold">{overall(p)}</span>
+                <Link
+                  to={`/lega/${league.id}/giocatore/${p.id}`}
+                  className="min-w-0 flex-1 truncate hover:underline"
+                >
+                  {p.firstName} {p.lastName}
+                  <span className="ml-1 text-xs text-slate-500 dark:text-slate-400">
+                    {p.role} · {p.age} anni · {contractSummary(p, millions)}
+                  </span>
+                </Link>
+                {!mine && haveTeam && (
+                  <Link
+                    to={`/lega/${league.id}/mercato?tab=scambi&con=${team.id}&prendi=${p.id}`}
+                    className="inline-flex min-h-11 shrink-0 items-center rounded-lg px-2 text-xs font-semibold text-orange-700 hover:bg-orange-50 dark:text-orange-300 dark:hover:bg-orange-950"
+                  >
+                    Proponi
+                  </Link>
+                )}
+              </li>
+            ))}
+          </ul>
+        )}
+        {mine && (
+          <Link
+            to={`/lega/${league.id}/mercato?tab=scambi`}
+            className="inline-flex min-h-11 items-center text-sm font-semibold text-orange-700 hover:underline dark:text-orange-300"
+          >
+            Cambia la lista nel mercato
+          </Link>
+        )}
       </Card>
 
       <Card className="space-y-2 !p-4">

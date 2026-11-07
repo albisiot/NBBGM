@@ -66,6 +66,13 @@ import {
   type PlayerLite,
   type RosterPlayer,
 } from '../lib/roster.ts';
+import { openSwaps, teamExtra } from '../lib/teams.ts';
+import { botTradeBlock, tradeBlock } from '../lib/tradeBlock.ts';
+import { tradePreview, type TradePreview } from '../lib/tradePreview.ts';
+import { LeagueBlock, MyBlock, PreviewCard } from '../components/TradeBlock.tsx';
+import { TeamNeedsCard } from '../components/TeamNeedsCard.tsx';
+import { compareWith } from '../lib/compare.ts';
+import { SKILL_LABEL, skillOf, type SkillKey } from '../lib/skills.ts';
 import { useAsync } from '../lib/useAsync.ts';
 import { useRoundChange } from '../lib/useRoundChange.ts';
 
@@ -224,7 +231,7 @@ export function MarketPage() {
       )}
       {tab === 'rinnovi' && renewals && <Renewals data={data} busy={busy} run={run} />}
       {tab === 'svincolati' && <FreeAgents data={data} busy={busy} run={run} />}
-      {tab === 'scambi' && <Trades data={data} busy={busy} run={run} />}
+      {tab === 'scambi' && <Trades data={data} busy={busy} run={run} notify={setMessage} />}
       {tab === 'bilancio' && <Ledger data={data} />}
       <Toast message={message} onClose={closeMessage} />
     </div>
@@ -301,8 +308,16 @@ function FreeAgents({ data, busy, run }: { data: MarketData; busy: boolean; run:
   const recent = data.bids.filter((b) => b.status !== 'pending' && b.status !== 'withdrawn').slice(0, 8);
   const name = (pid: string) => data.players.get(pid)?.name ?? 'Giocatore';
 
+  const skill = query.sort.startsWith('skill:') ? (query.sort.slice(6) as SkillKey) : null;
+
   return (
     <div className="space-y-4">
+      <TeamNeedsCard
+        leagueId={data.league.id}
+        roundId={data.league.roundId}
+        roster={data.roster}
+        onPick={(q) => change({ ...DEFAULT_FA_QUERY, ...q })}
+      />
       {(pending.length > 0 || recent.length > 0) && (
         <Card className="space-y-2 !p-4">
           <h2 className="font-semibold">Le tue offerte</h2>
@@ -431,7 +446,15 @@ function FreeAgents({ data, busy, run }: { data: MarketData; busy: boolean; run:
                   <span className="ml-1 text-xs text-slate-500 dark:text-slate-400">
                     {p.role}
                     {p.secondaryRole ? `/${p.secondaryRole}` : ''} · {p.age} anni · pot. {p.scoutedPotential}
+                    {skill &&
+                      ` · ${SKILL_LABEL[skill].toLowerCase()} ${Math.round(skillOf(p.ratings, skill))}`}
                   </span>
+                </Link>
+                <Link
+                  to={compareWith(data.league.id, p.id)}
+                  className="inline-flex min-h-11 items-center rounded-lg px-2 text-xs font-semibold text-orange-700 hover:bg-orange-50 dark:text-orange-300 dark:hover:bg-orange-950"
+                >
+                  Confronta
                 </Link>
                 <span className="text-xs text-slate-600 dark:text-slate-300">chiede {millions(ask)}</span>
                 <Button
@@ -523,8 +546,21 @@ function OfferForm({
 
 // ---------------------------------------------------------------- scambi
 
-function Trades({ data, busy, run }: { data: MarketData; busy: boolean; run: Run }) {
+function Trades({
+  data,
+  busy,
+  run,
+  notify,
+}: {
+  data: MarketData;
+  busy: boolean;
+  run: Run;
+  notify: (m: ToastMessage) => void;
+}) {
   const me = data.me.id;
+  // Giocatori sul mercato della lega (poche righe): si rileggono dopo ogni modifica della propria lista
+  const block = useAsync(() => tradeBlock(data.league.id), [data.league.id, data.league.roundId]);
+  const [search] = useSearchParams();
   const received = data.offers.filter((o) => o.toTeamId === me && o.status === 'pending');
   const sent = data.offers.filter(
     (o) => o.fromTeamId === me && (o.status === 'pending' || o.status === 'accepted'),
@@ -583,7 +619,23 @@ function Trades({ data, busy, run }: { data: MarketData; busy: boolean; run: Run
           }
         />
       )}
-      <NewTrade data={data} busy={busy} run={run} />
+      <LeagueBlock leagueId={data.league.id} myTeamId={me} teams={data.league.teams} block={block.data} />
+      {/* Arrivando da "Proponi" (?con=squadra&prendi=giocatore) la proposta riparte con quella scelta */}
+      <NewTrade
+        key={`${search.get('con') ?? ''}:${search.get('prendi') ?? ''}`}
+        data={data}
+        busy={busy}
+        run={run}
+        block={block.data}
+      />
+      <MyBlock
+        leagueId={data.league.id}
+        teamId={me}
+        roster={data.roster}
+        block={block.data}
+        onChange={block.reload}
+        notify={notify}
+      />
       {history.length > 0 && (
         <OfferList title="Storico" empty="" offers={history} data={data} actions={() => null} />
       )}
@@ -682,7 +734,17 @@ function OfferList({
   );
 }
 
-function NewTrade({ data, busy, run }: { data: MarketData; busy: boolean; run: Run }) {
+function NewTrade({
+  data,
+  busy,
+  run,
+  block,
+}: {
+  data: MarketData;
+  busy: boolean;
+  run: Run;
+  block: Map<string, Set<string>> | null;
+}) {
   const others = data.league.teams
     .filter((t) => t.id !== data.me.id)
     .sort((a, b) => a.fullName.localeCompare(b.fullName, 'it'));
@@ -699,16 +761,42 @@ function NewTrade({ data, busy, run }: { data: MarketData; busy: boolean; run: R
     if (preselected.current) card.current?.scrollIntoView({ block: 'start' });
   }, []);
   const [give, setGive] = useState<Set<string>>(new Set());
-  const [get, setGet] = useState<Set<string>>(new Set());
+  const [get, setGet] = useState<Set<string>>(() => {
+    const prendi = search.get('prendi');
+    return new Set(prendi && partner ? [prendi] : []);
+  });
   const [givePicks, setGivePicks] = useState<Set<string>>(new Set());
   const [getPicks, setGetPicks] = useState<Set<string>>(new Set());
   const [protections, setProtections] = useState<Record<string, number>>({});
   const [swaps, setSwaps] = useState<{ draft_year: number; round: number; holder: 'from' | 'to' }[]>([]);
   const [sort, setSort] = useState<RosterSort>('overall');
-  const { data: theirRoster } = useAsync(
-    () => (partner ? teamRoster(partner) : Promise.resolve([])),
+  // Dell'altra squadra: rosa, residui dei tagliati e strategia (per l'anteprima e la lista dei bot), più gli swap
+  // aperti della propria squadra (lo swap tra le stesse due squadre per lo stesso draft non si rifà)
+  const { data: other } = useAsync(
+    () =>
+      partner
+        ? Promise.all([teamRoster(partner), teamExtra(partner), openSwaps(data.league.id, data.me.id)]).then(
+            ([roster, extra, swaps]) => ({ roster, extra, swaps }),
+          )
+        : Promise.resolve(null),
     [partner],
   );
+  const theirRoster = other?.roster;
+  // Un giocatore arrivato con "Proponi" che nel frattempo ha cambiato squadra non resta tra quelli scelti
+  useEffect(() => {
+    if (!theirRoster) return;
+    setGet((s) => {
+      const kept = [...s].filter((id) => theirRoster.some((p) => p.id === id));
+      return kept.length === s.size ? s : new Set(kept);
+    });
+  }, [theirRoster]);
+  // Chi l'altra squadra ha messo sul mercato: per un manager la sua lista, per un bot quella della strategia
+  const partnerTeam = data.league.teams.find((t) => t.id === partner);
+  const partnerBlock = useMemo(() => {
+    if (!partnerTeam || !other) return new Set<string>();
+    if (partnerTeam.ownerId) return block?.get(partnerTeam.id) ?? new Set<string>();
+    return new Set(botTradeBlock(other.roster, other.extra.strategy).map((p) => p.id));
+  }, [partnerTeam, other, block]);
   const teams = new Map(data.league.teams.map((t) => [t.id, t]));
   const year = data.config.year;
 
@@ -729,6 +817,41 @@ function NewTrade({ data, busy, run }: { data: MarketData; busy: boolean; run: R
   const myPicks = data.picks.filter((k) => k.ownerTeamId === data.me.id);
   const theirPicks = data.picks.filter((k) => k.ownerTeamId === partner);
   const empty = give.size + get.size + givePicks.size + getPicks.size === 0 && swaps.length === 0;
+  // Anteprima con le regole del motore sui dati già letti: il server ricontrolla tutto
+  const preview: TradePreview | null =
+    !empty && other && partnerTeam
+      ? tradePreview({
+          config: data.config,
+          roundKind: data.league.roundKind,
+          roundNumber: data.league.roundNumber,
+          me: {
+            id: data.me.id,
+            code: data.me.code,
+            roster: data.roster,
+            deadMoney: data.finance.deadMoney,
+            balance: data.finance.balance,
+            repeater: data.finance.repeater,
+          },
+          partner: {
+            id: partnerTeam.id,
+            code: partnerTeam.code,
+            roster: other.roster,
+            deadMoney: other.extra.deadMoney,
+            balance: null,
+            repeater: null,
+          },
+          picks: data.picks,
+          swaps: other.swaps,
+          sel: {
+            give: [...give],
+            get: [...get],
+            givePicks: [...givePicks],
+            getPicks: [...getPicks],
+            protections,
+            swaps,
+          },
+        })
+      : null;
 
   return (
     <div ref={card} className="scroll-mt-28">
@@ -779,6 +902,10 @@ function NewTrade({ data, busy, run }: { data: MarketData; busy: boolean; run: R
                 sort={sort}
                 title={`Ricevi (${teams.get(partner)?.code})`}
                 roster={theirRoster ?? []}
+                onBlock={partnerBlock}
+                blockNote={
+                  partnerTeam?.ownerId ? 'sul mercato' : 'sul mercato per la strategia del bot (indicativo)'
+                }
                 picks={theirPicks}
                 teams={teams}
                 selected={get}
@@ -848,6 +975,7 @@ function NewTrade({ data, busy, run }: { data: MarketData; busy: boolean; run: R
                 Aggiungi uno swap
               </Button>
             </div>
+            {preview && <PreviewCard preview={preview} offseason={data.league.roundKind === 'offseason'} />}
             <Button
               disabled={busy || empty}
               onClick={() =>
@@ -904,6 +1032,8 @@ function Side({
   protections,
   onProtection,
   ownTeamId,
+  onBlock,
+  blockNote,
 }: {
   sort: RosterSort;
   title: string;
@@ -917,8 +1047,14 @@ function Side({
   protections?: Record<string, number>;
   onProtection?: (id: string, n: number) => void;
   ownTeamId?: string;
+  /** Giocatori dell'altra squadra sul mercato, segnati nell'elenco. */
+  onBlock?: ReadonlySet<string>;
+  blockNote?: string;
 }) {
-  const sorted = sortRoster(roster, sort);
+  // Prima chi è sul mercato, poi gli altri nell'ordine scelto
+  const sorted = sortRoster(roster, sort).sort(
+    (a, b) => Number(onBlock?.has(b.id) ?? false) - Number(onBlock?.has(a.id) ?? false),
+  );
   return (
     <div className="space-y-2">
       <h3 className="text-xs font-semibold tracking-wide text-slate-500 uppercase dark:text-slate-400">
@@ -940,6 +1076,14 @@ function Side({
                 <span className="ml-1 text-xs text-slate-500 dark:text-slate-400">
                   {p.role} · {p.age}
                 </span>
+                {onBlock?.has(p.id) && (
+                  <span
+                    className="ml-1 rounded bg-amber-100 px-1 text-xs font-semibold text-amber-900 dark:bg-amber-900 dark:text-amber-100"
+                    title={blockNote}
+                  >
+                    sul mercato
+                  </span>
+                )}
               </span>
               <span className="shrink-0 text-xs text-slate-500 dark:text-slate-400">
                 {p.contractType === 'two-way'

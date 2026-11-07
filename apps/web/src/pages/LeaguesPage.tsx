@@ -1,9 +1,12 @@
-// Le leghe dell'utente, con i pulsanti per crearne una o entrare con un codice.
+// Le leghe dell'utente, con lo stato dal vivo di ognuna (tocca a te, umani pronti, decisioni aperte, stato della
+// lega) e i pulsanti per crearne una o entrare con un codice.
 import { Link } from 'react-router';
 import { InstallHint } from '../components/Onboarding.tsx';
 import { Card, ErrorText, PageTitle, Spinner } from '../components/ui.tsx';
 import { useUserId } from '../lib/auth.tsx';
 import { myLeagues, statusLabel } from '../lib/leagues.ts';
+import { liveBadges, useLeaguesLive } from '../lib/leaguesLive.ts';
+import { TONE_CLASS } from '../lib/turns.ts';
 import { useAsync } from '../lib/useAsync.ts';
 
 const ACTION =
@@ -12,6 +15,8 @@ const ACTION =
 export function LeaguesPage() {
   const userId = useUserId();
   const { data: leagues, error, loading } = useAsync(() => myLeagues(userId), [userId]);
+  // Stato dal vivo di tutte le leghe in una lettura, riletto al ritorno in primo piano e ogni minuto
+  const live = useLeaguesLive(userId);
 
   return (
     <>
@@ -39,28 +44,44 @@ export function LeaguesPage() {
         </Card>
       )}
       <ul className="mb-6 grid gap-3">
-        {leagues?.map((l) => (
-          <li key={l.leagueId}>
-            <Link to={`/lega/${l.leagueId}`} className="block">
-              <Card className="transition-colors hover:border-orange-400">
-                <div className="flex items-start justify-between gap-3">
-                  <div className="min-w-0">
-                    <h2 className="truncate text-lg font-semibold">{l.name}</h2>
-                    <p className="text-sm text-slate-600 dark:text-slate-300">{l.teamName}</p>
-                    <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
-                      {statusLabel(l.seasonYear, l.roundNumber, l.roundKind)}
-                    </p>
+        {leagues?.map((l) => {
+          const state = live?.get(l.leagueId);
+          const badges = state ? liveBadges(state) : [];
+          return (
+            <li key={l.leagueId}>
+              <Link to={`/lega/${l.leagueId}`} className="block">
+                <Card className="transition-colors hover:border-orange-400">
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <h2 className="truncate text-lg font-semibold">{l.name}</h2>
+                      <p className="text-sm text-slate-600 dark:text-slate-300">{l.teamName}</p>
+                      <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+                        {statusLabel(l.seasonYear, l.roundNumber, l.roundKind)}
+                      </p>
+                    </div>
+                    {l.commissioner && (
+                      <span className="shrink-0 rounded-full bg-orange-100 px-2 py-0.5 text-xs font-medium text-orange-800 dark:bg-orange-900 dark:text-orange-100">
+                        Commissario
+                      </span>
+                    )}
                   </div>
-                  {l.commissioner && (
-                    <span className="shrink-0 rounded-full bg-orange-100 px-2 py-0.5 text-xs font-medium text-orange-800 dark:bg-orange-900 dark:text-orange-100">
-                      Commissario
-                    </span>
+                  {badges.length > 0 && (
+                    <ul className="mt-2 flex flex-wrap gap-1.5" aria-label="Stato del turno">
+                      {badges.map((b) => (
+                        <li
+                          key={b.label}
+                          className={`rounded-full px-2 py-0.5 text-xs font-semibold ${TONE_CLASS[b.tone]}`}
+                        >
+                          {b.label}
+                        </li>
+                      ))}
+                    </ul>
                   )}
-                </div>
-              </Card>
-            </Link>
-          </li>
-        ))}
+                </Card>
+              </Link>
+            </li>
+          );
+        })}
       </ul>
       <p className="text-sm">
         <Link to="/guida" className="font-semibold text-orange-700 hover:underline dark:text-orange-300">

@@ -1,8 +1,11 @@
 // Risultati di un turno: le partite con il punteggio (o da giocare), con il link a box score e cronaca. Si
-// passa da un turno all'altro con le frecce; di default si apre l'ultimo turno giocato.
+// passa da un turno all'altro con le frecce; di default si apre l'ultimo turno giocato. Senza spoiler i punteggi
+// restano nascosti e ogni partita si apre dal vivo (l'opzione si ricorda sul dispositivo).
+import { useState } from 'react';
 import { Link, useParams } from 'react-router';
 import { Card, ErrorText, PageTitle, Spinner, TeamCode } from '../components/ui.tsx';
 import { useUserId } from '../lib/auth.tsx';
+import { readSpoilerFree, writeSpoilerFree } from '../lib/replay.ts';
 import { roundLabel, type SeasonGame, type Series } from '../lib/results.ts';
 import { useSeason } from '../lib/useSeason.ts';
 
@@ -10,6 +13,7 @@ export function ResultsPage() {
   const { id = '', round } = useParams();
   const userId = useUserId();
   const { data, error, loading } = useSeason(id);
+  const [spoilerFree, setSpoilerFree] = useState(readSpoilerFree);
 
   if (loading && !data) return <Spinner />;
   if (error) return <ErrorText>{error}</ErrorText>;
@@ -37,6 +41,19 @@ export function ResultsPage() {
         Risultati
       </PageTitle>
 
+      <label className="flex min-h-11 w-fit cursor-pointer items-center gap-2 text-sm">
+        <input
+          type="checkbox"
+          className="size-5 accent-orange-600"
+          checked={spoilerFree}
+          onChange={(e) => {
+            setSpoilerFree(e.target.checked);
+            writeSpoilerFree(e.target.checked);
+          }}
+        />
+        Senza spoiler: punteggi nascosti, ogni partita si guarda dal vivo
+      </label>
+
       <div className="flex items-center justify-between gap-2">
         <RoundLink id={id} round={rounds[index - 1]} label="← Precedente" />
         <p className="text-center font-semibold">
@@ -51,48 +68,59 @@ export function ResultsPage() {
       </div>
 
       <div className="grid gap-3 sm:grid-cols-2">
-        {list.map((g) => (
-          <Card key={g.id} className="space-y-2 !p-4">
-            {g.kind === 'playoffs' && g.seriesId && (
-              <p className="text-xs text-slate-500 dark:text-slate-400">
-                {seriesText(g, games, series, (tid) => team.get(tid)?.code ?? '?')}
-              </p>
-            )}
-            {g.kind === 'play-in' && <p className="text-xs text-slate-500 dark:text-slate-400">Play-in</p>}
-            {[g.awayTeamId, g.homeTeamId].map((tid) => {
-              const score = tid === g.homeTeamId ? g.homeScore : g.awayScore;
-              const other = tid === g.homeTeamId ? g.awayScore : g.homeScore;
-              const won = score !== null && other !== null && score > other;
-              return (
-                <div key={tid} className={`flex items-center gap-2 ${won ? 'font-semibold' : ''}`}>
-                  <TeamCode code={team.get(tid)?.code ?? '?'} strong={tid === mine} />
-                  <span className="min-w-0 flex-1 truncate text-sm">
-                    {team.get(tid)?.fullName}
-                    {tid === g.homeTeamId && (
-                      <span className="ml-1 text-xs font-normal text-slate-500 dark:text-slate-400">
-                        casa
-                      </span>
-                    )}
-                  </span>
-                  <span className="w-10 text-right font-mono text-lg">{score ?? '–'}</span>
-                </div>
-              );
-            })}
-            <div className="flex items-center justify-between text-xs">
-              <span className="text-slate-500 dark:text-slate-400">
-                {g.homeScore === null ? 'Da giocare' : g.overtimes ? overtimeText(g.overtimes) : 'Finale'}
-              </span>
-              {g.homeScore !== null && (
-                <Link
-                  to={`/lega/${id}/partita/${g.id}`}
-                  className="rounded px-2 py-1 font-semibold text-orange-700 hover:bg-orange-50 dark:text-orange-300 dark:hover:bg-orange-950"
-                >
-                  Box score e cronaca
-                </Link>
+        {list.map((g) => {
+          const hide = spoilerFree && g.homeScore !== null;
+          return (
+            <Card key={g.id} className="space-y-2 !p-4">
+              {g.kind === 'playoffs' && g.seriesId && (
+                <p className="text-xs text-slate-500 dark:text-slate-400">
+                  {seriesText(g, games, series, (tid) => team.get(tid)?.code ?? '?', hide)}
+                </p>
               )}
-            </div>
-          </Card>
-        ))}
+              {g.kind === 'play-in' && <p className="text-xs text-slate-500 dark:text-slate-400">Play-in</p>}
+              {[g.awayTeamId, g.homeTeamId].map((tid) => {
+                const score = tid === g.homeTeamId ? g.homeScore : g.awayScore;
+                const other = tid === g.homeTeamId ? g.awayScore : g.homeScore;
+                const won = !hide && score !== null && other !== null && score > other;
+                return (
+                  <div key={tid} className={`flex items-center gap-2 ${won ? 'font-semibold' : ''}`}>
+                    <TeamCode code={team.get(tid)?.code ?? '?'} strong={tid === mine} />
+                    <span className="min-w-0 flex-1 truncate text-sm">
+                      {team.get(tid)?.fullName}
+                      {tid === g.homeTeamId && (
+                        <span className="ml-1 text-xs font-normal text-slate-500 dark:text-slate-400">
+                          casa
+                        </span>
+                      )}
+                    </span>
+                    <span className="w-10 text-right font-mono text-lg">
+                      {hide ? <span aria-label="nascosto">?</span> : (score ?? '–')}
+                    </span>
+                  </div>
+                );
+              })}
+              <div className="flex items-center justify-between text-xs">
+                <span className="text-slate-500 dark:text-slate-400">
+                  {g.homeScore === null
+                    ? 'Da giocare'
+                    : hide
+                      ? 'Giocata'
+                      : g.overtimes
+                        ? overtimeText(g.overtimes)
+                        : 'Finale'}
+                </span>
+                {g.homeScore !== null && (
+                  <Link
+                    to={`/lega/${id}/partita/${g.id}${hide ? '?vista=dal-vivo' : ''}`}
+                    className="inline-flex min-h-11 items-center rounded px-2 font-semibold text-orange-700 hover:bg-orange-50 dark:text-orange-300 dark:hover:bg-orange-950"
+                  >
+                    {hide ? 'Guarda dal vivo' : 'Box score e cronaca'}
+                  </Link>
+                )}
+              </div>
+            </Card>
+          );
+        })}
       </div>
       {list.length === 0 && (
         <p className="text-sm text-slate-500 dark:text-slate-400">Nessuna partita in questo turno.</p>
@@ -109,12 +137,13 @@ export function overtimeText(n: number): string {
   return n === 1 ? 'Finale dopo un supplementare' : `Finale dopo ${n} supplementari`;
 }
 
-/** "Gara 3 · BOS conduce 2-1" (situazione della serie dopo questa partita). */
+/** "Gara 3 · BOS conduce 2-1" (situazione della serie dopo questa partita); senza spoiler solo "Gara 3". */
 export function seriesText(
   game: SeasonGame,
   games: readonly SeasonGame[],
   series: readonly Series[],
   code: (teamId: string) => string,
+  hideResult = false,
 ): string {
   const s = series.find((x) => x.id === game.seriesId);
   if (!s) return 'Playoff';
@@ -122,7 +151,7 @@ export function seriesText(
     (g) => g.seriesId === s.id && g.roundNumber <= game.roundNumber && g.homeScore !== null,
   );
   const n = games.filter((g) => g.seriesId === s.id && g.roundNumber <= game.roundNumber).length;
-  if (game.homeScore === null) return `Gara ${n}`;
+  if (game.homeScore === null || hideResult) return `Gara ${n}`;
   const wins = (tid: string) =>
     upTo.filter(
       (g) => ((g.homeScore as number) > (g.awayScore as number) ? g.homeTeamId : g.awayTeamId) === tid,

@@ -5,20 +5,11 @@
 import { useCallback, useEffect, useState } from 'react';
 import { Link } from 'react-router';
 import { friendlyError } from '../lib/errors.ts';
-import { barFor, barFromTurn, barView, readyWarnings, setReady, type Tone } from '../lib/turns.ts';
+import { barFor, barFromTurn, barView, readyWarnings, setReady, TONE_CLASS as TONE } from '../lib/turns.ts';
 import { useTurn } from '../lib/turnStore.ts';
 import { useUnsaved } from '../lib/unsaved.ts';
 import { refreshAppBadge } from '../lib/appBadge.ts';
 import { ReadyConfirm } from './ReadyConfirm.tsx';
-
-const TONE: Record<Tone, string> = {
-  green: 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-100',
-  sky: 'bg-sky-100 text-sky-800 dark:bg-sky-900 dark:text-sky-100',
-  amber: 'bg-amber-100 text-amber-900 dark:bg-amber-900 dark:text-amber-100',
-  slate: 'bg-slate-100 text-slate-700 dark:bg-slate-700 dark:text-slate-200',
-  orange: 'bg-orange-100 text-orange-800 dark:bg-orange-900 dark:text-orange-100',
-  red: 'bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-100',
-};
 
 export function TurnBar({ leagueId, userId }: { leagueId: string; userId: string }) {
   // Stato del turno condiviso con la scheda e con le pagine (una lettura e un canale per lega). I dati sono sempre

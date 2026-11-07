@@ -5,6 +5,7 @@ import { Link } from 'react-router';
 import { refreshAppBadge } from '../lib/appBadge.ts';
 import { friendlyError } from '../lib/errors.ts';
 import type { LeagueDetail } from '../lib/leagues.ts';
+import { readSpoilerFree } from '../lib/replay.ts';
 import {
   alertText,
   answerAlert,
@@ -34,6 +35,7 @@ import { useTurn } from '../lib/turnStore.ts';
 import { useUnsaved } from '../lib/unsaved.ts';
 import { useAsync } from '../lib/useAsync.ts';
 import { ReadyConfirm } from './ReadyConfirm.tsx';
+import { ShareTurn } from './ShareTurn.tsx';
 import { Button, Card, ConfirmButton, ErrorText } from './ui.tsx';
 
 const BADGE: Record<Readiness, { label: string; className: string }> = {
@@ -103,6 +105,8 @@ export function TurnCard({
   const [askReady, setAskReady] = useState(false);
   const unsaved = useUnsaved(league.id);
   const [now, setNow] = useState(() => Date.now());
+  // Con i Risultati senza spoiler anche qui il punteggio dell'ultima partita resta nascosto
+  const [spoilerFree] = useState(readSpoilerFree);
 
   // La propria squadra è cambiata (lasciata, liberata dal commissario): avvisi e stato sono di un'altra squadra
   const myTeam = mine?.id ?? null;
@@ -188,7 +192,21 @@ export function TurnCard({
           </span>
         </div>
 
-        {status.lastGame && (
+        {status.lastGame && spoilerFree && (
+          <p className="text-sm">
+            <span className="text-slate-500 dark:text-slate-400">
+              Ultima partita
+              {status.lastGame.roundNumber < 82 ? ` (giornata ${status.lastGame.roundNumber + 1})` : ''}:
+            </span>{' '}
+            <span className="font-semibold">
+              {code(status.lastGame.awayTeamId)} – {code(status.lastGame.homeTeamId)}
+            </span>{' '}
+            <Link to={`/lega/${league.id}/risultati/${status.lastGame.roundNumber}`} className={LINK}>
+              Guardala senza spoiler
+            </Link>
+          </p>
+        )}
+        {status.lastGame && !spoilerFree && (
           <p className="text-sm">
             <span className="text-slate-500 dark:text-slate-400">
               Ultima partita
@@ -237,6 +255,8 @@ export function TurnCard({
             </Link>
           )}
         </p>
+        {/* Riepilogo per il gruppo della lega: dopo la prima partita della squadra */}
+        {mine && status.lastGame && <ShareTurn league={league} me={mine} lastGame={status.lastGame} />}
         {open && round.deadline && !status.paused && (
           <p className="text-sm">
             Scadenza del turno: <span className="font-semibold">{timeLeft(round.deadline, now)}</span>
