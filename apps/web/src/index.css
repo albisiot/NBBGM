@@ -115,8 +115,23 @@
     U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
 }
 
+/*
+ * Spazio sopra la testata e la schermata d'errore: l'area sicura in alto più mezzo rem e, dove l'area sicura c'è
+ * (iPhone, con la barra di stato sopra la pagina), altri 0,75rem: iOS sfuma la fascia appena sotto la barra di
+ * stato e la testata lì sembrava sfocata. Sul computer min(area sicura, 0,75rem) vale 0.
+ */
+:root {
+  --spazio-alto: calc(env(safe-area-inset-top) + 0.5rem + min(env(safe-area-inset-top), 0.75rem));
+}
+
 /* Colori di base per le pagine senza intestazione (accesso); il tema segue quello del sistema */
 @layer base {
+  /* Niente rimbalzo quando si tira la pagina oltre l'inizio o la fine: una pagina che sta nello schermo non si
+     muove, una più lunga scorre solo quanto serve. Toglie anche il trascina per ricaricare di Chrome su Android */
+  html,
+  body {
+    overscroll-behavior: none;
+  }
   html {
     -webkit-text-size-adjust: 100%;
   }

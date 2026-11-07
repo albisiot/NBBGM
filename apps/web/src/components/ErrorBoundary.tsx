@@ -39,7 +39,7 @@ export function ErrorScreen({
   return (
     <main
       role="alert"
-      className="mx-auto max-w-md space-y-4 px-4 pt-[calc(env(safe-area-inset-top)+2rem)] pb-8 text-stampa-900 dark:text-stampa-100"
+      className="mx-auto max-w-md space-y-4 px-4 pt-[calc(var(--spazio-alto)+1.5rem)] pb-8 text-stampa-900 dark:text-stampa-100"
     >
       <h1 className="text-xl font-bold">Qualcosa è andato storto</h1>
       <p className="text-sm text-stampa-600 dark:text-stampa-300">
