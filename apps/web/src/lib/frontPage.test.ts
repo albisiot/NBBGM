@@ -18,6 +18,9 @@ const teams = [
 
 const game = (g: Partial<LastGame>): LastGame => ({
   roundNumber: 22,
+  kind: 'regular',
+  day: 40,
+  seasonYear: 2026,
   homeTeamId: 't-bos',
   awayTeamId: 't-mia',
   homeScore: 112,
@@ -35,15 +38,18 @@ describe('prima pagina della lega', () => {
     expect(teamCity('Bot')).toBe('Bot');
   });
 
-  it('occhiello: giornata in regular season, post-season dopo', () => {
-    expect(gameWhen(0)).toBe('Giornata 1');
-    expect(gameWhen(81)).toBe('Giornata 82');
-    expect(gameWhen(82)).toBe('Post-season');
+  it('occhiello: la data, con la fase in play-in e playoff', () => {
+    expect(gameWhen({ kind: 'regular', day: 0, seasonYear: 2026 })).toBe('Martedì 20 ottobre');
+    expect(gameWhen({ kind: 'regular', day: 173, seasonYear: 2026 })).toBe('Domenica 11 aprile');
+    expect(gameWhen({ kind: 'play-in', day: 175, seasonYear: 2026 })).toBe('Play-in · martedì 13 aprile');
+    expect(gameWhen({ kind: 'playoffs', day: 180, seasonYear: 2026 })).toBe('Playoff · domenica 18 aprile');
+    // Senza giorno (righe di prima)
+    expect(gameWhen({ kind: 'regular', day: null, seasonYear: 2026 })).toBe('Regular season');
   });
 
   it('titolo con chi vince, sommario dal punto di vista della propria squadra', () => {
     expect(gameHeadline(game({}), teams, 't-bos', false)).toEqual({
-      kicker: 'Giornata 23 · ultima partita',
+      kicker: 'Domenica 29 novembre · ultima partita',
       title: 'Boston batte Miami',
       dek: '112–104, vittoria in casa.',
     });
@@ -65,12 +71,17 @@ describe('prima pagina della lega', () => {
     expect(
       gameHeadline(game({ homeScore: 130, awayScore: 128, overtimes: 2 }), teams, 't-bos', false).title,
     ).toBe('Boston batte Miami dopo 2 supplementari');
-    expect(gameHeadline(game({ homeTeamId: 't-por', roundNumber: 85 }), teams, 't-mia', false)).toMatchObject(
-      {
-        kicker: 'Post-season · ultima partita',
-        title: 'Portland batte Miami',
-      },
-    );
+    expect(
+      gameHeadline(
+        game({ homeTeamId: 't-por', roundNumber: 170, kind: 'playoffs', day: 180 }),
+        teams,
+        't-mia',
+        false,
+      ),
+    ).toMatchObject({
+      kicker: 'Playoff · domenica 18 aprile · ultima partita',
+      title: 'Portland batte Miami',
+    });
   });
 
   it('senza spoiler il titolo non dice il risultato', () => {
@@ -81,6 +92,7 @@ describe('prima pagina della lega', () => {
 
   it('stato delle squadre nel turno: etichette e note in corsivo', () => {
     expect(readinessMark('ready')).toEqual({ kind: 'tag', tone: 'ink', label: 'Pronto' });
+    expect(readinessMark('rest')).toEqual({ kind: 'tag', tone: 'outline', label: 'Riposo · pronto' });
     expect(readinessMark('coach')).toEqual({ kind: 'tag', tone: 'outline', label: 'Allenatore' });
     expect(readinessMark('blocked')).toEqual({ kind: 'tag', tone: 'red', label: 'Deve decidere' });
     expect(readinessMark('waiting')).toEqual({ kind: 'note', label: 'non ancora pronto' });
@@ -95,10 +107,11 @@ describe('prima pagina della lega', () => {
   });
 
   it('striscia della simulazione', () => {
-    expect(closingLabel('regular', 22)).toBe('Si gioca la giornata 23');
-    expect(closingLabel('play-in', 82)).toBe('Si gioca il play-in');
-    expect(closingLabel('playoffs', 90)).toBe('Si giocano i playoff');
-    expect(closingLabel('offseason', 120)).toBe('Simulazione in corso');
+    expect(closingLabel('regular', 1, 2026)).toBe('Si gioca mercoledì 21 ottobre');
+    expect(closingLabel('regular', null, null)).toBe('Si gioca');
+    expect(closingLabel('play-in', 175, 2026)).toBe('Si gioca il play-in');
+    expect(closingLabel('playoffs', 180, 2026)).toBe('Si giocano i playoff');
+    expect(closingLabel('offseason', null, 2026)).toBe('Simulazione in corso');
   });
 
   it('titolo della conferma del Pronto', () => {

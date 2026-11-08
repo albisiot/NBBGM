@@ -136,7 +136,7 @@ export function TurnBar({ leagueId, userId }: { leagueId: string; userId: string
                 : 'border border-stampa-900 text-stampa-900 hover:bg-stampa-100 disabled:text-stampa-400 dark:border-stampa-100 dark:text-stampa-50 dark:hover:bg-stampa-700'
             }`}
           >
-            {view.action === 'ready' ? 'Sono pronto' : 'Non più pronto'}
+            {view.actionLabel}
           </button>
         )}
       </div>

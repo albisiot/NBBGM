@@ -1,30 +1,25 @@
-// Calendario della stagione. Il gioco non ha date: un turno avanza quando tutti sono pronti, che sia dopo un minuto
-// o dopo un giorno. Per vedere la stagione come un calendario ogni turno con partite ha un giorno fisso, uguale per
-// tutti e ricavato solo dall'anno della stagione e dal numero del turno, come nella NBA: si parte dal martedì tra il
-// 20 e il 26 ottobre, una giornata ogni 2 giorni (ogni settima pausa di 3) fino a metà aprile, poi play-in e playoff
-// ogni 2 giorni fino a giugno. Modulo puro: niente Supabase, niente formati del browser (i nomi di giorni e mesi
-// sono scritti qui, così i test non dipendono dalla lingua del sistema).
+// Calendario della stagione. Un turno è un giorno, come nel calendario NBA: il server dà a ogni partita il suo giorno
+// (giorni dall'apertura della stagione, il martedì tra il 20 e il 26 ottobre) e le date si ricavano dall'anno della
+// stagione con le funzioni del motore (@nbbgm/engine/calendar). Regular season fino a metà aprile, con i giorni senza
+// partite della NBA (pausa per l'All-Star, Thanksgiving, vigilia di Natale...), poi play-in e playoff a giorni fino a
+// giugno. Modulo puro: niente Supabase, niente formati del browser (i nomi di giorni e mesi sono nel motore, così i
+// test non dipendono dalla lingua del sistema).
+import {
+  dayOf,
+  monthName,
+  noGameDays,
+  openingDay,
+  seasonDate,
+  weekday,
+  weekdayName,
+  ymd,
+} from '@nbbgm/engine/calendar';
 import type { GameKind, SeasonGame } from './results.ts';
+
+export { dayOf, openingDay, seasonDate, weekday, ymd };
 
 /** Giorno come numero di giorni dal 1° gennaio 1970 (UTC): le date si contano senza fusi orari né ora legale. */
 export type Day = number;
-
-/** Giornate di regular season (turni 0-81); poi play-in (82-83) e playoff. */
-export const REGULAR_ROUNDS = 82;
-
-const DAY_MS = 86_400_000;
-
-export const dayOf = (year: number, month: number, date: number): Day =>
-  Math.round(Date.UTC(year, month - 1, date) / DAY_MS);
-
-/** Anno, mese (1-12) e giorno del mese. */
-export function ymd(day: Day): { year: number; month: number; date: number } {
-  const d = new Date(day * DAY_MS);
-  return { year: d.getUTCFullYear(), month: d.getUTCMonth() + 1, date: d.getUTCDate() };
-}
-
-/** Giorno della settimana: 0 lunedì ... 6 domenica (il 1° gennaio 1970 era un giovedì). */
-export const weekday = (day: Day): number => (((day + 3) % 7) + 7) % 7;
 
 /** "2026-11-14": il giorno nell'indirizzo della pagina. */
 export function dayKey(day: Day): string {
@@ -40,27 +35,6 @@ export function parseDayKey(text: string | null): Day | null {
   return dayKey(day) === text ? day : null;
 }
 
-/** Primo giorno della stagione: il martedì tra il 20 e il 26 ottobre dell'anno della stagione. */
-export function openingDay(seasonYear: number): Day {
-  const oct20 = dayOf(seasonYear, 10, 20);
-  return oct20 + ((1 - weekday(oct20) + 7) % 7);
-}
-
-/**
- * Giorni dall'inizio della stagione al turno: in regular season 2 giorni tra una giornata e l'altra, 3 ogni
- * settima (la giornata 82 cade 173 giorni dopo la prima, a metà aprile); il primo play-in 3 giorni dopo l'ultima
- * giornata, poi un turno ogni 2 giorni (28 turni di playoff arrivano a metà giugno).
- */
-export function roundOffset(round: number): number {
-  const r = Math.max(0, Math.floor(round));
-  if (r < REGULAR_ROUNDS) return 2 * r + Math.floor(r / 7);
-  return roundOffset(REGULAR_ROUNDS - 1) + 3 + 2 * (r - REGULAR_ROUNDS);
-}
-
-/** Il giorno di un turno. */
-export const roundDay = (seasonYear: number, round: number): Day =>
-  openingDay(seasonYear) + roundOffset(round);
-
 /** Un giorno del calendario con partite: il turno e le sue partite. */
 export interface CalendarDay {
   day: Day;
@@ -69,16 +43,22 @@ export interface CalendarDay {
   games: SeasonGame[];
 }
 
-/** Le partite della stagione divise per giorno (un turno, un giorno). */
+/** Le partite della stagione divise per giorno (un turno, un giorno); quelle senza giorno restano fuori. */
 export function seasonCalendar(seasonYear: number, games: readonly SeasonGame[]): Map<Day, CalendarDay> {
   const days = new Map<Day, CalendarDay>();
   for (const g of games) {
-    const day = roundDay(seasonYear, g.roundNumber);
+    if (g.day === null) continue;
+    const day = seasonDate(seasonYear, g.day);
     const entry = days.get(day);
     if (entry) entry.games.push(g);
     else days.set(day, { day, round: g.roundNumber, kind: g.kind, games: [g] });
   }
   return days;
+}
+
+/** Giorni di regular season senza partite, con il motivo ("Pausa per l’All-Star"), come date. */
+export function seasonBreaks(seasonYear: number): Map<Day, string> {
+  return new Map([...noGameDays(seasonYear)].map(([d, why]) => [seasonDate(seasonYear, d), why]));
 }
 
 /** Giorni con partite, in ordine. */
@@ -92,10 +72,10 @@ export const calendarDays = (cal: ReadonlyMap<Day, CalendarDay>): Day[] =>
 export function leagueToday(
   cal: ReadonlyMap<Day, CalendarDay>,
   seasonYear: number,
-  current: { number: number | null; kind: string | null },
+  current: { kind: string | null; day: number | null },
 ): Day | null {
-  if (current.number === null || current.kind === null || current.kind === 'offseason') return null;
-  const day = roundDay(seasonYear, current.number);
+  if (current.day === null || current.kind === null || current.kind === 'offseason') return null;
+  const day = seasonDate(seasonYear, current.day);
   return cal.has(day) ? day : null;
 }
 
@@ -190,38 +170,21 @@ export function teamSide(game: SeasonGame, teamId: string): TeamSide {
   };
 }
 
-/** Nome del turno di un giorno: "Giornata 13", "Play-in", "Playoff · turno 3". */
-export function dayRoundLabel(entry: Pick<CalendarDay, 'round' | 'kind'>): string {
-  if (entry.kind === 'regular') return `Giornata ${entry.round + 1}`;
+/** Fase del giorno: "Regular season", "Play-in", "Playoff". */
+export function dayRoundLabel(entry: Pick<CalendarDay, 'kind'>): string {
   if (entry.kind === 'play-in') return 'Play-in';
-  return `Playoff · turno ${entry.round - REGULAR_ROUNDS - 1}`;
+  if (entry.kind === 'playoffs') return 'Playoff';
+  return 'Regular season';
 }
 
-const MONTHS = [
-  'gennaio',
-  'febbraio',
-  'marzo',
-  'aprile',
-  'maggio',
-  'giugno',
-  'luglio',
-  'agosto',
-  'settembre',
-  'ottobre',
-  'novembre',
-  'dicembre',
-] as const;
-const WEEKDAYS = ['lunedì', 'martedì', 'mercoledì', 'giovedì', 'venerdì', 'sabato', 'domenica'] as const;
-
 /** Intestazioni delle colonne: Lun ... Dom, e il nome intero per i lettori di schermo. */
-export const WEEKDAY_HEADERS = WEEKDAYS.map((name) => ({
-  short: name.charAt(0).toUpperCase() + name.slice(1, 3),
-  name,
-}));
+export const WEEKDAY_HEADERS = Array.from({ length: 7 }, (_, i) => {
+  // Il 5 gennaio 1970 era un lunedì
+  const name = weekdayName(4 + i);
+  return { short: name.charAt(0).toUpperCase() + name.slice(1, 3), name };
+});
 
 const capital = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
-const monthName = (month: number): string => MONTHS[month - 1] ?? '';
-const weekdayName = (day: Day): string => WEEKDAYS[weekday(day)] ?? '';
 
 /** "sabato 14 novembre 2026". */
 export function longDate(day: Day): string {
@@ -254,9 +217,9 @@ export const ALL_TEAMS = 'tutte';
 export const readView = (v: string | null): CalendarView => (v === 'settimana' ? 'settimana' : 'mese');
 
 /**
- * Cosa dice un giorno ai lettori di schermo: "sabato 14 novembre 2026, Giornata 13, BOS in casa contro NYK, vinta
- * 110-100, oggi". Senza spoiler una partita giocata è solo "giocata"; senza squadra in evidenza (o se non gioca) il
- * numero delle partite.
+ * Cosa dice un giorno ai lettori di schermo: "sabato 14 novembre 2026, Regular season, BOS in casa contro NYK, vinta
+ * 110-100, oggi". Senza spoiler una partita giocata è solo "giocata"; se la squadra in evidenza riposa lo dice;
+ * sempre, senza la sua partita, il numero delle partite.
  */
 export function dayAriaLabel(
   entry: CalendarDay,
@@ -274,7 +237,10 @@ export function dayAriaLabel(
     if (side.result === null) parts.push('da giocare');
     else if (opts.spoilerFree) parts.push('giocata');
     else parts.push(`${side.result === 'V' ? 'vinta' : 'persa'} ${side.score}`);
-  } else parts.push(entry.games.length === 1 ? '1 partita' : `${entry.games.length} partite`);
+  } else {
+    if (featuredId !== null && entry.kind === 'regular') parts.push(`${code(featuredId)} riposa`);
+    parts.push(entry.games.length === 1 ? '1 partita' : `${entry.games.length} partite`);
+  }
   if (opts.today) parts.push('oggi');
   return parts.join(', ');
 }

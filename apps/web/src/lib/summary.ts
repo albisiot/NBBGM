@@ -5,7 +5,8 @@
 import { BODY_PART_LABEL, type BodyPart, type Conference } from '@nbbgm/engine';
 import type { LeagueDetail, LeagueTeam } from './leagues.ts';
 import { millions } from './market.ts';
-import { GAME_COLUMNS } from './results.ts';
+import { GAME_COLUMNS, type GameKind } from './results.ts';
+import { dateText } from './roundDate.ts';
 import { appLink } from './share.ts';
 import { supabase } from './supabase.ts';
 import type { LastGame } from './turnStatus.ts';
@@ -17,6 +18,9 @@ export interface TurnSummary {
   teamCode: string;
   lastGame: {
     roundNumber: number;
+    kind: GameKind;
+    day: number | null;
+    seasonYear: number | null;
     homeCode: string;
     awayCode: string;
     homeScore: number;
@@ -27,7 +31,14 @@ export interface TurnSummary {
   standing: { conference: Conference; rank: number; w: number; l: number } | null;
   injuries: { name: string; bodyPart: string; games: number }[];
   signings: { name: string; salary: number; years: number }[];
-  nextGame: { roundNumber: number; opponentCode: string; home: boolean } | null;
+  nextGame: {
+    roundNumber: number;
+    kind: GameKind;
+    day: number | null;
+    seasonYear: number | null;
+    opponentCode: string;
+    home: boolean;
+  } | null;
   link: string;
 }
 
@@ -38,8 +49,13 @@ const CONFERENCE_NAME: Record<Conference, string> = {
 
 const plural = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`;
 
-/** "giornata 7" per la regular season, "post-season" dopo. */
-const gameWhen = (roundNumber: number) => (roundNumber < 82 ? `giornata ${roundNumber + 1}` : 'post-season');
+/** "mercoledì 21 ottobre" in regular season, "playoff, domenica 18 aprile" dopo. */
+function gameWhen(g: { kind: GameKind; day: number | null; seasonYear: number | null }): string {
+  const date = dateText(g.day, g.seasonYear);
+  const phase = g.kind === 'play-in' ? 'play-in' : g.kind === 'playoffs' ? 'playoff' : null;
+  if (phase) return date ? `${phase}, ${date}` : phase;
+  return date ?? 'regular season';
+}
 
 /** Testo del riepilogo, una riga per argomento; le righe senza dati non ci sono. */
 export function summaryText(s: TurnSummary): string {
@@ -52,7 +68,7 @@ export function summaryText(s: TurnSummary): string {
       ? `, ${g.overtimes > 1 ? `${g.overtimes} supplementari` : 'dopo un supplementare'}`
       : '';
     lines.push(
-      `Ultima partita (${gameWhen(g.roundNumber)}): ${g.awayCode} ${g.awayScore} – ${g.homeScore} ${g.homeCode}, ${mine > theirs ? 'vinta' : 'persa'}${ot}`,
+      `Ultima partita (${gameWhen(g)}): ${g.awayCode} ${g.awayScore} – ${g.homeScore} ${g.homeCode}, ${mine > theirs ? 'vinta' : 'persa'}${ot}`,
     );
   }
   if (s.standing)
@@ -70,7 +86,7 @@ export function summaryText(s: TurnSummary): string {
     );
   if (s.nextGame)
     lines.push(
-      `Prossima partita (${gameWhen(s.nextGame.roundNumber)}): ${s.nextGame.home ? 'in casa contro' : 'in trasferta contro'} ${s.nextGame.opponentCode}`,
+      `Prossima partita (${gameWhen(s.nextGame)}): ${s.nextGame.home ? 'in casa contro' : 'in trasferta contro'} ${s.nextGame.opponentCode}`,
     );
   lines.push(s.link);
   return lines.join('\n');
@@ -135,13 +151,22 @@ export async function loadTurnSummary(
     );
   }
   const line = standings ? [...standings.East, ...standings.West].find((l) => l.teamId === me.id) : undefined;
-  const n = next.data as { round_number: number; home_team_id: string; away_team_id: string } | null;
+  const n = next.data as {
+    round_number: number;
+    kind: GameKind;
+    day: number | null;
+    home_team_id: string;
+    away_team_id: string;
+  } | null;
   return {
     leagueName: league.name,
     teamName: me.fullName,
     teamCode: me.code,
     lastGame: lastGame && {
       roundNumber: lastGame.roundNumber,
+      kind: lastGame.kind,
+      day: lastGame.day,
+      seasonYear: lastGame.seasonYear,
       homeCode: code(lastGame.homeTeamId),
       awayCode: code(lastGame.awayTeamId),
       homeScore: lastGame.homeScore,
@@ -171,6 +196,9 @@ export async function loadTurnSummary(
     signings,
     nextGame: n && {
       roundNumber: n.round_number,
+      kind: n.kind,
+      day: n.day ?? null,
+      seasonYear: league.seasonYear,
       opponentCode: code(n.home_team_id === me.id ? n.away_team_id : n.home_team_id),
       home: n.home_team_id === me.id,
     },

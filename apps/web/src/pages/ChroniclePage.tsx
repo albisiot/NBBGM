@@ -1,5 +1,5 @@
 // Cronaca della lega: lo storico di scambi, firme, tagli, rinnovi, infortuni, ritiri e draft, dal più recente, come
-// le brevi del giornale raccolte per giornata. Filtri per tipo e per squadra nell'indirizzo
+// le brevi del giornale raccolte per giorno. Filtri per tipo e per squadra nell'indirizzo
 // (?tipi=trade,signing&squadra=BOS), così si possono linkare.
 import { useEffect, useState } from 'react';
 import { useParams, useSearchParams } from 'react-router';

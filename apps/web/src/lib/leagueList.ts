@@ -3,6 +3,7 @@
 // decisioni aperte; la lega in pausa tutta in corsivo. Logica pura, dallo stato dal vivo di lib/leaguesLive.ts.
 import type { MyLeague } from './leagues.ts';
 import type { LeagueLive } from './leaguesLive.ts';
+import { whenText } from './roundDate.ts';
 
 export interface LeagueLine {
   /** Etichetta in evidenza, prima del testo. */
@@ -15,25 +16,28 @@ export interface LeagueLine {
   quiet: boolean;
 }
 
-/** "Giornata 23", "Play-in", "Playoff", "Offseason"; null senza turno. */
-export function roundShort(kind: string | null, number: number | null): string | null {
+/** "Mer 21 ott", "Play-in · ven 16 apr", "Playoff · dom 18 apr", "Offseason"; null senza turno. */
+export function roundShort(
+  kind: string | null,
+  number: number | null,
+  day: number | null = null,
+  seasonYear: number | null = null,
+): string | null {
   if (kind === null || number === null) return null;
-  if (kind === 'regular') return `Giornata ${number + 1}`;
-  if (kind === 'play-in') return 'Play-in';
-  if (kind === 'playoffs') return 'Playoff';
   if (kind === 'offseason') return 'Offseason';
-  return null;
+  if (kind !== 'regular' && kind !== 'play-in' && kind !== 'playoffs') return null;
+  return whenText(kind, day, seasonYear, { short: true, fallback: `Turno ${number + 1}` });
 }
 
 const plural = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`;
 
 /** La riga di una lega nell'elenco; senza stato dal vivo (database non ancora aggiornato) solo il turno. */
 export function leagueListLine(
-  league: Pick<MyLeague, 'seasonYear' | 'roundKind' | 'roundNumber'>,
+  league: Pick<MyLeague, 'seasonYear' | 'roundKind' | 'roundNumber'> & Partial<Pick<MyLeague, 'roundDay'>>,
   live: LeagueLive | null,
 ): LeagueLine {
   const round =
-    roundShort(league.roundKind, league.roundNumber) ??
+    roundShort(league.roundKind, league.roundNumber, league.roundDay ?? null, league.seasonYear) ??
     (league.seasonYear === null ? 'In preparazione' : `Stagione ${league.seasonYear}`);
   const decisions = live && live.decisions > 0 ? plural(live.decisions, 'decisione', 'decisioni') : null;
   const line = (tag: LeagueLine['tag'], parts: string[], quiet = false): LeagueLine => ({
@@ -75,6 +79,8 @@ function myStateText(state: LeagueLive['myState']): string {
   switch (state) {
     case 'ready':
       return 'sei pronto';
+    case 'rest':
+      return 'riposi, sei pronto';
     case 'coach':
       return 'con l’allenatore';
     case 'blocked':

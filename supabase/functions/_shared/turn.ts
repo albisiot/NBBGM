@@ -381,6 +381,7 @@ export function serverTurn(
         injuryNews.push({
           season_year: state.config.year,
           round_number: turn,
+          day,
           type: 'injury',
           text: `${code}: ${p.firstName} ${p.lastName} si infortuna (${BODY_PART_LABEL[inj.bodyPart]}), fuori ${inj.games} partite`,
         });
@@ -749,6 +750,8 @@ export function serverTurn(
       ...state.transactions.map((t) => ({
         season_year: t.year,
         round_number: t.turn,
+        // Il giorno del turno; in offseason non c'è
+        day: offseason ? null : day,
         type: t.type,
         text: t.text,
       })),

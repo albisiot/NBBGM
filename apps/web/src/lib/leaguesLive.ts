@@ -33,14 +33,14 @@ export interface LeagueLive {
   phase: RoundPhase | null;
   /** Stato della propria squadra nel turno (come lo conta il server per la chiusura). */
   myState: Readiness | null;
-  /** Squadre umane pronte (Pronto o allenatore senza avvisi), sul totale di quelle che giocano il turno. */
+  /** Squadre umane pronte (Pronto, riposo o allenatore senza avvisi), sul totale di quelle nel turno. */
   ready: number;
   humans: number;
   /** Decisioni bloccanti aperte della propria squadra. */
   decisions: number;
 }
 
-const READINESS: readonly string[] = ['ready', 'coach', 'blocked', 'waiting', 'out'];
+const READINESS: readonly string[] = ['ready', 'rest', 'coach', 'blocked', 'waiting', 'out'];
 
 /** Dalla riga del server a quanto serve all'elenco. */
 export function leagueLive(row: LeagueLiveRow, now = Date.now()): LeagueLive {

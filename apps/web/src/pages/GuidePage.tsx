@@ -8,7 +8,7 @@ const SECTIONS: { title: string; text: string[] }[] = [
   {
     title: 'I turni',
     text: [
-      'La lega avanza a turni: in regular season un turno è una giornata, una partita per squadra. Poi play-in, playoff e un’offseason di 7 turni (draft, rinnovi, quattro turni di free agency, preparazione).',
+      'La lega avanza a turni, e un turno è un giorno del calendario, come nella NBA: da ottobre a metà aprile, ogni giorno da 2 a 15 partite, e ogni squadra gioca circa una sera su due (qualche volta due sere di fila, e si stanca). Poi play-in e playoff, sempre a giorni, e un’offseason di 7 turni (draft, rinnovi, quattro turni di free agency, preparazione).',
       'Il turno si gioca quando tutti i manager sono pronti, oppure alla scadenza se il commissario ne ha impostata una, oppure quando il commissario lo forza.',
       'Se per 3 turni di fila la scadenza arriva senza che nessun manager faccia niente, la lega si mette in pausa da sola: la riprende il commissario, o il primo che preme Sono pronto.',
     ],
@@ -17,6 +17,8 @@ const SECTIONS: { title: string; text: string[] }[] = [
     title: 'Sono pronto',
     text: [
       'Sistema la squadra e premi Sono pronto: il pulsante c’è in cima a ogni pagina della lega. Puoi toglierlo finché il turno non parte.',
+      'Nei giorni in cui la tua squadra riposa sei già pronto: togli il Pronto se prima del turno vuoi fare mercato o cambiare la squadra. Se hai una decisione da prendere (per esempio una proposta di scambio) rispondi e poi premi Sono pronto.',
+      'Il turno parte appena tutti sono pronti e qualcuno ha premuto Sono pronto; se sono tutti a riposo o con l’allenatore parte al ritmo scelto dal commissario (o subito, se chi riposa conferma il Pronto).',
       'Chi non conferma gioca con le ultime impostazioni salvate: se manca un giocatore (infortunato, ceduto) il sostituto lo sceglie il bot.',
     ],
   },
@@ -24,7 +26,7 @@ const SECTIONS: { title: string; text: string[] }[] = [
     title: 'La squadra',
     text: [
       'In Squadra scegli i 5 titolari (uno per ruolo), i minuti di ognuno (in tutto 240) e le tattiche. Auto propone quintetto e minuti; poi si salva.',
-      'Energia, morale e infortuni contano: chi gioca sempre tanti minuti arriva stanco.',
+      'Energia, morale e infortuni contano: chi gioca sempre tanti minuti arriva stanco, e la seconda sera di fila ancora di più. L’energia si recupera nelle notti di riposo.',
     ],
   },
   {
@@ -45,8 +47,8 @@ const SECTIONS: { title: string; text: string[] }[] = [
     title: 'Il mercato',
     text: [
       'Agli svincolati si fanno offerte a busta chiusa: alla chiusura del turno ognuno sceglie l’offerta migliore sopra la sua richiesta. Sopra il salary cap si firma solo al minimo. Chi tagli non lo puoi rifirmare fino alla stagione dopo.',
-      'Gli scambi (giocatori e scelte al draft, anche protette o come swap) si propongono a una squadra: i bot decidono alla chiusura del turno, i manager rispondono entro il turno. Dopo la giornata 56 gli scambi si fermano fino all’offseason.',
-      'Il bilancio conta: ricavi uguali per tutti, a metà tra il cap e la soglia della luxury tax; stipendi e tassa si pagano. Con il saldo negativo si firma solo fino al monte stipendi minimo, oltre solo minimi per restare a 13.',
+      'Gli scambi (giocatori e scelte al draft, anche protette o come swap) si propongono a una squadra: i bot decidono alla chiusura del turno, i manager rispondono entro il turno. Dopo la trade deadline (il primo giovedì di febbraio) gli scambi si fermano fino all’offseason.',
+      'Il bilancio conta: ricavi uguali per tutti, a metà tra il cap e la soglia della luxury tax, a ogni partita; stipendi e tassa si pagano. Con il saldo negativo si firma solo fino al monte stipendi minimo, oltre solo minimi per restare a 13.',
     ],
   },
   {

@@ -243,8 +243,10 @@ export function RosterPage() {
   const bench = benchOrder(roster, settings.starters, settings.minutes, byRank);
   const issues = courtIssues(team.code, roster, settings);
   const open = !league.roundState || league.roundState === 'open';
-  // Nella riga sopra il titolo solo il turno ("giornata 23"), senza la stagione
-  const round = statusLabel(league.seasonYear, league.roundNumber, league.roundKind).split(' · ').pop();
+  // Nella riga sopra il titolo solo il turno ("mercoledì 21 ottobre"), senza la stagione
+  const round = statusLabel(league.seasonYear, league.roundNumber, league.roundKind, league.roundDay)
+    .split(' · ')
+    .pop();
 
   return (
     <div className="space-y-4">

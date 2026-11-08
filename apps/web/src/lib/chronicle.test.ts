@@ -74,6 +74,7 @@ const entry = (over: Partial<ChronicleEntry>): ChronicleEntry => ({
   id: 1,
   seasonYear: 2026,
   roundNumber: 4,
+  day: 4,
   type: 'signing',
   text: '',
   teamCodes: [],
@@ -102,20 +103,27 @@ describe('cronaca della lega', () => {
     expect(mentions('qualunque', '')).toBe(false);
   });
 
-  it('intestazioni per stagione e giornata', () => {
-    expect(chronicleWhen(entry({ roundNumber: 12 }))).toBe('Stagione 2026-27 · giornata 13');
-    expect(chronicleWhen(entry({ roundNumber: null, seasonYear: 2027 }))).toBe(
+  it('intestazioni per stagione e giorno', () => {
+    expect(chronicleWhen(entry({ roundNumber: 12, day: 22 }))).toBe(
+      'Stagione 2026-27 · mercoledì 11 novembre',
+    );
+    // In offseason (e nel draft iniziale) non c'è un giorno
+    expect(chronicleWhen(entry({ roundNumber: null, day: null, seasonYear: 2027 }))).toBe(
       'Stagione 2027-28 · offseason',
     );
-    expect(chronicleWhen(entry({ roundNumber: 85 }))).toBe('Stagione 2026-27 · post-season');
+    expect(chronicleWhen(entry({ roundNumber: 3, day: null }))).toBe('Stagione 2026-27 · offseason');
+    // Anche i playoff hanno il loro giorno
+    expect(chronicleWhen(entry({ roundNumber: 170, day: 180 }))).toBe(
+      'Stagione 2026-27 · domenica 18 aprile',
+    );
     const groups = groupChronicle([
-      entry({ id: 3, roundNumber: 5 }),
-      entry({ id: 2, roundNumber: 5 }),
-      entry({ id: 1, roundNumber: 4 }),
+      entry({ id: 3, roundNumber: 5, day: 5 }),
+      entry({ id: 2, roundNumber: 5, day: 5 }),
+      entry({ id: 1, roundNumber: 4, day: 4 }),
     ]);
     expect(groups.map((g) => [g.when, g.entries.map((e) => e.id)])).toEqual([
-      ['Stagione 2026-27 · giornata 6', [3, 2]],
-      ['Stagione 2026-27 · giornata 5', [1]],
+      ['Stagione 2026-27 · domenica 25 ottobre', [3, 2]],
+      ['Stagione 2026-27 · sabato 24 ottobre', [1]],
     ]);
   });
 });
@@ -161,6 +169,7 @@ describe('cronaca a pagine per chiave (seconda analisi)', () => {
       id,
       seasonYear: 2026,
       roundNumber: null,
+      day: null,
       type: 'draft',
       text: '',
       teamCodes: [],

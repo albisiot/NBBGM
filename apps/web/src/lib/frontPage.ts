@@ -1,6 +1,7 @@
 // Prima pagina della lega nello stile Edicola: il titolo sull'ultima partita della propria squadra, le etichette
 // delle squadre nel turno, la scadenza sotto il Pronto, la striscia della simulazione e il titolo della conferma del
 // Pronto. Logica pura: niente React, Supabase o browser.
+import { dateText, whenText } from './roundDate.ts';
 import type { LastGame, Readiness } from './turnStatus.ts';
 
 // Soprannomi di due parole: la città è quello che resta del nome
@@ -23,9 +24,9 @@ export interface Headline {
   dek: string;
 }
 
-/** "Giornata 23" in regular season, "Post-season" dopo (i turni partono da 0, la regular season ne ha 82). */
-export function gameWhen(roundNumber: number): string {
-  return roundNumber < 82 ? `Giornata ${roundNumber + 1}` : 'Post-season';
+/** Quando si è giocata una partita: "Mercoledì 21 ottobre", "Playoff · domenica 18 aprile". */
+export function gameWhen(game: Pick<LastGame, 'kind' | 'day' | 'seasonYear'>): string {
+  return whenText(game.kind, game.day, game.seasonYear, { fallback: 'Regular season' });
 }
 
 /**
@@ -40,7 +41,7 @@ export function gameHeadline(
   spoilerFree: boolean,
 ): Headline {
   const city = (id: string) => teamCity(teams.find((t) => t.id === id)?.fullName ?? '?');
-  const kicker = `${gameWhen(game.roundNumber)} · ultima partita`;
+  const kicker = `${gameWhen(game)} · ultima partita`;
   const away = city(game.awayTeamId);
   const home = city(game.homeTeamId);
   if (spoilerFree)
@@ -72,7 +73,8 @@ export function gameHeadline(
 
 /**
  * Come si segna lo stato di una squadra nel turno, a destra della riga a puntini: un'etichetta (pronto
- * d'inchiostro, allenatore a filo, deve decidere rossa) o una nota in corsivo (non ancora pronto, non gioca).
+ * d'inchiostro, a riposo e allenatore a filo, deve decidere rossa) o una nota in corsivo (non ancora pronto, non
+ * gioca).
  */
 export type ReadinessMark =
   { kind: 'tag'; tone: 'ink' | 'outline' | 'red'; label: string } | { kind: 'note'; label: string };
@@ -81,6 +83,8 @@ export function readinessMark(state: Readiness): ReadinessMark {
   switch (state) {
     case 'ready':
       return { kind: 'tag', tone: 'ink', label: 'Pronto' };
+    case 'rest':
+      return { kind: 'tag', tone: 'outline', label: 'Riposo · pronto' };
     case 'coach':
       return { kind: 'tag', tone: 'outline', label: 'Allenatore' };
     case 'blocked':
@@ -99,9 +103,10 @@ export function deadlineNote(left: string): string {
     : `Il turno chiude ${left}, o prima se tutti sono pronti.`;
 }
 
-/** Striscia della simulazione in corso: "Si gioca la giornata 23", "Si giocano i playoff". */
-export function closingLabel(kind: string, number: number): string {
-  if (kind === 'regular') return `Si gioca la giornata ${number + 1}`;
+/** Striscia della simulazione in corso: "Si gioca mercoledì 21 ottobre", "Si giocano i playoff". */
+export function closingLabel(kind: string, day: number | null, seasonYear: number | null): string {
+  const date = dateText(day, seasonYear);
+  if (kind === 'regular') return date ? `Si gioca ${date}` : 'Si gioca';
   if (kind === 'play-in') return 'Si gioca il play-in';
   if (kind === 'playoffs') return 'Si giocano i playoff';
   return 'Simulazione in corso';

@@ -39,6 +39,8 @@ function status(over: Partial<TurnStatus> = {}): TurnStatus {
       createdAt: '2026-11-05T11:59:00Z',
       forcedAt: null,
       closingStartedAt: null,
+      day: 7,
+      seasonYear: 2026,
     },
     paused: false,
     maxPaceSeconds: 60,
@@ -48,6 +50,7 @@ function status(over: Partial<TurnStatus> = {}): TurnStatus {
     alerts: [],
     lastGame: null,
     playing: null,
+    today: null,
     championId: null,
     trouble: null,
     myTeamId: null,
@@ -113,7 +116,8 @@ describe('chi è pronto', () => {
     ]);
     // Una squadra che il server non conosce ancora (appena entrata) si ricava dalle tabelle
     expect(readiness({ ...s, ready: new Set(['e']) }, 'e', NOW)).toBe('ready');
-    expect(['ready', 'coach', 'blocked', 'waiting'].map((r) => countsAsReady(r as never))).toEqual([
+    expect(['ready', 'rest', 'coach', 'blocked', 'waiting'].map((r) => countsAsReady(r as never))).toEqual([
+      true,
       true,
       true,
       false,
@@ -140,6 +144,13 @@ describe('nota sotto i manager', () => {
       'Tutti pronti: il turno parte a momenti.',
     );
     expect(readinessNote([t('Anna', 'coach'), t('Bruno', 'coach')])).toMatch(/la lega avanza da sola/);
+    // Tutti pronti da soli (a riposo o con l'allenatore): si aspetta il ritmo massimo, o un Pronto a mano
+    expect(readinessNote([t('Anna', 'rest'), t('Bruno', 'coach')])).toMatch(
+      /al ritmo scelto dal commissario/,
+    );
+    expect(readinessNote([t('Anna', 'rest'), t('Bruno', 'ready')])).toBe(
+      'Tutti pronti: il turno parte a momenti.',
+    );
   });
 
   it('con l’allenatore fermo da un avviso non dice che la lega avanza: dice chi deve decidere', () => {
@@ -228,6 +239,8 @@ describe('barra del turno', () => {
     state: 'open' as const,
     stage: null,
     closingStartedAt: null,
+    day: 22,
+    seasonYear: 2026,
   };
   const bar = (over: Partial<BarStatus> = {}): BarStatus => ({
     leagueId: 'L',
@@ -241,23 +254,44 @@ describe('barra del turno', () => {
     ...over,
   });
 
-  it('titolo del turno', () => {
-    expect(roundTitle('regular', 12, null)).toBe('Giornata 13 di 82');
-    expect(roundTitle('play-in', 82, null)).toBe('Play-in');
-    expect(roundTitle('playoffs', 90, null)).toBe('Playoff');
-    expect(roundTitle('offseason', 3, 'renewals')).toBe('Offseason · Rinnovi');
-    expect(roundTitle('offseason', 3, null)).toBe('Offseason');
+  it('titolo del turno: la data', () => {
+    const r = (kind: string, day: number | null, stage: string | null = null) => ({
+      kind,
+      number: 12,
+      stage,
+      day,
+      seasonYear: 2026,
+    });
+    expect(roundTitle(r('regular', 22))).toBe('Mercoledì 11 novembre');
+    expect(roundTitle(r('regular', 22), true)).toBe('Mer 11 nov');
+    expect(roundTitle(r('play-in', 175))).toBe('Play-in · martedì 13 aprile');
+    expect(roundTitle(r('playoffs', 180))).toBe('Playoff · domenica 18 aprile');
+    expect(roundTitle(r('playoffs', 180), true)).toBe('Playoff · dom 18 apr');
+    expect(roundTitle(r('offseason', null, 'renewals'))).toBe('Offseason · Rinnovi');
+    expect(roundTitle(r('offseason', null))).toBe('Offseason');
+    // Senza giorno (righe di prima)
+    expect(roundTitle(r('regular', null))).toBe('Turno 13');
   });
 
   it('non pronto: si segna pronto; pronto: toglie il Pronto', () => {
     expect(barView(bar())).toMatchObject({
-      title: 'Giornata 13 di 82',
+      title: 'Mer 11 nov',
       badge: { label: 'Non pronto' },
       action: 'ready',
+      actionLabel: 'Sono pronto',
     });
     expect(barView(bar({ myState: 'ready' }))).toMatchObject({
       badge: { label: 'Pronto' },
       action: 'unready',
+      actionLabel: 'Non più pronto',
+    });
+  });
+
+  it('a riposo si parte pronti: il pulsante toglie il Pronto', () => {
+    expect(barView(bar({ myState: 'rest' }))).toMatchObject({
+      badge: { label: 'Riposo · pronto', tone: 'sky' },
+      action: 'unready',
+      actionLabel: 'Togli il Pronto',
     });
   });
 
@@ -281,7 +315,7 @@ describe('barra del turno', () => {
       action: null,
     });
     expect(barView(bar({ draftPending: true }))).toMatchObject({
-      title: 'Giornata 13 di 82',
+      title: 'Mer 11 nov',
       badge: { label: 'Draft in corso' },
       action: null,
     });
@@ -343,6 +377,7 @@ describe('fase del turno, uguale per barra e scheda', () => {
     expect(readyAction('open', 'waiting')).toBe('ready');
     expect(readyAction('paused', 'blocked')).toBe('ready');
     expect(readyAction('open', 'ready')).toBe('unready');
+    expect(readyAction('open', 'rest')).toBe('unready');
     expect(readyAction('open', 'out')).toBeNull();
     expect(readyAction('open', null)).toBeNull();
     for (const phase of ['draft', 'failed', 'late', 'closing'] as const)
@@ -395,6 +430,8 @@ describe('stato del turno in una lettura (seconda analisi, prestazioni)', () => 
       closing_started_at: null,
       attempts: 0,
       failed_at: null,
+      day: 22,
+      season_year: 2026,
     },
     draft_state: 'done',
     my_team_id: 't',
@@ -406,6 +443,9 @@ describe('stato del turno in una lettura (seconda analisi, prestazioni)', () => 
     ],
     last_game: {
       round_number: 11,
+      kind: 'regular',
+      day: 21,
+      season_year: 2026,
       home_team_id: 't',
       away_team_id: 'a',
       home_score: 101,
@@ -414,10 +454,11 @@ describe('stato del turno in una lettura (seconda analisi, prestazioni)', () => 
     },
     readiness: [
       { team_id: 'a', state: 'ready' },
+      { team_id: 'r', state: 'rest' },
       { team_id: 't', state: 'blocked' },
       { team_id: 'z', state: 'sconosciuto' },
     ],
-    playing: [],
+    playing: ['a', 'b', 't', 'u'],
     champion_id: 'c',
     ...over,
   });
@@ -430,21 +471,32 @@ describe('stato del turno in una lettura (seconda analisi, prestazioni)', () => 
       maxPaceSeconds: 120,
       draftPending: false,
       myTeamId: 't',
-      round: { id: 'r', number: 12, stage: null, createdAt: '2026-11-05T11:59:00Z' },
-      lastGame: { homeScore: 101, overtimes: 0 },
-      // In regular season giocano tutte e il campione non c'è ancora
+      round: {
+        id: 'r',
+        number: 12,
+        stage: null,
+        createdAt: '2026-11-05T11:59:00Z',
+        day: 22,
+        seasonYear: 2026,
+      },
+      lastGame: { homeScore: 101, overtimes: 0, kind: 'regular', day: 21, seasonYear: 2026 },
+      // In regular season nessuno è fuori dal turno (chi riposa è pronto da solo) e il campione non c'è ancora
       playing: null,
       championId: null,
       trouble: null,
     });
     expect([...s.ready]).toEqual(['a']);
+    // Chi gioca oggi: gli altri riposano
+    expect([...(s.today ?? [])]).toEqual(['a', 'b', 't', 'u']);
     expect(s.alerts.map((a) => a.id)).toEqual(['x', 'y']);
     expect(s.delegations).toEqual([{ teamId: 't', active: true, untilRound: null, untilAt: null }]);
     // Gli stati che l'app non conosce restano fuori
     expect([...(s.teamStates ?? new Map())]).toEqual([
       ['a', 'ready'],
+      ['r', 'rest'],
       ['t', 'blocked'],
     ]);
+    expect(readiness(s, 'r', NOW)).toBe('rest');
     expect(readiness(s, 't', NOW)).toBe('blocked');
   });
 
@@ -455,6 +507,7 @@ describe('stato del turno in una lettura (seconda analisi, prestazioni)', () => 
     expect(turnFromServer('L', row({ round: { ...r, kind: 'offseason', stage: 'fa1' } }))).toMatchObject({
       championId: 'c',
       round: { stage: 'fa1' },
+      today: null,
     });
     expect(
       turnFromServer('L', row({ round: { ...r, state: 'closing', attempts: 2, failed_at: null } })).trouble,
@@ -468,7 +521,7 @@ describe('stato del turno in una lettura (seconda analisi, prestazioni)', () => 
     const bar = barFromTurn(turnFromServer('L', row()), NOW);
     expect(bar).toMatchObject({
       leagueId: 'L',
-      round: { id: 'r', number: 12, stage: null },
+      round: { id: 'r', number: 12, stage: null, day: 22, seasonYear: 2026 },
       myTeamId: 't',
       myState: 'blocked',
       decisions: [{ id: 'x', kind: 'trade_offer' }],

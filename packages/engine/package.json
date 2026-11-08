@@ -5,7 +5,8 @@
   "description": "Motore partita e logica di lega di NBBGM: TypeScript puro, nessuna dipendenza.",
   "type": "module",
   "exports": {
-    ".": "./src/index.ts"
+    ".": "./src/index.ts",
+    "./calendar": "./src/season/calendar.ts"
   },
   "scripts": {
     "build": "tsc -p tsconfig.build.json",

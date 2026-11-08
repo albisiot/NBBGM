@@ -4,12 +4,14 @@
 /**
  * Stato di una squadra umana nel turno:
  *   ready     Pronto premuto
+ *   rest      in regular season senza partita nel giorno, con il Pronto messo dal server: conta come pronta (il
+ *             manager può toglierlo, per esempio per fare mercato)
  *   coach     allenatore attivo, senza avvisi bloccanti: conta come pronta
  *   blocked   allenatore attivo ma con un avviso bloccante aperto: non è pronta finché il manager non risponde
  *   waiting   non pronta
  *   out       in play-in e playoff senza partita nel turno: non deve essere pronta
  */
-export type Readiness = 'ready' | 'coach' | 'blocked' | 'waiting' | 'out';
+export type Readiness = 'ready' | 'rest' | 'coach' | 'blocked' | 'waiting' | 'out';
 
 export interface RoundInfo {
   id: string;
@@ -23,6 +25,10 @@ export interface RoundInfo {
   forcedAt: string | null;
   /** Inizio della chiusura (o dell'ultima ripresa) della simulazione. */
   closingStartedAt: string | null;
+  /** Giorno del turno, in giorni dall'apertura della stagione (null in offseason). */
+  day: number | null;
+  /** Anno della stagione del turno (2026 per il 2026-27). */
+  seasonYear: number | null;
 }
 
 /** Simulazione che non riesce: tentativi fatti e, dopo l'ultimo, quando il turno si è fermato. */
@@ -48,6 +54,10 @@ export interface AlertItem {
 
 export interface LastGame {
   roundNumber: number;
+  kind: 'regular' | 'play-in' | 'playoffs';
+  /** Giorno della partita e anno della sua stagione: la data. */
+  day: number | null;
+  seasonYear: number | null;
   homeTeamId: string;
   awayTeamId: string;
   homeScore: number;
@@ -69,8 +79,10 @@ export interface TurnStatus {
   /** Avvisi aperti della propria squadra (gli altri non si vedono). */
   alerts: AlertItem[];
   lastGame: LastGame | null;
-  /** In play-in e playoff le squadre con una partita nel turno; null in regular season (giocano tutte). */
+  /** In play-in e playoff le squadre con una partita nel turno (le altre non devono essere pronte); null in regular season. */
   playing: Set<string> | null;
+  /** Squadre con una partita nel turno, anche in regular season (le altre riposano); null in offseason. */
+  today: Set<string> | null;
   /** A stagione finita, il campione. */
   championId: string | null;
   /** Solo per un turno in chiusura: tentativi di simulazione e stato fermo. */
@@ -94,10 +106,16 @@ export type RoundRow = {
   created_at: string;
   forced_at: string | null;
   closing_started_at: string | null;
+  /** Dal 20261108090000. */
+  day?: number | null;
+  season_year?: number | null;
 };
 
 export type LastGameRow = {
   round_number: number;
+  kind?: LastGame['kind'];
+  day?: number | null;
+  season_year?: number | null;
   home_team_id: string;
   away_team_id: string;
   home_score: number;
@@ -147,12 +165,17 @@ export const toRound = (r: RoundRow): RoundInfo => ({
   createdAt: r.created_at,
   forcedAt: r.forced_at,
   closingStartedAt: r.closing_started_at,
+  day: r.day ?? null,
+  seasonYear: r.season_year ?? null,
 });
 
 export const toLastGame = (g: LastGameRow | null | undefined): LastGame | null =>
   g
     ? {
         roundNumber: g.round_number,
+        kind: g.kind ?? 'regular',
+        day: g.day ?? null,
+        seasonYear: g.season_year ?? null,
         homeTeamId: g.home_team_id,
         awayTeamId: g.away_team_id,
         homeScore: g.home_score,
@@ -176,7 +199,7 @@ export const toDelegation = (d: DelegationRow): Delegation => ({
   untilAt: d.until_at,
 });
 
-const READINESS: readonly Readiness[] = ['ready', 'coach', 'blocked', 'waiting', 'out'];
+const READINESS: readonly Readiness[] = ['ready', 'rest', 'coach', 'blocked', 'waiting', 'out'];
 
 export const toStates = (rows: readonly { team_id: string; state: string }[]): Map<string, Readiness> =>
   new Map(
@@ -200,6 +223,7 @@ export function turnFromServer(leagueId: string, row: TurnStatusRow | null): Tur
     alerts: (row?.alerts ?? []).map(toAlert),
     lastGame: toLastGame(row?.last_game),
     playing: postseason ? new Set(row?.playing ?? []) : null,
+    today: round && round.kind !== 'offseason' ? new Set(row?.playing ?? []) : null,
     championId: round?.kind === 'offseason' ? (row?.champion_id ?? null) : null,
     trouble:
       round?.state === 'closing'

@@ -1,5 +1,6 @@
 // Leghe dell'utente: letture (filtrate dalla RLS) e azioni (funzioni del server).
 import { FunctionsHttpError } from '@supabase/supabase-js';
+import { dateText } from './roundDate.ts';
 import { supabase } from './supabase.ts';
 
 /** Memoria del browser con l'ultima lega aperta (l'elenco delle leghe la riapre). */
@@ -14,6 +15,8 @@ export interface MyLeague {
   seasonYear: number | null;
   roundNumber: number | null;
   roundKind: string | null;
+  /** Giorno del turno corrente (giorni dall'apertura della stagione; null in offseason). */
+  roundDay: number | null;
 }
 
 export interface LeagueTeam {
@@ -42,6 +45,8 @@ export interface LeagueDetail {
   roundId: string | null;
   roundNumber: number | null;
   roundKind: string | null;
+  /** Giorno del turno corrente (giorni dall'apertura della stagione; null in offseason). */
+  roundDay: number | null;
   roundState: string | null;
   /** Turno di offseason: draft, renewals, fa1-fa4, preparation. */
   roundStage: string | null;
@@ -77,11 +82,11 @@ export const PICK_SECONDS_OPTIONS: { label: string; value: number }[] = [
 
 // Le relazioni con più chiavi esterne vanno indicate per nome del vincolo
 const LEAGUE_STATUS =
-  'season:seasons!leagues_current_season(id, year, phase), round:rounds!leagues_current_round(number, kind, state, stage)';
+  'season:seasons!leagues_current_season(id, year, phase), round:rounds!leagues_current_round(number, kind, state, stage, day)';
 
 interface StatusRow {
   season: { id: string; year: number; phase: string } | null;
-  round: { number: number; kind: string; state: string; stage: string | null } | null;
+  round: { number: number; kind: string; state: string; stage: string | null; day?: number | null } | null;
 }
 
 export async function myLeagues(userId: string): Promise<MyLeague[]> {
@@ -108,6 +113,7 @@ export async function myLeagues(userId: string): Promise<MyLeague[]> {
         seasonYear: l.season?.year ?? null,
         roundNumber: l.round?.number ?? null,
         roundKind: l.round?.kind ?? null,
+        roundDay: l.round?.day ?? null,
       };
     })
     .sort((a, b) => a.name.localeCompare(b.name, 'it'));
@@ -166,6 +172,7 @@ export async function leagueDetail(id: string): Promise<LeagueDetail | null> {
     roundId: l.current_round_id ?? null,
     roundNumber: l.round?.number ?? null,
     roundKind: l.round?.kind ?? null,
+    roundDay: l.round?.day ?? null,
     roundState: l.round?.state ?? null,
     roundStage: l.round?.stage ?? null,
     // Relazione uno a uno: PostgREST può restituire l'oggetto o un elenco di uno
@@ -337,17 +344,18 @@ export async function updateDisplayName(userId: string, name: string): Promise<v
   if (error) throw error;
 }
 
-/** "Stagione 2026-27 · giornata 1" */
+/** "Stagione 2026-27 · mercoledì 21 ottobre", "Stagione 2026-27 · playoff", "Stagione 2026-27 · offseason" */
 export function statusLabel(
   seasonYear: number | null,
   roundNumber: number | null,
   roundKind: string | null,
+  roundDay: number | null = null,
 ): string {
   if (seasonYear === null) return '';
   const season = `Stagione ${seasonYear}-${String((seasonYear + 1) % 100).padStart(2, '0')}`;
   if (roundNumber === null) return season;
   const kinds: Record<string, string> = {
-    regular: `giornata ${roundNumber + 1}`,
+    regular: dateText(roundDay, seasonYear) ?? `turno ${roundNumber + 1}`,
     'play-in': 'play-in',
     playoffs: 'playoff',
     offseason: 'offseason',

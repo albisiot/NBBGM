@@ -87,8 +87,9 @@ export function WelcomeCard({ leagueId, teamName }: { leagueId: string; teamName
             scegli quintetto, minuti e tattiche (o tocca Auto) e salva.
           </>,
           <>
-            Quando hai finito premi <strong>Sono pronto</strong>: il turno si gioca quando tutti i manager
-            sono pronti. Il pulsante c’è in cima a ogni pagina della lega.
+            Quando hai finito premi <strong>Sono pronto</strong>: il turno (un giorno del calendario) si gioca
+            quando tutti i manager sono pronti. Il pulsante c’è in cima a ogni pagina della lega. Nei giorni
+            in cui la tua squadra riposa sei già pronto.
           </>,
           <>
             Se non puoi seguire la squadra, affidala all’<strong>allenatore</strong> (in Squadra): risulti

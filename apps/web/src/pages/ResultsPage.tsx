@@ -1,13 +1,13 @@
 // Risultati di un turno come una colonna di giornale: una riga per partita con il punteggio (o da giocare), il
 // vincitore in grassetto e il link a box score e cronaca; la partita della propria squadra in cima, evidenziata.
-// Si passa da un turno all'altro con le frecce; di default si apre l'ultimo turno giocato. Senza spoiler i
+// Un turno è un giorno: si passa da un giorno all'altro con le frecce; di default si apre l'ultimo giocato. Senza spoiler i
 // punteggi restano nascosti e ogni partita si apre dal vivo (l'opzione si ricorda sul dispositivo). Titolo e
 // schede di Campionato stanno in ChampionshipLayout.
 import { useState } from 'react';
 import { Link, useParams } from 'react-router';
 import { ErrorText, Spinner } from '../components/ui.tsx';
 import { useUserId } from '../lib/auth.tsx';
-import { dayKey, roundDay, shortDate } from '../lib/calendar.ts';
+import { dayKey, seasonDate } from '../lib/calendar.ts';
 import { readSpoilerFree, writeSpoilerFree } from '../lib/replay.ts';
 import { roundLabel, type SeasonGame, type Series } from '../lib/results.ts';
 import { NOTE, overtimeShort, winnerSide } from '../lib/tabellino.ts';
@@ -37,30 +37,31 @@ export function ResultsPage() {
     // La partita della propria squadra in cima
     .sort((a, b) => Number(isMine(b, mine)) - Number(isMine(a, mine)));
   const kind = list[0]?.kind ?? 'regular';
-  const label = roundLabel(selected, kind);
-  const day = list.length && league.seasonYear !== null ? roundDay(league.seasonYear, selected) : null;
+  const label = roundLabel({ roundNumber: selected, kind, day: list[0]?.day ?? null }, league.seasonYear);
+  const gameDay = list[0]?.day ?? null;
+  const day = gameDay !== null && league.seasonYear !== null ? seasonDate(league.seasonYear, gameDay) : null;
+  // In regular season la propria squadra quel giorno può riposare
+  const resting =
+    mine !== null && kind === 'regular' && list.length > 0 && !list.some((g) => isMine(g, mine));
 
   return (
     <div className="space-y-3">
       <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1">
         <div className="flex items-center">
-          <RoundLink id={id} round={rounds[index - 1]} label="Turno precedente" arrow="‹" />
+          <RoundLink id={id} round={rounds[index - 1]} label="Giorno precedente" arrow="‹" />
           <p className="text-center">
             <span className="font-titolo text-lg font-semibold tracking-wider uppercase">{label}</span>
-            {kind !== 'regular' && (
-              <span className={`block ${NOTE}`}>turno {selected - 81} della post-season</span>
-            )}
-            {/* Il giorno del turno nel calendario della stagione (lib/calendar.ts), con il link alla pagina */}
+            {/* Il giorno nel calendario della stagione (lib/calendar.ts), con il link alla pagina */}
             {day !== null && (
               <Link
                 to={`/lega/${id}/calendario?giorno=${dayKey(day)}`}
                 className={`block ${NOTE} underline-offset-2 hover:underline`}
               >
-                {shortDate(day)}
+                {list.length === 1 ? '1 partita' : `${list.length} partite`} · nel calendario
               </Link>
             )}
           </p>
-          <RoundLink id={id} round={rounds[index + 1]} label="Turno successivo" arrow="›" />
+          <RoundLink id={id} round={rounds[index + 1]} label="Giorno successivo" arrow="›" />
         </div>
         <SpoilerSwitch
           on={spoilerFree}
@@ -71,6 +72,7 @@ export function ResultsPage() {
         />
       </div>
       {spoilerFree && <p className={NOTE}>Punteggi nascosti: ogni partita si guarda dal vivo.</p>}
+      {resting && <p className={NOTE}>Quel giorno la tua squadra riposa.</p>}
 
       <GameList
         leagueId={id}
@@ -84,7 +86,7 @@ export function ResultsPage() {
         spoilerFree={spoilerFree}
       />
       {list.length === 0 ? (
-        <p className={NOTE}>Nessuna partita in questo turno.</p>
+        <p className={NOTE}>Nessuna partita in questo giorno.</p>
       ) : (
         <p className={NOTE}>
           Prima la squadra in trasferta, poi quella di casa.{' '}
@@ -291,7 +293,7 @@ export function seriesText(
   return `Gara ${n} · ${lead}`;
 }
 
-/** Freccia per il turno prima o dopo; senza turno resta un segnaposto chiaro, così la giornata non si sposta. */
+/** Freccia per il giorno prima o dopo; senza giorno resta un segnaposto chiaro, così il titolo non si sposta. */
 function RoundLink({
   id,
   round,

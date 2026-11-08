@@ -3,6 +3,7 @@
 // (lib/turnStore.ts); gli aggiornamenti arrivano in tempo reale (Supabase Realtime, con la RLS) e, per sicurezza,
 // con una rilettura ogni 30 secondi.
 import { onResume } from './resume.ts';
+import { whenText } from './roundDate.ts';
 import { supabase } from './supabase.ts';
 import {
   toAlert,
@@ -142,6 +143,7 @@ async function turnStatusFromTables(leagueId: string, userId: string): Promise<T
     alerts: ((alerts.data ?? []) as AlertRow[]).map(toAlert),
     lastGame: toLastGame((games.data ?? [])[0] as LastGameRow | undefined),
     playing,
+    today: playing,
     championId,
     trouble,
     myTeamId,
@@ -201,7 +203,7 @@ export function coachActive(d: Delegation | undefined, roundNumber: number, now 
 }
 
 /** La squadra conta come pronta per la chiusura del turno. */
-export const countsAsReady = (r: Readiness): boolean => r === 'ready' || r === 'coach';
+export const countsAsReady = (r: Readiness): boolean => r === 'ready' || r === 'rest' || r === 'coach';
 
 /**
  * Stato di una squadra nel turno. Lo dà il server, che vede gli avvisi di tutti; senza (database non ancora
@@ -234,10 +236,14 @@ function namesList(names: string[]): string {
 export function readinessNote(teams: { name: string; mine: boolean; state: Readiness }[]): string | null {
   const inRound = teams.filter((t) => t.state !== 'out');
   if (inRound.length === 0) return null;
-  if (inRound.every((t) => countsAsReady(t.state)))
-    return inRound.every((t) => t.state === 'coach')
-      ? 'Tutti con l’allenatore: la lega avanza da sola, al ritmo scelto dal commissario.'
-      : 'Tutti pronti: il turno parte a momenti.';
+  if (inRound.every((t) => countsAsReady(t.state))) {
+    if (inRound.every((t) => t.state === 'coach'))
+      return 'Tutti con l’allenatore: la lega avanza da sola, al ritmo scelto dal commissario.';
+    // Senza un Pronto premuto a mano il server aspetta il ritmo massimo: chi riposa ha il tempo di toglierlo
+    if (!inRound.some((t) => t.state === 'ready'))
+      return 'Tutti pronti da soli (a riposo o con l’allenatore): il turno parte al ritmo scelto dal commissario, o subito se qualcuno conferma il Pronto.';
+    return 'Tutti pronti: il turno parte a momenti.';
+  }
   const blocked = inRound.filter((t) => t.state === 'blocked');
   if (blocked.length === 0) return null;
   // Prima gli altri, "te" in fondo
@@ -501,13 +507,26 @@ export const STAGE_LABEL: Record<string, string> = {
   preparation: 'Preparazione della stagione',
 };
 
-/** "Giornata 13 di 82", "Play-in", "Playoff", "Offseason · Rinnovi" */
-export function roundTitle(kind: string, number: number, stage: string | null): string {
-  if (kind === 'regular') return `Giornata ${number + 1} di 82`;
-  if (kind === 'play-in') return 'Play-in';
-  if (kind === 'playoffs') return 'Playoff';
-  const label = STAGE_LABEL[stage ?? ''];
-  return label ? `Offseason · ${label}` : 'Offseason';
+/** Quanto serve per il nome di un turno. */
+export interface TitleRound {
+  kind: string;
+  number: number;
+  stage: string | null;
+  /** Giorno del turno (giorni dall'apertura della stagione) e anno della stagione: la data. */
+  day: number | null;
+  seasonYear: number | null;
+}
+
+/**
+ * Nome del turno: la data in regular season ("Mercoledì 21 ottobre"), con la fase in play-in e playoff
+ * ("Playoff · domenica 18 aprile"), lo stage in offseason ("Offseason · Rinnovi"). short: "Mer 21 ott" (la barra).
+ */
+export function roundTitle(r: TitleRound, short = false): string {
+  if (r.kind === 'offseason') {
+    const label = STAGE_LABEL[r.stage ?? ''];
+    return label ? `Offseason · ${label}` : 'Offseason';
+  }
+  return whenText(r.kind, r.day, r.seasonYear, { short, fallback: `Turno ${r.number + 1}` });
 }
 
 // ---------------------------------------------------------------- fase del turno, per barra e scheda
@@ -575,11 +594,20 @@ export const PHASE_TONE: Record<RoundPhase, Tone> = {
   open: 'green',
 };
 
-/** Pulsante del Pronto: segnarsi pronti, togliere il Pronto o niente (turno non aperto, draft, non si gioca). */
+/**
+ * Pulsante del Pronto: segnarsi pronti, togliere il Pronto (anche quello automatico di chi riposa) o niente (turno
+ * non aperto, draft, non si gioca).
+ */
 export function readyAction(phase: RoundPhase, state: Readiness | null): 'ready' | 'unready' | null {
   if (phase !== 'open' && phase !== 'paused') return null;
   if (state === null || state === 'out') return null;
-  return state === 'ready' ? 'unready' : 'ready';
+  return state === 'ready' || state === 'rest' ? 'unready' : 'ready';
+}
+
+/** Testo del pulsante del Pronto. */
+export function readyLabel(action: 'ready' | 'unready', state: Readiness | null): string {
+  if (action === 'ready') return 'Sono pronto';
+  return state === 'rest' ? 'Togli il Pronto' : 'Non più pronto';
 }
 
 // ---------------------------------------------------------------- barra del turno su ogni pagina della lega
@@ -595,6 +623,8 @@ export interface BarStatus {
     state: RoundInfo['state'];
     stage: string | null;
     closingStartedAt: string | null;
+    day: number | null;
+    seasonYear: number | null;
   } | null;
   paused: boolean;
   /** Il draft iniziale non è ancora finito: il primo turno parte dopo. */
@@ -620,6 +650,8 @@ export function barFromTurn(status: TurnStatus, now = Date.now()): BarStatus {
       state: r.state,
       stage: r.stage,
       closingStartedAt: r.closingStartedAt,
+      day: r.day,
+      seasonYear: r.seasonYear,
     },
     paused: status.paused,
     draftPending: status.draftPending,
@@ -645,6 +677,8 @@ export interface BarView {
   badge: { label: string; tone: Tone };
   /** Pulsante: segnarsi pronti, togliere il Pronto o niente. */
   action: 'ready' | 'unready' | null;
+  /** Testo del pulsante. */
+  actionLabel: string;
   decisions: number;
 }
 
@@ -652,18 +686,26 @@ export interface BarView {
 export function barView(s: BarStatus, now = Date.now()): BarView | null {
   if (!s.round || !s.myTeamId) return null;
   const decisions = s.decisions.length;
-  const title = roundTitle(s.round.kind, s.round.number, s.round.stage);
+  const title = roundTitle(s.round, true);
   const phase = roundPhase(s.round, s, now);
   const action = readyAction(phase, s.myState);
+  const actionLabel = action ? readyLabel(action, s.myState) : '';
   if (phase !== 'open' && phase !== 'paused')
-    return { title, badge: { label: PHASE_LABEL[phase], tone: PHASE_TONE[phase] }, action, decisions };
+    return {
+      title,
+      badge: { label: PHASE_LABEL[phase], tone: PHASE_TONE[phase] },
+      action,
+      actionLabel,
+      decisions,
+    };
   const state = s.myState ?? 'waiting';
   const badge: BarView['badge'] = {
     ready: { label: 'Pronto', tone: 'green' as const },
+    rest: { label: 'Riposo · pronto', tone: 'sky' as const },
     coach: { label: 'Allenatore', tone: 'sky' as const },
     blocked: { label: 'Da decidere', tone: 'amber' as const },
     waiting: { label: phase === 'paused' ? 'Lega in pausa' : 'Non pronto', tone: 'slate' as const },
     out: { label: 'Non gioca', tone: 'slate' as const },
   }[state];
-  return { title, badge, action, decisions };
+  return { title, badge, action, actionLabel, decisions };
 }

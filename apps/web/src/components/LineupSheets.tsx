@@ -249,7 +249,7 @@ function CoachSection({
             <span className="flex-1 text-stampa-600 dark:text-stampa-300">Durata</span>
             <select value={until} onChange={(e) => setUntil(e.target.value as CoachUntil)} className={field}>
               <option value="forever">Finché non la riprendo</option>
-              <option value="round">Fino al prossimo turno</option>
+              <option value="round">Solo per questo turno</option>
               <option value="phase">Fino alla fine della fase</option>
               <option value="date">Fino a una data</option>
             </select>

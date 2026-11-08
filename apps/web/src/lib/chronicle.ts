@@ -1,11 +1,14 @@
 // Cronaca della lega: scambi, firme, tagli, rinnovi, infortuni, ritiri, draft e opzioni, dalla tabella
 // transactions (la leggono tutti i membri). Dalla più recente, a pagine, filtrabile per tipo e per squadra.
+import { dateText } from './roundDate.ts';
 import { supabase } from './supabase.ts';
 
 export interface ChronicleEntry {
   id: number;
   seasonYear: number;
   roundNumber: number | null;
+  /** Giorno del turno (giorni dall'apertura della stagione); null in offseason e nel draft iniziale. */
+  day: number | null;
   type: string;
   text: string;
   /** Sigle delle squadre citate (le ricava il database dal testo). */
@@ -40,6 +43,7 @@ type Row = {
   id: number;
   season_year: number;
   round_number: number | null;
+  day?: number | null;
   type: string;
   text: string;
   team_codes?: string[];
@@ -83,7 +87,7 @@ export async function chroniclePage(
 ): Promise<ChroniclePage> {
   const query = (withTeams: boolean) => {
     // Colonne scritte come stringa qualsiasi: i tipi di supabase-js non le ricavano da un testo composto
-    const columns: string = `id, season_year, round_number, type, text, created_at${withTeams ? ', team_codes' : ''}`;
+    const columns: string = `id, season_year, round_number, type, text, created_at${withTeams ? ', team_codes, day' : ''}`;
     let q = supabase.from('transactions').select(columns).eq('league_id', leagueId);
     if (filter.types.length > 0) q = q.in('type', [...filter.types]);
     if (withTeams && filter.team) q = q.contains('team_codes', [filter.team]);
@@ -94,8 +98,8 @@ export async function chroniclePage(
       .limit(size + 1);
   };
   let res = await query(true);
-  // Database non ancora aggiornato (l'app si pubblica insieme alle migrazioni): senza la colonna delle squadre
-  // si filtra sul testo, dopo aver preso la pagina (il cursore resta quello dell'ultima riga letta)
+  // Database non ancora aggiornato (l'app si pubblica insieme alle migrazioni): senza le colonne delle squadre e
+  // del giorno si filtra sul testo, dopo aver preso la pagina (il cursore resta quello dell'ultima riga letta)
   const legacy = res.error?.code === '42703';
   if (legacy) {
     res = await query(false);
@@ -110,6 +114,7 @@ export async function chroniclePage(
       id: r.id,
       seasonYear: r.season_year,
       roundNumber: r.round_number,
+      day: r.day ?? null,
       type: r.type,
       text: r.text,
       teamCodes: r.team_codes ?? [],
@@ -153,15 +158,13 @@ export function splitTeams(text: string, codes: readonly string[]): ({ text: str
   return out;
 }
 
-/** "Stagione 2026-27 · giornata 13", "Stagione 2026-27 · offseason" */
-export function chronicleWhen(e: Pick<ChronicleEntry, 'seasonYear' | 'roundNumber'>): string {
+/** "Stagione 2026-27 · mercoledì 21 ottobre", "Stagione 2026-27 · offseason" */
+export function chronicleWhen(e: Pick<ChronicleEntry, 'seasonYear' | 'day'>): string {
   const season = `Stagione ${e.seasonYear}-${String((e.seasonYear + 1) % 100).padStart(2, '0')}`;
-  if (e.roundNumber === null) return `${season} · offseason`;
-  if (e.roundNumber < 82) return `${season} · giornata ${e.roundNumber + 1}`;
-  return `${season} · post-season`;
+  return `${season} · ${dateText(e.day, e.seasonYear) ?? 'offseason'}`;
 }
 
-/** Righe consecutive con la stessa intestazione (stagione e giornata) insieme, nell'ordine in cui arrivano. */
+/** Righe consecutive con la stessa intestazione (stagione e giorno) insieme, nell'ordine in cui arrivano. */
 export function groupChronicle(
   entries: readonly ChronicleEntry[],
 ): { when: string; entries: ChronicleEntry[] }[] {

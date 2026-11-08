@@ -24,6 +24,7 @@ import {
   readiness,
   readinessNote,
   readyAction,
+  readyLabel,
   readyWarnings,
   reopenRound,
   roundPhase,
@@ -120,6 +121,14 @@ export function TurnCard({
   // In play-in e playoff contano solo le squadre che giocano
   const inRound = humans.filter((t) => readiness(status, t.id, now) !== 'out');
   const readyCount = inRound.filter((t) => countsAsReady(readiness(status, t.id, now))).length;
+  // Tutti pronti, ma nessuno a mano (a riposo o con l'allenatore): il server aspetta il ritmo massimo
+  const waitingPace =
+    inRound.length > 0 &&
+    readyCount === inRound.length &&
+    !inRound.some((t) => readiness(status, t.id, now) === 'ready');
+  // In regular season la propria squadra quel giorno non gioca
+  const resting =
+    mine !== null && round.kind === 'regular' && status.today !== null && !status.today.has(mine.id);
   const note = readinessNote(
     inRound.map((t) => ({
       name: t.ownerName ?? t.code,
@@ -160,10 +169,10 @@ export function TurnCard({
         Il turno
       </SectionTitle>
       <p className="font-titolo text-lg leading-tight font-semibold tracking-wide uppercase">
-        {roundTitle(round.kind, round.number, league.roundStage)}
+        {roundTitle(round)}
       </p>
 
-      {phase === 'closing' && <ClosingBand label={closingLabel(round.kind, round.number)} />}
+      {phase === 'closing' && <ClosingBand label={closingLabel(round.kind, round.day, round.seasonYear)} />}
       {stuck && (
         <StuckRound
           leagueId={league.id}
@@ -221,6 +230,13 @@ export function TurnCard({
       {mine && playing && myState === 'out' && (
         <p className={NOTE}>La tua squadra non gioca in questo turno: non devi fare nulla.</p>
       )}
+      {mine && playing && resting && (
+        <p className={NOTE}>
+          {myState === 'rest'
+            ? 'Oggi la tua squadra riposa: sei già pronto. Togli il Pronto se prima del turno vuoi fare mercato o cambiare la squadra.'
+            : 'Oggi la tua squadra riposa.'}
+        </p>
+      )}
       {mine && action && (
         <div className="space-y-2 pt-1">
           {(myState === 'coach' || myState === 'blocked') && (
@@ -241,8 +257,19 @@ export function TurnCard({
               else void run(() => setReady(mine.id, action === 'ready', round.id));
             }}
           >
-            {action === 'unready' ? 'Non sono più pronto' : 'Sono pronto'}
+            {action === 'unready' && myState !== 'rest' ? 'Non sono più pronto' : readyLabel(action, myState)}
           </Button>
+          {/* A riposo con tutti pronti da soli: si parte senza aspettare il ritmo massimo */}
+          {myState === 'rest' && waitingPace && open && !status.paused && (
+            <Button
+              className="w-full"
+              variant="ghost"
+              disabled={busy}
+              onClick={() => void run(() => setReady(mine.id, true, round.id))}
+            >
+              Conferma il Pronto: si gioca subito
+            </Button>
+          )}
         </div>
       )}
       {open && round.deadline && !status.paused && (

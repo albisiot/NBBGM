@@ -346,7 +346,8 @@ export const TACTIC_NOTES: { [K in keyof Tactics]: Record<Tactics[K], string> } 
 /** Fino a quando la squadra è affidata all'allenatore. */
 export function coachUntilText(c: Pick<CoachDelegation, 'untilRound' | 'untilAt' | 'untilPhaseEnd'>): string {
   if (c.untilPhaseEnd) return 'fino alla fine della fase';
-  if (c.untilRound !== null) return `fino alla giornata ${c.untilRound + 1}`;
+  // L'app la mette solo per il turno in corso: dopo quel turno il server la spegne
+  if (c.untilRound !== null) return 'per questo turno';
   if (c.untilAt)
     return `fino al ${new Date(c.untilAt).toLocaleString('it-IT', { dateStyle: 'short', timeStyle: 'short' })}`;
   return 'finché non la riprendi';

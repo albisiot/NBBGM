@@ -276,9 +276,7 @@ describe('tattiche e allenatore', () => {
     expect(coachUntilText({ untilPhaseEnd: true, untilRound: null, untilAt: null })).toBe(
       'fino alla fine della fase',
     );
-    expect(coachUntilText({ untilPhaseEnd: false, untilRound: 22, untilAt: null })).toBe(
-      'fino alla giornata 23',
-    );
+    expect(coachUntilText({ untilPhaseEnd: false, untilRound: 22, untilAt: null })).toBe('per questo turno');
     expect(coachUntilText({ untilPhaseEnd: false, untilRound: null, untilAt: null })).toBe(
       'finché non la riprendi',
     );

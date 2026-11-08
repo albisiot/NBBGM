@@ -13,17 +13,21 @@
 --   - il Pronto automatico non è un'attività umana per la pausa delle leghe abbandonate, e un giorno di riposo senza
 --     nessuno non azzera il conto dei turni senza nessuno;
 --   - letture con il giorno: league_state, market_state (la trade deadline è un giorno), turn_status (con le squadre
---     che giocano anche in regular season), my_leagues_status, push_take.
+--     che giocano anche in regular season e il giorno dell'ultima partita), my_leagues_status, push_take;
+--   - transactions.day: il giorno del turno in cui è successo (null in offseason e nel draft iniziale), per la
+--     cronaca della lega.
 -- Le leghe create prima sono di prova e si eliminano: il codice ha un solo formato.
 
 alter table public.rounds add column day integer check (day >= 0);
 alter table public.games add column day integer check (day >= 0);
 -- Pronto messo dal server a chi riposa: diventa false appena il manager tocca il Pronto
 alter table public.ready_flags add column auto boolean not null default false;
+alter table public.transactions add column day integer check (day >= 0);
 
 -- Come le altre colonne di rounds e games (20261106090100_round_seeds.sql): il client legge tutto tranne seed
 grant select (day) on public.rounds to authenticated;
 grant select (day) on public.games to authenticated;
+-- transactions ha i permessi di lettura su tutta la tabella: la colonna nuova si legge già
 
 -- ---------------------------------------------------------------- stato delle squadre nel turno
 
@@ -440,6 +444,7 @@ $$;
 /*
   Come in 20261105090200_turns.sql, più:
     games         con day (giorno della partita)
+    transactions  con day (giorno del turno; null in offseason)
     next_round    { number, kind, stage?, day? }: stage dei turni di offseason (prima lo scriveva apply_round), day del
                   turno (giorni dall'apertura della stagione; null in offseason)
     new_games     righe di games della stagione nuova, con day (prima le scriveva apply_round, dopo l'apertura del
@@ -753,8 +758,8 @@ begin
     perform public.expect_rows('ledger', v_count, p_payload -> 'ledger');
   end if;
   if p_payload ? 'transactions' then
-    insert into public.transactions (league_id, season_year, round_number, type, text)
-    select v_league, x.season_year, x.round_number, x.type, x.text
+    insert into public.transactions (league_id, season_year, round_number, day, type, text)
+    select v_league, x.season_year, x.round_number, x.day, x.type, x.text
     from jsonb_populate_recordset(null::public.transactions, p_payload -> 'transactions') x;
   end if;
 
@@ -1171,7 +1176,7 @@ as $$
 $$;
 
 -- Come in 20261107090100_turn_status.sql, con il giorno del turno e l'anno della stagione; playing anche in regular
--- season (chi gioca quel giorno)
+-- season (chi gioca quel giorno); l'ultima partita con tipo, giorno e anno della stagione
 create or replace function public.turn_status(p_league uuid) returns jsonb
 language sql stable security invoker set search_path = ''
 as $$
@@ -1208,7 +1213,8 @@ as $$
     'last_game', (
       select jsonb_build_object('round_number', g.round_number, 'home_team_id', g.home_team_id,
         'away_team_id', g.away_team_id, 'home_score', g.home_score, 'away_score', g.away_score,
-        'overtimes', g.overtimes)
+        'overtimes', g.overtimes, 'kind', g.kind, 'day', g.day,
+        'season_year', (select s.year from public.seasons s where s.id = g.season_id))
       from public.games g, me
       where g.league_id = l.id and g.home_score is not null and me.id in (g.home_team_id, g.away_team_id)
       order by g.played_at desc nulls last

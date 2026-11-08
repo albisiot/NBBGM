@@ -12,6 +12,7 @@ import {
 } from '@nbbgm/engine';
 import { allPages } from './cache.ts';
 import type { LeagueDetail, LeagueTeam } from './leagues.ts';
+import { whenText } from './roundDate.ts';
 import { supabase } from './supabase.ts';
 
 export type GameKind = 'regular' | 'play-in' | 'playoffs';
@@ -19,6 +20,8 @@ export type GameKind = 'regular' | 'play-in' | 'playoffs';
 export interface SeasonGame {
   id: string;
   roundNumber: number;
+  /** Giorno della partita, in giorni dall'apertura della stagione (la data con l'anno della stagione). */
+  day: number | null;
   kind: GameKind;
   homeTeamId: string;
   awayTeamId: string;
@@ -69,17 +72,20 @@ export interface BoxLine {
 }
 
 export interface GameDetail extends SeasonGame {
+  /** Anno della stagione della partita: con il giorno dà la data. */
+  seasonYear: number | null;
   quarters: { home: number[]; away: number[] } | null;
   box: BoxLine[];
 }
 
 /** Colonne delle partite per gli elenchi: niente cronaca (play_by_play), che si legge solo nella pagina della partita. */
 export const GAME_COLUMNS =
-  'id, round_number, kind, home_team_id, away_team_id, series_id, home_score, away_score, overtimes';
+  'id, round_number, day, kind, home_team_id, away_team_id, series_id, home_score, away_score, overtimes';
 
 type GameRow = {
   id: string;
   round_number: number;
+  day?: number | null;
   kind: GameKind;
   home_team_id: string;
   away_team_id: string;
@@ -92,6 +98,7 @@ type GameRow = {
 const toGame = (g: GameRow): SeasonGame => ({
   id: g.id,
   roundNumber: g.round_number,
+  day: g.day ?? null,
   kind: g.kind,
   homeTeamId: g.home_team_id,
   awayTeamId: g.away_team_id,
@@ -155,7 +162,11 @@ export async function playoffSeries(seasonId: string): Promise<Series[]> {
 
 export async function gameDetail(gameId: string): Promise<GameDetail | null> {
   const [game, stats] = await Promise.all([
-    supabase.from('games').select(`${GAME_COLUMNS}, quarters`).eq('id', gameId).maybeSingle(),
+    supabase
+      .from('games')
+      .select(`${GAME_COLUMNS}, quarters, season:seasons(year)`)
+      .eq('id', gameId)
+      .maybeSingle(),
     supabase
       .from('player_game_stats')
       .select(
@@ -166,7 +177,11 @@ export async function gameDetail(gameId: string): Promise<GameDetail | null> {
   if (game.error) throw game.error;
   if (stats.error) throw stats.error;
   if (!game.data) return null;
-  const g = game.data as unknown as GameRow & { quarters: { home: number[]; away: number[] } | null };
+  const g = game.data as unknown as GameRow & {
+    quarters: { home: number[]; away: number[] } | null;
+    season: { year: number } | { year: number }[] | null;
+  };
+  const season = Array.isArray(g.season) ? g.season[0] : g.season;
   type StatRow = {
     player_id: string;
     team_id: string;
@@ -215,7 +230,7 @@ export async function gameDetail(gameId: string): Promise<GameDetail | null> {
     }))
     // Titolari per primi, poi per minuti
     .sort((a, b) => Number(b.starter) - Number(a.starter) || b.seconds - a.seconds);
-  return { ...toGame(g), quarters: g.quarters, box };
+  return { ...toGame(g), seasonYear: season?.year ?? null, quarters: g.quarters, box };
 }
 
 /**
@@ -409,12 +424,13 @@ export function periodLabel(period: number): string {
   return period <= 4 ? `${period}° quarto` : `${period - 4}° supplementare`;
 }
 
-/** Nome del turno: giornata della regular season o turno di post-season. */
-export function roundLabel(roundNumber: number, kind: GameKind | 'offseason'): string {
-  if (kind === 'regular') return `Giornata ${roundNumber + 1}`;
-  if (kind === 'play-in') return 'Play-in';
-  if (kind === 'playoffs') return 'Playoff';
-  return 'Offseason';
+/** Nome del turno di una partita: la data ("Mercoledì 21 ottobre", "Playoff · domenica 18 aprile"). */
+export function roundLabel(
+  game: Pick<SeasonGame, 'roundNumber' | 'day'> & { kind: GameKind | 'offseason' },
+  seasonYear: number | null,
+): string {
+  if (game.kind === 'offseason') return 'Offseason';
+  return whenText(game.kind, game.day, seasonYear, { fallback: `Turno ${game.roundNumber + 1}` });
 }
 
 export const SERIES_ROUND_LABEL: Record<Series['round'], string> = {

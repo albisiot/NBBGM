@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { leagueListLine, roundShort } from './leagueList.ts';
 import type { LeagueLive } from './leaguesLive.ts';
 
-const league = { seasonYear: 2026, roundKind: 'regular', roundNumber: 22 };
+const league = { seasonYear: 2026, roundKind: 'regular', roundNumber: 13, roundDay: 22 };
 
 const live = (l: Partial<LeagueLive>): LeagueLive => ({
   leagueId: 'l1',
@@ -15,18 +15,19 @@ const live = (l: Partial<LeagueLive>): LeagueLive => ({
 });
 
 describe('elenco delle leghe', () => {
-  it('turno in breve', () => {
-    expect(roundShort('regular', 0)).toBe('Giornata 1');
-    expect(roundShort('play-in', 82)).toBe('Play-in');
-    expect(roundShort('playoffs', 84)).toBe('Playoff');
-    expect(roundShort('offseason', 110)).toBe('Offseason');
+  it('turno in breve: la data', () => {
+    expect(roundShort('regular', 0, 0, 2026)).toBe('Mar 20 ott');
+    expect(roundShort('play-in', 165, 175, 2026)).toBe('Play-in · mar 13 apr');
+    expect(roundShort('playoffs', 170, 180, 2026)).toBe('Playoff · dom 18 apr');
+    expect(roundShort('offseason', 200)).toBe('Offseason');
+    expect(roundShort('regular', 0)).toBe('Turno 1');
     expect(roundShort(null, null)).toBeNull();
   });
 
   it('tocca a te in rosso, con chi è pronto e le decisioni', () => {
     expect(leagueListLine(league, live({ decisions: 2 }))).toEqual({
       tag: { label: 'Tocca a te', tone: 'red' },
-      parts: ['Giornata 23', 'pronti 3 su 5'],
+      parts: ['Mer 11 nov', 'pronti 3 su 5'],
       decisions: '2 decisioni',
       quiet: false,
     });
@@ -40,17 +41,22 @@ describe('elenco delle leghe', () => {
   it('pronto o con l’allenatore: niente etichetta', () => {
     expect(leagueListLine(league, live({ myState: 'ready', ready: 4 }))).toEqual({
       tag: null,
-      parts: ['Giornata 23', 'pronti 4 su 5', 'sei pronto'],
+      parts: ['Mer 11 nov', 'pronti 4 su 5', 'sei pronto'],
       decisions: null,
       quiet: false,
     });
     expect(leagueListLine(league, live({ myState: 'coach' })).parts).toContain('con l’allenatore');
+    // A riposo si è pronti da soli
+    expect(leagueListLine(league, live({ myState: 'rest' }))).toMatchObject({
+      tag: null,
+      parts: ['Mer 11 nov', 'pronti 3 su 5', 'riposi, sei pronto'],
+    });
   });
 
   it('simulazione d’inchiostro, turno bloccato in rosso, draft a filo', () => {
     expect(leagueListLine(league, live({ phase: 'closing' }))).toMatchObject({
       tag: { label: 'Si gioca', tone: 'ink' },
-      parts: ['Giornata 23', 'la simulazione è in corso'],
+      parts: ['Mer 11 nov', 'la simulazione è in corso'],
     });
     expect(leagueListLine(league, live({ phase: 'late' })).tag).toEqual({ label: 'Si gioca', tone: 'ink' });
     expect(leagueListLine(league, live({ phase: 'failed' })).tag).toEqual({
@@ -74,7 +80,7 @@ describe('elenco delle leghe', () => {
   it('senza stato dal vivo solo il turno', () => {
     expect(leagueListLine(league, null)).toEqual({
       tag: null,
-      parts: ['Giornata 23'],
+      parts: ['Mer 11 nov'],
       decisions: null,
       quiet: false,
     });

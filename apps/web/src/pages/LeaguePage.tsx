@@ -54,7 +54,8 @@ export function LeaguePage() {
   const isCommissioner = league.commissionerId === userId;
   const lastGame = mine && turn?.leagueId === league.id ? turn.lastGame : null;
   const headline = lastGame && mine ? gameHeadline(lastGame, league.teams, mine.id, spoilerFree) : null;
-  const kicker = headline?.kicker ?? statusLabel(league.seasonYear, league.roundNumber, league.roundKind);
+  const kicker =
+    headline?.kicker ?? statusLabel(league.seasonYear, league.roundNumber, league.roundKind, league.roundDay);
 
   return (
     <div className="grid gap-x-6 gap-y-8 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.45fr)_minmax(0,0.95fr)] lg:items-start">

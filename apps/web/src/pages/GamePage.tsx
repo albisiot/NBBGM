@@ -88,7 +88,7 @@ export function GamePage() {
       <div className="space-y-3">
         {back}
         <header>
-          <Kicker>{roundLabel(game.roundNumber, game.kind)} · da giocare</Kicker>
+          <Kicker>{roundLabel(game, game.seasonYear)} · da giocare</Kicker>
           <h1 className="text-3xl leading-tight font-bold">
             {away?.fullName} – {home?.fullName}
           </h1>
@@ -107,8 +107,8 @@ export function GamePage() {
       <header>
         <Kicker>
           {hidden
-            ? roundLabel(game.roundNumber, game.kind)
-            : `${game.overtimes ? overtimeText(game.overtimes) : 'Finale'} · ${roundLabel(game.roundNumber, game.kind)}`}
+            ? roundLabel(game, game.seasonYear)
+            : `${game.overtimes ? overtimeText(game.overtimes) : 'Finale'} · ${roundLabel(game, game.seasonYear)}`}
         </Kicker>
         <h1 className="text-[2rem] leading-tight font-bold">
           {hidden ? (

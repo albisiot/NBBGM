@@ -980,6 +980,7 @@ function NewTrade({
           config: data.config,
           roundKind: data.league.roundKind,
           roundNumber: data.league.roundNumber,
+          roundDay: data.league.roundDay,
           me: {
             id: data.me.id,
             code: data.me.code,
@@ -1330,7 +1331,7 @@ function Ledger({ data }: { data: MarketData }) {
           <Leader label="Monte stipendi minimo" value={<b>{millions(config.minimumTeamSalary)}</b>} />
         </div>
         <p className={NOTE}>
-          Ricavi uguali per tutti, accreditati giornata per giornata. Tassa e monte minimo si pagano a fine
+          Ricavi uguali per tutti, accreditati partita per partita. Tassa e monte minimo si pagano a fine
           regular season, sul monte stipendi di quel momento
           {finance.repeater ? '; paghi le aliquote maggiorate (tassa in 3 delle ultime 4 stagioni)' : ''}.
         </p>

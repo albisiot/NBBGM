@@ -91,8 +91,8 @@ describe('cronaca della lega', () => {
     });
     expect(done.advanced).toBe(true);
     const rows = (
-      await db.query<{ text: string; team_codes: string[]; round_number: number }>(
-        `select text, team_codes, round_number from public.transactions
+      await db.query<{ text: string; team_codes: string[]; round_number: number; day: number }>(
+        `select text, team_codes, round_number, day from public.transactions
          where league_id = $1 and type = 'injury' order by id`,
         [LEAGUE],
       )
@@ -100,6 +100,8 @@ describe('cronaca della lega', () => {
     expect(rows).toHaveLength(1);
     expect(rows[0]!.text).toMatch(/si infortuna \(ginocchia\), fuori 20 partite$/);
     expect(rows[0]!.round_number).toBe(0);
+    // Il giorno del turno: la cronaca lo mostra come data
+    expect(rows[0]!.day).toBe(0);
     expect(rows[0]!.team_codes.length).toBeGreaterThan(0);
     const after = (await db.query<{ n: number }>(`select count(*)::int as n from public.transactions`))
       .rows[0]!.n;

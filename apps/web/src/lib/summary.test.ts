@@ -8,6 +8,9 @@ const base: TurnSummary = {
   teamCode: 'BOS',
   lastGame: {
     roundNumber: 6,
+    kind: 'regular',
+    day: 22,
+    seasonYear: 2026,
     homeCode: 'BOS',
     awayCode: 'LAL',
     homeScore: 112,
@@ -18,7 +21,7 @@ const base: TurnSummary = {
   standing: { conference: 'East', rank: 3, w: 5, l: 2 },
   injuries: [{ name: 'Jayson Tatum', bodyPart: 'ginocchia', games: 4 }],
   signings: [{ name: 'Mario Rossi', salary: 2_100_000, years: 2 }],
-  nextGame: { roundNumber: 7, opponentCode: 'NYK', home: false },
+  nextGame: { roundNumber: 7, kind: 'regular', day: 24, seasonYear: 2026, opponentCode: 'NYK', home: false },
   link: 'https://albisiot.github.io/NBBGM/#/lega/L',
 };
 
@@ -26,11 +29,11 @@ describe('riepilogo del turno', () => {
   it('risultato, classifica, infortuni, firme, prossima partita e link, una riga ciascuno', () => {
     expect(summaryText(base).split('\n')).toEqual([
       '🏀 Amici · Boston Celtics',
-      'Ultima partita (giornata 7): LAL 105 – 112 BOS, vinta',
+      'Ultima partita (mercoledì 11 novembre): LAL 105 – 112 BOS, vinta',
       'Classifica: 3ª nella Eastern Conference (5-2)',
       'Infortuni: Jayson Tatum (ginocchia, 4 partite)',
       'Firmati: Mario Rossi (2,10 mln per 2 anni)',
-      'Prossima partita (giornata 8): in trasferta contro NYK',
+      'Prossima partita (venerdì 13 novembre): in trasferta contro NYK',
       'https://albisiot.github.io/NBBGM/#/lega/L',
     ]);
   });
@@ -44,14 +47,18 @@ describe('riepilogo del turno', () => {
         homeScore: 120,
         awayScore: 118,
         overtimes: 2,
-        roundNumber: 90,
+        roundNumber: 170,
+        kind: 'playoffs',
+        day: 180,
       },
       injuries: [],
       signings: [],
       nextGame: null,
       standing: null,
     });
-    expect(text).toContain('Ultima partita (post-season): LAL 118 – 120 BOS, persa, 2 supplementari');
+    expect(text).toContain(
+      'Ultima partita (playoff, domenica 18 aprile): LAL 118 – 120 BOS, persa, 2 supplementari',
+    );
     expect(text).toContain('Infortuni: nessuno');
     expect(text).not.toContain('Firmati');
     expect(text).not.toContain('Classifica');

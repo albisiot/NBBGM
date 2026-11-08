@@ -1,7 +1,8 @@
-// Calendario della stagione, una scheda di Campionato: il mese o la settimana con i giorni delle partite (ogni turno
-// ha il suo giorno, lib/calendar.ts). In ogni giorno la partita della squadra in evidenza (la propria, un'altra o
-// nessuna) con l'esito; toccando un giorno sotto compaiono tutte le sue partite, con il punteggio e il link al box
-// score se sono state giocate, "da giocare" se no. Vista, giorno e squadra stanno nell'indirizzo
+// Calendario della stagione, una scheda di Campionato: il mese o la settimana con i giorni delle partite (un turno è
+// un giorno, lib/calendar.ts). In ogni giorno la partita della squadra in evidenza (la propria, un'altra o nessuna)
+// con l'esito, o il riposo; i giorni senza partite della NBA (pausa per l'All-Star, Thanksgiving...) lo dicono.
+// Toccando un giorno sotto compaiono tutte le sue partite, con il punteggio e il link al box score se sono state
+// giocate, "da giocare" se no. Vista, giorno e squadra stanno nell'indirizzo
 // (?vista=settimana&giorno=2026-11-14&squadra=BOS), così il ritorno da una partita riapre lo stesso giorno. Usa le
 // partite della stagione già in memoria per Risultati e Classifica (useSeason): nessuna lettura in più. Senza
 // spoiler gli esiti restano nascosti, come in Risultati.
@@ -24,6 +25,7 @@ import {
   parseDayKey,
   periodTitle,
   readView,
+  seasonBreaks,
   seasonCalendar,
   shiftPeriod,
   shortDate,
@@ -68,7 +70,8 @@ export function CalendarPage() {
   const mine = league.teams.find((t) => t.ownerId === userId) ?? null;
 
   const view = readView(search.get('vista'));
-  const today = leagueToday(cal, year, { number: league.roundNumber, kind: league.roundKind });
+  const today = leagueToday(cal, year, { kind: league.roundKind, day: league.roundDay });
+  const breaks = seasonBreaks(year);
   const days = calendarDays(cal);
   // Un giorno dell'indirizzo vale solo nei mesi della stagione: altrimenti si apre quello di default
   const asked = parseDayKey(search.get('giorno'));
@@ -107,7 +110,7 @@ export function CalendarPage() {
   const prev = shiftPeriod(view, selected, -1, cal);
   const next = shiftPeriod(view, selected, 1, cal);
   const entry = cal.get(selected);
-  const cell = { cal, selected, today, featuredId, code, spoilerFree, onSelect: select };
+  const cell = { cal, breaks, selected, today, featuredId, code, spoilerFree, onSelect: select };
 
   return (
     <div className="space-y-4">
@@ -188,8 +191,8 @@ export function CalendarPage() {
 
       {view === 'mese' ? <MonthGrid {...cell} /> : <WeekList {...cell} />}
       <p className={NOTE}>
-        Il gioco non ha date: ogni turno ha un giorno fisso, come nel calendario NBA.
-        {today !== null && ' In rosso oggi, il turno che si gioca al prossimo passaggio.'}
+        Un turno è un giorno, come nel calendario NBA: ogni squadra gioca circa una sera su due.
+        {today !== null && ' In rosso oggi, il giorno che si gioca al prossimo passaggio di turno.'}
       </p>
 
       <section
@@ -217,13 +220,20 @@ export function CalendarPage() {
               highlight={featuredId}
               spoilerFree={spoilerFree}
             />
+            {featuredId !== null && !teamGame(entry, featuredId) && entry.kind === 'regular' && (
+              <p className={NOTE}>{code(featuredId)} quel giorno riposa.</p>
+            )}
             <p className={NOTE}>Prima la squadra in trasferta, poi quella di casa.</p>
             <Link to={`/lega/${id}/risultati/${entry.round}`} className={ROW_LINK}>
-              {dayRoundLabel(entry)} in Risultati ›
+              Il giorno in Risultati ›
             </Link>
           </>
         ) : (
-          <NoGames next={nextGameDay(cal, selected)} onSelect={select} />
+          <NoGames
+            reason={breaks.get(selected) ?? null}
+            next={nextGameDay(cal, selected)}
+            onSelect={select}
+          />
         )}
       </section>
     </div>
@@ -232,6 +242,8 @@ export function CalendarPage() {
 
 interface CellProps {
   cal: ReadonlyMap<Day, CalendarDay>;
+  /** Giorni di regular season senza partite, con il motivo. */
+  breaks: ReadonlyMap<Day, string>;
   selected: Day;
   today: Day | null;
   featuredId: string | null;
@@ -242,7 +254,7 @@ interface CellProps {
 
 /** Il mese: sette colonne da lunedì, un riquadro per giorno; i giorni con partite si toccano. */
 function MonthGrid(props: CellProps) {
-  const { cal, selected, today } = props;
+  const { cal, breaks, selected, today } = props;
   return (
     <table className="w-full table-fixed border-separate border-spacing-0">
       <caption className="sr-only">Calendario di {periodTitle('mese', selected)}</caption>
@@ -278,7 +290,16 @@ function MonthGrid(props: CellProps) {
                         : 'text-stampa-500 dark:text-stampa-400'
                     }`}
                   >
-                    {ymd(day).date}
+                    <span className="flex min-w-0 flex-col gap-px">
+                      {ymd(day).date}
+                      {/* Pausa per l'All-Star, Thanksgiving...: il motivo, da sm in su */}
+                      {breaks.has(day) && (
+                        <span className="hidden truncate font-serif text-[0.6875rem] italic sm:block">
+                          {breaks.get(day)}
+                        </span>
+                      )}
+                    </span>
+                    {breaks.has(day) && <span className="sr-only">, {breaks.get(day)}</span>}
                     {today === day && <span className="sr-only">, oggi</span>}
                   </span>
                 )}
@@ -347,6 +368,12 @@ function GameDayCell({
               </span>
             ))}
         </>
+      ) : featuredId !== null && entry.kind === 'regular' ? (
+        <span
+          className={`font-serif text-[0.6875rem] italic sm:text-xs ${on ? '' : 'text-stampa-600 dark:text-stampa-300'}`}
+        >
+          riposo
+        </span>
       ) : (
         <span className={`text-[0.6875rem] sm:text-xs ${on ? '' : 'text-stampa-600 dark:text-stampa-300'}`}>
           {entry.games.length}
@@ -359,7 +386,7 @@ function GameDayCell({
 
 /** La settimana: una riga per giorno con la partita della squadra in evidenza, o quante partite ci sono. */
 function WeekList(props: CellProps) {
-  const { cal, selected, today, featuredId, code, spoilerFree, onSelect } = props;
+  const { cal, breaks, selected, today, featuredId, code, spoilerFree, onSelect } = props;
   return (
     <ul
       aria-label={`Settimana: ${periodTitle('settimana', selected)}`}
@@ -388,7 +415,7 @@ function WeekList(props: CellProps) {
             <li key={day} className={`${row} text-stampa-500 dark:text-stampa-400`}>
               {date}
               <span className="font-serif text-sm italic">
-                nessuna partita
+                {breaks.get(day) ?? 'nessuna partita'}
                 {isToday && <span className="sr-only">, oggi</span>}
               </span>
             </li>
@@ -408,12 +435,14 @@ function WeekList(props: CellProps) {
               <span className="min-w-0 flex-1">
                 {game ? (
                   <ScoreLine game={game} code={code} hide={spoilerFree && game.homeScore !== null} />
+                ) : featuredId !== null && entry.kind === 'regular' ? (
+                  <span className="font-serif text-lg italic">{code(featuredId)} riposa</span>
                 ) : (
                   <span className="font-titolo text-lg font-semibold">{entry.games.length} partite</span>
                 )}
                 <span className={`block ${NOTE}`}>
                   {dayRoundLabel(entry)}
-                  {game ? ` · ${entry.games.length} partite` : ''}
+                  {game || featuredId !== null ? ` · ${entry.games.length} partite` : ''}
                 </span>
               </span>
               {isToday && (
@@ -460,11 +489,19 @@ function PeriodButton({
   );
 }
 
-/** Giorno senza partite: lo dice, e porta al prossimo giorno con partite. */
-function NoGames({ next, onSelect }: { next: Day | null; onSelect: (day: Day) => void }) {
+/** Giorno senza partite: lo dice (con il motivo, se è una pausa della NBA) e porta al prossimo giorno con partite. */
+function NoGames({
+  reason,
+  next,
+  onSelect,
+}: {
+  reason: string | null;
+  next: Day | null;
+  onSelect: (day: Day) => void;
+}) {
   return (
     <div className="space-y-1">
-      <p className={NOTE}>Nessuna partita in questo giorno.</p>
+      <p className={NOTE}>{reason ? `${reason}: nessuna partita.` : 'Nessuna partita in questo giorno.'}</p>
       {next !== null && (
         <button type="button" onClick={() => onSelect(next)} className={ROW_LINK}>
           Prossime partite: {shortDate(next)} ›

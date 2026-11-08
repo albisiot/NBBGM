@@ -96,10 +96,7 @@ describe('stato del turno in una lettura', () => {
         ).rows.map((r) => [r.team_id, r.state]),
       ),
     );
-    // TODO Fase 3 (app): l'app legge anche lo stato rest; per ora lo scarta come uno stato sconosciuto
-    expect(Object.fromEntries(s.teamStates ?? new Map())).toEqual(
-      Object.fromEntries(Object.entries(server).filter(([, state]) => state !== 'rest')),
-    );
+    expect(Object.fromEntries(s.teamStates ?? new Map())).toEqual(server);
     expect(server).toEqual({ [BOS]: 'ready', [LAL]: 'blocked', [NYK]: 'rest' });
   });
 
@@ -124,6 +121,9 @@ describe('stato del turno in una lettura', () => {
       )
     ).rows[0]!;
     expect(s.lastGame).toMatchObject({
+      kind: 'regular',
+      day: 1,
+      seasonYear: 2026,
       homeTeamId: last.home_team_id,
       awayTeamId: last.away_team_id,
       homeScore: last.home_score,
@@ -140,6 +140,7 @@ describe('stato del turno in una lettura', () => {
     ).rows.map((x) => x.team);
     expect(teams.length).toBeLessThan(30);
     expect([...((await turnStatus(ANNA))?.playing ?? [])].sort()).toEqual([...teams].sort());
+    expect([...(s.today ?? [])].sort()).toEqual([...teams].sort());
     // Lo stesso turno visto come un turno di playoff: l'app guarda chi gioca
     await db.query(`update public.rounds set kind = 'playoffs' where id = $1`, [round]);
     try {
