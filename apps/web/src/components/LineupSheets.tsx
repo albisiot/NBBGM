@@ -1,7 +1,8 @@
 // Pannelli dal basso della pagina Squadra (stile Edicola): il cambio di un titolare e le tattiche con l'allenatore.
 // Le regole sono quelle di sempre: chi è già in campo si scambia di posto, gli infortunati non si scelgono, la
 // delega all'allenatore si salva subito come prima.
-import { SLOT_ROLES, type Role, type Tactics } from '@nbbgm/engine';
+import { PHILOSOPHY_LABEL, SLOT_ROLES, type Role, type Tactics } from '@nbbgm/engine';
+import { coachFullName, type CoachInfo } from '../lib/coaches.ts';
 import { useState } from 'react';
 import {
   candidateNote,
@@ -145,6 +146,7 @@ export function TacticsSheet({
   tactics,
   onTactics,
   coach,
+  headCoach,
   roundNumber,
   onCoach,
   onClose,
@@ -152,6 +154,8 @@ export function TacticsSheet({
   tactics: Tactics;
   onTactics: (t: Tactics) => void;
   coach: CoachDelegation | null;
+  /** Il capo allenatore della squadra, null nelle leghe senza allenatori. */
+  headCoach: CoachInfo | null;
   roundNumber: number | null;
   onCoach: (c: CoachDelegation) => Promise<void>;
   onClose: () => void;
@@ -194,7 +198,7 @@ export function TacticsSheet({
           </fieldset>
         );
       })}
-      <CoachSection coach={coach} roundNumber={roundNumber} onChange={onCoach} />
+      <CoachSection coach={coach} headCoach={headCoach} roundNumber={roundNumber} onChange={onCoach} />
       <Button className="w-full" onClick={onClose}>
         Fatto
       </Button>
@@ -205,10 +209,12 @@ export function TacticsSheet({
 /** Affida all'allenatore con la durata, o riprendi la squadra: si salva subito, come prima. */
 function CoachSection({
   coach,
+  headCoach,
   roundNumber,
   onChange,
 }: {
   coach: CoachDelegation | null;
+  headCoach: CoachInfo | null;
   roundNumber: number | null;
   onChange: (c: CoachDelegation) => Promise<void>;
 }) {
@@ -283,8 +289,11 @@ function CoachSection({
         </div>
       )}
       <p className="text-[0.8125rem] leading-snug text-stampa-600 italic dark:text-stampa-300">
-        Fa quintetto e minuti come Auto, con queste tattiche, e la squadra risulta pronta da sola a ogni
-        turno. Non fa mercato e si ferma quando c'è una decisione da prendere.
+        {headCoach
+          ? `${coachFullName(headCoach)} fa quintetto, minuti e tattiche come Auto, con la sua idea di gioco (${PHILOSOPHY_LABEL[headCoach.philosophy]}): le tattiche qui sopra non contano finché la squadra è sua. `
+          : 'Fa quintetto e minuti come Auto, con queste tattiche. '}
+        La squadra risulta pronta da sola a ogni turno. Non fa mercato e si ferma quando c'è una decisione da
+        prendere.
       </p>
     </section>
   );

@@ -36,7 +36,9 @@ export type MarketAction =
   | { kind: 'withdraw_trade'; offer_id: string }
   | { kind: 'release'; player_id: string }
   | { kind: 'renew'; player_id: string }
-  | { kind: 'withdraw_request'; request_id: string };
+  | { kind: 'withdraw_request'; request_id: string }
+  | { kind: 'hire_coach'; coach_id: string }
+  | { kind: 'withdraw_coach'; request_id: string };
 
 /** Manda un'azione di mercato al server; l'errore è già un messaggio per il manager. */
 export async function marketAction(leagueId: string, action: MarketAction): Promise<string> {
@@ -432,6 +434,7 @@ export const LEDGER_LABEL: Record<string, string> = {
   revenue: 'Ricavi',
   salary: 'Stipendi',
   'two-way': 'Two-way',
+  coach: 'Allenatore',
   tax: 'Luxury tax',
   'minimum-shortfall': 'Monte stipendi minimo',
   other: 'Altro',

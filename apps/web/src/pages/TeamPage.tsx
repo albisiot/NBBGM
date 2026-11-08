@@ -1,7 +1,8 @@
-// Pagina di una squadra della lega (anche delle altre), nello stile Edicola: record e conti in un tabellino, giocatori
-// sul mercato, rosa con il voto in un quadratino, ruoli e contratti, scelte al draft possedute con protezioni e swap.
-// Il bilancio resta riservato. Da qui si propone uno scambio con lei.
-import { overall } from '@nbbgm/engine';
+// Pagina di una squadra della lega (anche delle altre), nello stile Edicola: record e conti in un tabellino,
+// allenatore (idea di gioco, carattere, qualità, contratto, esonerati da pagare), proprietà dei bot (obiettivo,
+// carattere del GM, vittorie attese), giocatori sul mercato, rosa con il voto in un quadratino, ruoli e contratti,
+// scelte al draft possedute con protezioni e swap. Il bilancio resta riservato. Da qui si propone uno scambio con lei.
+import { overall, OWNER_GOAL_LABEL, OWNER_GOAL_TEXT } from '@nbbgm/engine';
 import { Link, useParams } from 'react-router';
 import {
   GHOST_LINK,
@@ -13,8 +14,10 @@ import {
   RULE,
   Strip,
 } from '../components/inkParts.tsx';
+import { CoachCard } from '../components/CoachCard.tsx';
 import { ErrorText, Kicker, Leader, SectionTitle, Spinner, Tag, TeamCode } from '../components/ui.tsx';
 import { useUserId } from '../lib/auth.tsx';
+import { ownerTraitsText, teamStaff } from '../lib/coaches.ts';
 import { leagueDetail, type LeagueTeam } from '../lib/leagues.ts';
 import {
   contractFirstYear,
@@ -45,7 +48,7 @@ async function load(leagueId: string, code: string) {
   const league = await leagueDetail(leagueId);
   const team = league?.teams.find((t) => t.code === code.toUpperCase());
   if (!league || !team) return null;
-  const [roster, extra, picks, swaps, config, standings, block] = await Promise.all([
+  const [roster, extra, picks, swaps, config, standings, block, staff] = await Promise.all([
     teamRoster(team.id),
     teamExtra(team.id),
     leaguePicks(league.id, team.id),
@@ -57,12 +60,14 @@ async function load(leagueId: string, code: string) {
     league.seasonId ? currentStandings({ ...league, seasonId: league.seasonId }) : Promise.resolve(null),
     // Giocatori sul mercato: i bot non ne scrivono (la lista si ricava dalla strategia)
     team.ownerId ? tradeBlock(league.id, team.id) : Promise.resolve(null),
+    // Allenatore ed esonerati da pagare (nessuno nelle leghe create prima)
+    teamStaff(team.id),
   ]);
   const line = standings?.[team.conference].find((l) => l.teamId === team.id) ?? null;
   const onBlock = block
     ? roster.filter((p) => block.get(team.id)?.has(p.id))
     : botTradeBlock(roster, extra.strategy);
-  return { league, team, roster, extra, picks, swaps, config, line, onBlock };
+  return { league, team, roster, extra, picks, swaps, config, line, onBlock, staff };
 }
 
 export function TeamPage() {
@@ -74,7 +79,8 @@ export function TeamPage() {
   if (loading && !data) return <Spinner />;
   if (error) return <ErrorText>{error}</ErrorText>;
   if (!data) return <ErrorText>Squadra non trovata in questa lega.</ErrorText>;
-  const { league, team, roster, extra, config, line } = data;
+  const { league, team, roster, extra, config, line, staff } = data;
+  const owner = !team.ownerId ? extra.owner : null;
   const mine = team.ownerId === userId;
   const haveTeam = league.teams.some((t) => t.ownerId === userId);
   const teams = new Map(league.teams.map((t) => [t.id, t]));
@@ -103,7 +109,9 @@ export function TeamPage() {
             ? mine
               ? 'La tua squadra'
               : `Manager: ${team.ownerName ?? 'manager'}`
-            : `Bot ${STRATEGY_LABEL[extra.strategy]}`}
+            : owner
+              ? `Bot · ${OWNER_GOAL_LABEL[owner.goal]} · ${STRATEGY_LABEL[extra.strategy]}`
+              : `Bot ${STRATEGY_LABEL[extra.strategy]}`}
         </p>
       </header>
 
@@ -153,6 +161,78 @@ export function TeamPage() {
           </Link>
         </div>
       </div>
+
+      {staff.coach && (
+        <section className="space-y-2">
+          <SectionTitle>Allenatore</SectionTitle>
+          <CoachCard coach={staff.coach} contract={{ label: 'Contratto', salaries: staff.coach.salaries }}>
+            {staff.buyouts.length > 0 && (
+              <div className="pt-1">
+                <GroupTitle>Esonerati ancora da pagare</GroupTitle>
+                <div className="text-sm">
+                  {staff.buyouts.map((b, i) => (
+                    <Leader
+                      key={i}
+                      label={b.coachName}
+                      value={
+                        <>
+                          <b>{millions(b.salaries[0] ?? 0)}</b>{' '}
+                          <i className="text-stampa-600 dark:text-stampa-300">
+                            · {b.salaries.length === 1 ? '1 stagione' : `${b.salaries.length} stagioni`}
+                          </i>
+                        </>
+                      }
+                    />
+                  ))}
+                </div>
+              </div>
+            )}
+            <p className={NOTE}>
+              {team.ownerId
+                ? 'Mette in campo la squadra quando il manager preme Auto o gliela affida, con la sua idea di gioco.'
+                : 'Mette in campo la squadra a ogni partita, con la sua idea di gioco.'}{' '}
+              La Tattica vale in partita, lo Sviluppo nella crescita dei giovani, la Gestione del gruppo nel
+              morale.
+            </p>
+            {mine && (
+              <Link to={`/lega/${league.id}/mercato?tab=allenatori`} className={GHOST_LINK}>
+                Cambia allenatore nel mercato
+              </Link>
+            )}
+          </CoachCard>
+        </section>
+      )}
+
+      {owner && (
+        <section className="space-y-2">
+          <SectionTitle
+            aside={extra.expectedWins !== null ? `attese: ${extra.expectedWins} vittorie` : undefined}
+          >
+            Proprietà
+          </SectionTitle>
+          <div>
+            <p className="text-sm">
+              Obiettivo: <b>{OWNER_GOAL_LABEL[owner.goal]}</b>
+            </p>
+            <p className={NOTE}>{OWNER_GOAL_TEXT[owner.goal]}</p>
+          </div>
+          {ownerTraitsText(owner).length > 0 && (
+            <ul className="flex flex-wrap gap-1.5" aria-label="Carattere del GM">
+              {ownerTraitsText(owner).map((t) => (
+                <li key={t}>
+                  <Tag tone="outline">{t}</Tag>
+                </li>
+              ))}
+            </ul>
+          )}
+          <p className={NOTE}>
+            Oggi la squadra è {STRATEGY_LABEL[extra.strategy]}.
+            {extra.expectedWins !== null
+              ? ` Il proprietario si aspetta ${extra.expectedWins} vittorie: se l’allenatore resta molto sotto, lo cambia.`
+              : ''}
+          </p>
+        </section>
+      )}
 
       <section className="space-y-1">
         <SectionTitle aside={data.onBlock.length ? `${data.onBlock.length}` : undefined}>

@@ -23,6 +23,7 @@ export const CHRONICLE_TYPES: { value: string; label: string }[] = [
   { value: 'renewal', label: 'Rinnovi' },
   { value: 'injury', label: 'Infortuni' },
   { value: 'retirement', label: 'Ritiri' },
+  { value: 'coach', label: 'Allenatori' },
   { value: 'draft', label: 'Draft' },
   { value: 'option', label: 'Opzioni' },
 ];
@@ -186,6 +187,7 @@ export const TYPE_LABEL: Record<string, string> = {
   renewal: 'Rinnovo',
   injury: 'Infortunio',
   retirement: 'Ritiro',
+  coach: 'Allenatore',
   draft: 'Draft',
   option: 'Opzione',
 };

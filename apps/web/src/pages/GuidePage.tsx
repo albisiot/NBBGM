@@ -25,15 +25,23 @@ const SECTIONS: { title: string; text: string[] }[] = [
   {
     title: 'La squadra',
     text: [
-      'In Squadra scegli i 5 titolari (uno per ruolo), i minuti di ognuno (in tutto 240) e le tattiche. Auto propone quintetto e minuti; poi si salva.',
+      'In Squadra scegli i 5 titolari (uno per ruolo), i minuti di ognuno (in tutto 240) e le tattiche. Auto fa proporre al tuo allenatore quintetto, minuti e tattiche secondo la sua idea di gioco; poi si salva.',
       'Energia, morale e infortuni contano: chi gioca sempre tanti minuti arriva stanco, e la seconda sera di fila ancora di più. L’energia si recupera nelle notti di riposo.',
     ],
   },
   {
     title: 'L’allenatore',
     text: [
-      'Se non puoi seguire la squadra, affidala all’allenatore (in Squadra), per un turno, fino a una data, fino a fine fase o finché non la riprendi. Fa quintetto e minuti come Auto e risulti pronto a ogni turno.',
-      'Non fa mercato e si ferma quando arriva una decisione da prendere: finché non rispondi la lega aspetta.',
+      'Ogni squadra ha un capo allenatore, con un’idea di gioco (Corri e tira, Spazi e tiro da tre, Difesa e fatica, Gioco interno, Movimento di palla, Equilibrio) che decide tattiche e giocatori preferiti, un carattere (rotazione corta o lunga, fiducia nei giovani o nei veterani, riposo per chi è stanco, flessibile o fedele alla sua idea) e tre qualità in stelle: Tattica (vale qualche vittoria a stagione), Sviluppo (i giovani crescono di più) e Gestione del gruppo (il morale tiene meglio). Lo vedi nella pagina della squadra.',
+      'Se non puoi seguire la squadra, affidala all’allenatore (in Squadra), per un turno, fino a una data, fino a fine fase o finché non la riprendi. Fa quintetto, minuti e tattiche come Auto, con la sua idea di gioco, e risulti pronto a ogni turno. Non fa mercato e si ferma quando arriva una decisione da prendere: finché non rispondi la lega aspetta.',
+      'Puoi cambiarlo in Mercato → Allenatori, in qualsiasi turno: il nuovo arriva alla chiusura del turno, alla sua richiesta, e quello di prima resta da pagare fino alla scadenza del contratto (meno, se un’altra squadra lo prende). Lo stipendio dell’allenatore è fuori dal cap e si paga partita per partita.',
+    ],
+  },
+  {
+    title: 'I bot',
+    text: [
+      'Le squadre senza manager hanno un proprietario con un obiettivo (vincere subito, costruire con pazienza, risparmiare, equilibrio, fare colpo) e un GM con un carattere: più o meno scambi, fedeltà ai suoi giocatori, potenziale o giocatori pronti al draft, pazienza con l’allenatore. Li vedi nella pagina della squadra, con le vittorie che il proprietario si aspetta.',
+      'Il proprietario decide se andare in corsa o ricostruire, quanto spendere e quanto pagare la luxury tax; se l’allenatore resta molto sotto le attese lo cambia, soprattutto a fine stagione.',
     ],
   },
   {
@@ -48,13 +56,13 @@ const SECTIONS: { title: string; text: string[] }[] = [
     text: [
       'Agli svincolati si fanno offerte a busta chiusa: alla chiusura del turno ognuno sceglie l’offerta migliore sopra la sua richiesta. Sopra il salary cap si firma solo al minimo. Chi tagli non lo puoi rifirmare fino alla stagione dopo.',
       'Gli scambi (giocatori e scelte al draft, anche protette o come swap) si propongono a una squadra: i bot decidono alla chiusura del turno, i manager rispondono entro il turno. Dopo la trade deadline (il primo giovedì di febbraio) gli scambi si fermano fino all’offseason.',
-      'Il bilancio conta: ricavi uguali per tutti, a metà tra il cap e la soglia della luxury tax, a ogni partita; stipendi e tassa si pagano. Con il saldo negativo si firma solo fino al monte stipendi minimo, oltre solo minimi per restare a 13.',
+      'Il bilancio conta: ricavi uguali per tutti, a metà tra il cap e la soglia della luxury tax più una parte per lo staff, a ogni partita; stipendi, allenatore e tassa si pagano. Con il saldo negativo si firma solo fino al monte stipendi minimo, oltre solo minimi per restare a 13.',
     ],
   },
   {
     title: 'Le pagine',
     text: [
-      'Lega: le decisioni da prendere, il turno con chi è pronto e le ultime notizie. Squadra: quintetto, minuti, tattiche e allenatore. Mercato: svincolati, scambi, rinnovi e bilancio. Campionato: risultati, calendario della stagione (mese o settimana: tocca un giorno per vederne le partite), classifica e, da play-in in poi, il tabellone dei playoff.',
+      'Lega: le decisioni da prendere, il turno con chi è pronto e le ultime notizie. Squadra: quintetto, minuti, tattiche e allenatore. Mercato: svincolati, scambi, rinnovi, allenatori e bilancio. Campionato: risultati, calendario della stagione (mese o settimana: tocca un giorno per vederne le partite), classifica e, da play-in in poi, il tabellone dei playoff.',
       'In Altro (sul telefono) o nel menu in alto: statistiche, cronaca della lega, storico delle stagioni, confronto tra giocatori e Info lega, con il codice invito per gli amici, le squadre, le impostazioni e la gestione per il commissario.',
     ],
   },

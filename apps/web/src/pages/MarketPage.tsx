@@ -1,8 +1,8 @@
 // Mercato della propria squadra, nello stile Edicola: sezioni a filetto (svincolati, scambi, giocatori sul mercato,
-// rinnovi nel loro turno, bilancio). Svincolati con offerte a busta chiusa, scambi (proposte ricevute e inviate, nuova
+// rinnovi nel loro turno, allenatori, bilancio). Svincolati con offerte a busta chiusa, scambi (proposte ricevute e inviate, nuova
 // proposta con giocatori, scelte protette, swap e l'anteprima prima → dopo), giocatori sul mercato e bilancio. Tutto
 // si esegue alla chiusura del turno.
-import { MAX_PROTECTION, overall, type SeasonConfig } from '@nbbgm/engine';
+import { coachAsk, MAX_PROTECTION, overall, type SeasonConfig } from '@nbbgm/engine';
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { Link, useParams, useSearchParams } from 'react-router';
 import {
@@ -19,7 +19,21 @@ import {
   Toast,
   type ToastMessage,
 } from '../components/ui.tsx';
+import { CoachCard, CoachLine } from '../components/CoachCard.tsx';
 import { useUserId } from '../lib/auth.tsx';
+import {
+  coachContractText,
+  coachFullName,
+  contractTotal,
+  freeCoachesByRating,
+  hireProblem,
+  leagueCoaches,
+  myCoachRequest,
+  teamStaff,
+  type Buyout,
+  type CoachInfo,
+  type CoachRequest,
+} from '../lib/coaches.ts';
 import { friendlyError } from '../lib/errors.ts';
 import { leagueDetail, type LeagueDetail, type LeagueTeam } from '../lib/leagues.ts';
 import {
@@ -86,6 +100,7 @@ import {
   FIELD_LABEL,
   FilterSelect,
   GHOST_LINK,
+  GroupTitle,
   META,
   NOTE,
   OvrBox,
@@ -98,7 +113,7 @@ import { SKILL_LABEL, skillOf, type SkillKey } from '../lib/skills.ts';
 import { useAsync } from '../lib/useAsync.ts';
 import { useRoundChange } from '../lib/useRoundChange.ts';
 
-type Tab = 'svincolati' | 'scambi' | 'sul-mercato' | 'rinnovi' | 'bilancio';
+type Tab = 'svincolati' | 'scambi' | 'sul-mercato' | 'rinnovi' | 'allenatori' | 'bilancio';
 
 /** Nome delle sezioni: nel menu a filetto e come titolo della pagina. */
 const TAB_LABEL: Record<Tab, string> = {
@@ -106,6 +121,7 @@ const TAB_LABEL: Record<Tab, string> = {
   scambi: 'Scambi',
   'sul-mercato': 'Sul mercato',
   rinnovi: 'Rinnovi',
+  allenatori: 'Allenatori',
   bilancio: 'Bilancio',
 };
 
@@ -120,6 +136,10 @@ interface MarketBase {
   picks: PickInfo[];
   /** Turno di free agency dell'offseason (0-3), o null. */
   faRound: number | null;
+  /** Allenatori della lega, in panchina e liberi (nessuno nelle leghe create prima). */
+  coaches: CoachInfo[];
+  /** Esonerati che la propria squadra paga ancora. */
+  buyouts: Buyout[];
 }
 
 /** Quello che cambia con le azioni del manager nel turno, con i giocatori che vi compaiono. */
@@ -130,6 +150,8 @@ interface MarketLive {
   players: Map<string, PlayerLite>;
   /** Scelte citate dalle proposte, oltre a quelle della propria squadra (anche già usate). */
   offerPicks: Map<string, PickInfo>;
+  /** Cambio di allenatore chiesto nel turno. */
+  coachRequest: CoachRequest | null;
 }
 
 type MarketData = MarketBase & MarketLive;
@@ -145,10 +167,11 @@ async function loadLive(
   known: ReadonlyMap<string, PlayerLite>,
   knownPicks: ReadonlyMap<string, PickInfo>,
 ): Promise<MarketLive> {
-  const [bids, offers, requests] = await Promise.all([
+  const [bids, offers, requests, coachRequest] = await Promise.all([
     myBids(me.id),
     tradeOffers(league.id),
     myRequests(me.id),
+    myCoachRequest(me.id),
   ]);
   const players = new Map(known);
   const missing = missingPlayerIds(offers, bids, known);
@@ -160,7 +183,7 @@ async function loadLive(
   ]);
   for (const [pid, p] of lite) players.set(pid, p);
   for (const k of picks) offerPicks.set(k.id, k);
-  return { bids, offers, requests, players, offerPicks };
+  return { bids, offers, requests, players, offerPicks, coachRequest };
 }
 
 export function MarketPage() {
@@ -176,18 +199,32 @@ export function MarketPage() {
     const league = await leagueDetail(id);
     const me = league?.teams.find((t) => t.ownerId === userId);
     if (!league || !me || !league.seasonId) return null;
-    const [config, finance, roster, freeAgents, picks] = await Promise.all([
+    const [config, finance, roster, freeAgents, picks, coaches, staff] = await Promise.all([
       seasonConfig(league.seasonId).then((c) => effectiveConfig(c, league.roundKind, league.roundStage)),
       teamFinance(me.id),
       teamRoster(me.id),
       freeAgentPlayers(league.id),
       // Solo le scelte della propria squadra: quelle dell'altra parte si leggono scegliendola
       leaguePicks(league.id, me.id),
+      leagueCoaches(league.id),
+      teamStaff(me.id),
     ]);
     const known = new Map([...roster, ...freeAgents].map((p) => [p.id, liteOf(p)]));
     const live = await loadLive(league, me, known, new Map(picks.map((k) => [k.id, k])));
     const faRound = league.roundKind === 'offseason' ? faRoundOf(league.roundStage) : null;
-    return { league, me, config, finance, roster, freeAgents, picks, faRound, ...live };
+    return {
+      league,
+      me,
+      config,
+      finance,
+      roster,
+      freeAgents,
+      picks,
+      faRound,
+      coaches,
+      buyouts: staff.buyouts,
+      ...live,
+    };
   }, [id, userId]);
   // Turno nuovo: si rilegge tutto (rosa, svincolati, bilancio, offerte e scambi cambiano)
   useRoundChange(id, reload);
@@ -240,6 +277,7 @@ export function MarketPage() {
     'scambi',
     'sul-mercato',
     ...(renewals ? ['rinnovi' as Tab] : []),
+    ...(data.coaches.length ? ['allenatori' as Tab] : []),
     'bilancio',
   ];
   const asked = search.get('tab') as Tab | null;
@@ -258,7 +296,7 @@ export function MarketPage() {
       </header>
       <MarketTabs leagueId={data.league.id} tabs={tabs} current={tab} toDecide={toDecide} />
       <FinanceSummary data={data} />
-      {!regular && !offseason && tab !== 'bilancio' && (
+      {!regular && !offseason && tab !== 'bilancio' && tab !== 'allenatori' && (
         <p className="text-sm text-stampa-600 italic dark:text-stampa-300">
           Durante play-in e playoff il mercato è chiuso (gli scambi si fermano alla trade deadline, il primo
           giovedì di febbraio, e riaprono nell’offseason).
@@ -280,6 +318,7 @@ export function MarketPage() {
       {tab === 'svincolati' && <FreeAgents data={data} busy={busy} run={run} />}
       {tab === 'scambi' && <Trades data={data} busy={busy} run={run} />}
       {tab === 'sul-mercato' && <OnTheBlock data={data} notify={setMessage} />}
+      {tab === 'allenatori' && <Coaches data={data} busy={busy} run={run} />}
       {tab === 'bilancio' && <Ledger data={data} />}
       <Toast message={message} onClose={closeMessage} />
     </div>
@@ -1326,13 +1365,27 @@ function Ledger({ data }: { data: MarketData }) {
         <SectionTitle>La stagione</SectionTitle>
         <div className="text-sm">
           <Leader label="Ricavi della stagione" value={<b>{millions(config.revenue)}</b>} />
+          {data.coaches.length > 0 && (
+            <Leader
+              label="Allenatore ed esonerati"
+              value={
+                <b>
+                  {millions(
+                    (data.coaches.find((c) => c.teamId === data.me.id)?.salaries[0] ?? 0) +
+                      data.buyouts.reduce((a, b) => a + (b.salaries[0] ?? 0), 0),
+                  )}
+                </b>
+              }
+            />
+          )}
           <Leader label="Salary cap" value={<b>{millions(config.salaryCap)}</b>} />
           <Leader label="Soglia della luxury tax" value={<b>{millions(config.luxuryTax)}</b>} />
           <Leader label="Monte stipendi minimo" value={<b>{millions(config.minimumTeamSalary)}</b>} />
         </div>
         <p className={NOTE}>
-          Ricavi uguali per tutti, accreditati partita per partita. Tassa e monte minimo si pagano a fine
-          regular season, sul monte stipendi di quel momento
+          Ricavi uguali per tutti, accreditati partita per partita, come gli stipendi
+          {data.coaches.length > 0 ? ' e l’allenatore' : ''}. Tassa e monte minimo si pagano a fine regular
+          season, sul monte stipendi di quel momento
           {finance.repeater ? '; paghi le aliquote maggiorate (tassa in 3 delle ultime 4 stagioni)' : ''}.
         </p>
       </section>
@@ -1378,6 +1431,165 @@ function Ledger({ data }: { data: MarketData }) {
         </ul>
       </section>
     </div>
+  );
+}
+
+// ---------------------------------------------------------------- allenatori
+
+/**
+ * Il proprio allenatore, gli esonerati da pagare, il cambio chiesto e gli allenatori liberi con la loro richiesta. Il
+ * cambio si chiede in qualsiasi turno e si fa alla chiusura: il nuovo arriva alla sua richiesta e quello di adesso
+ * resta da pagare fino alla scadenza.
+ */
+function Coaches({ data, busy, run }: { data: MarketData; busy: boolean; run: Run }) {
+  const current = data.coaches.find((c) => c.teamId === data.me.id) ?? null;
+  const request = data.coachRequest;
+  const requested = request ? data.coaches.find((c) => c.id === request.coachId) : undefined;
+  const free = freeCoachesByRating(data.coaches);
+  return (
+    <div className="space-y-6">
+      <section className="space-y-2">
+        <SectionTitle>Il tuo allenatore</SectionTitle>
+        {current ? (
+          <CoachCard coach={current} contract={{ label: 'Contratto', salaries: current.salaries }} />
+        ) : (
+          <p className="text-sm">Nessuno: alla chiusura del turno ne arriva uno.</p>
+        )}
+        {data.buyouts.length > 0 && (
+          <div className="pt-1">
+            <GroupTitle>Esonerati ancora da pagare</GroupTitle>
+            <div className="text-sm">
+              {data.buyouts.map((b, i) => (
+                <Leader
+                  key={i}
+                  label={b.coachName}
+                  value={
+                    <>
+                      <b>{millions(b.salaries[0] ?? 0)}</b>{' '}
+                      <i className="text-stampa-600 dark:text-stampa-300">
+                        · {b.salaries.length} {b.salaries.length === 1 ? 'stagione' : 'stagioni'}
+                      </i>
+                    </>
+                  }
+                />
+              ))}
+            </div>
+          </div>
+        )}
+        <p className={NOTE}>
+          Se lo cambi resta da pagare fino alla scadenza
+          {current && current.salaries.length
+            ? ` (${millions(contractTotal(current.salaries))} in tutto, in stagione partita per partita)`
+            : ''}
+          , fuori dal cap; se un’altra squadra lo prende, gli devi solo la differenza. Il nuovo arriva alla
+          chiusura del turno, alla sua richiesta.
+        </p>
+      </section>
+
+      {request && (
+        <section className="space-y-2">
+          <SectionTitle>Cambio chiesto</SectionTitle>
+          <div className={`flex flex-wrap items-center gap-3 p-3 ${BOX}`}>
+            <p className="min-w-0 flex-1 text-sm">
+              {requested ? (
+                <>
+                  <b>{coachFullName(requested)}</b> arriva alla chiusura del turno (
+                  {coachContractText(coachAsk(data.config, requested), millions)}).
+                </>
+              ) : (
+                'Hai chiesto un allenatore che non è più libero: alla chiusura non arriva.'
+              )}
+            </p>
+            <Button
+              variant="secondary"
+              disabled={busy}
+              onClick={() =>
+                void run({ kind: 'withdraw_coach', request_id: request.id }, 'Cambio di allenatore ritirato.')
+              }
+            >
+              Ritira
+            </Button>
+          </div>
+        </section>
+      )}
+
+      <section className="space-y-1">
+        <SectionTitle aside={`${free.length}`}>Allenatori liberi</SectionTitle>
+        <p className={NOTE}>
+          Dal migliore. La richiesta è a stagione, per gli anni che chiede; uno solo per turno: chiederne un
+          altro sostituisce la richiesta.
+        </p>
+        {free.length === 0 && <p className="py-1 text-sm">Nessun allenatore libero.</p>}
+        <ul>
+          {free.map((c) => (
+            <FreeCoach
+              key={c.id}
+              coach={c}
+              data={data}
+              current={current}
+              chosen={request?.coachId === c.id}
+              busy={busy}
+              run={run}
+            />
+          ))}
+        </ul>
+      </section>
+    </div>
+  );
+}
+
+function FreeCoach({
+  coach,
+  data,
+  current,
+  chosen,
+  busy,
+  run,
+}: {
+  coach: CoachInfo;
+  data: MarketData;
+  current: CoachInfo | null;
+  chosen: boolean;
+  busy: boolean;
+  run: Run;
+}) {
+  const ask = coachAsk(data.config, coach);
+  const problem = hireProblem(data.config, coach, current, data.finance.balance);
+  return (
+    <li className={`space-y-1 py-2 ${RULE}`}>
+      <div className="flex items-start gap-3">
+        <CoachLine
+          coach={coach}
+          aside={<p className={`text-sm ${problem ? BAD : ''}`}>{coachContractText(ask, millions)}</p>}
+        />
+        {chosen ? (
+          <Tag tone="ink">Chiesto</Tag>
+        ) : (
+          <ConfirmButton
+            variant="secondary"
+            className="shrink-0 px-3"
+            disabled={busy || problem !== null}
+            confirmLabel="Confermi?"
+            aria-label={`Prendi ${coachFullName(coach)}`}
+            onConfirm={() =>
+              void run(
+                { kind: 'hire_coach', coach_id: coach.id },
+                `${coachFullName(coach)}: arriva alla chiusura del turno.`,
+              )
+            }
+          >
+            Prendi
+          </ConfirmButton>
+        )}
+      </div>
+      {problem && <p className={`text-[0.8125rem] italic ${BAD}`}>{problem}</p>}
+      <details className="text-sm">
+        <summary className={`min-h-11 cursor-pointer py-2 ${GHOST_LINK}`}>Scheda e carattere</summary>
+        <div className="pb-2">
+          <CoachCard coach={coach} contract={{ label: 'Richiesta', salaries: ask }} />
+        </div>
+      </details>
+    </li>
   );
 }
 

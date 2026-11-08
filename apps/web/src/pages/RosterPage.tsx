@@ -4,7 +4,15 @@
 // usa il motore alla prossima partita; se nel frattempo manca qualcuno (ceduto, tagliato, infortunato), il bot
 // corregge solo gli slot mancanti. Con modifiche non salvate la barra del turno in cima mostra "Da salvare" con i
 // minuti, Annulla e Salva al posto del turno e del Pronto (lib/unsaved.ts), e uscire dalla pagina chiede conferma.
-import { autoSetup, overall, SLOT_ROLES, type Role, type Tactics } from '@nbbgm/engine';
+import {
+  autoSetup,
+  coachSetup,
+  overall,
+  PHILOSOPHY_LABEL,
+  SLOT_ROLES,
+  type Role,
+  type Tactics,
+} from '@nbbgm/engine';
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { Link, useBlocker, useParams } from 'react-router';
 import { Bench, Court, PlayerPanel } from '../components/Court.tsx';
@@ -20,6 +28,7 @@ import {
   type ToastMessage,
 } from '../components/ui.tsx';
 import { useUserId } from '../lib/auth.tsx';
+import { coachFullName, teamStaff, type CoachInfo } from '../lib/coaches.ts';
 import { benchOrder, coachUntilText, courtIssues, slotCandidates } from '../lib/court.ts';
 import { friendlyError } from '../lib/errors.ts';
 import { leagueDetail, statusLabel, type LeagueDetail } from '../lib/leagues.ts';
@@ -54,6 +63,8 @@ export function RosterPage() {
   const [settings, setSettings] = useState<SavedTeamSettings | null>(null);
   const [base, setBase] = useState<Baseline | null>(null);
   const [coach, setCoach] = useState<CoachDelegation | null>(null);
+  // Il capo allenatore della squadra (nessuno nelle leghe create prima): fa Auto e la squadra affidata a lui
+  const [headCoach, setHeadCoach] = useState<CoachInfo | null>(null);
   const [dirty, setDirty] = useState(false);
   const [repaired, setRepaired] = useState(false);
   // Turno nuovo: si rilegge la rosa; con modifiche non salvate si chiede prima al manager
@@ -154,17 +165,19 @@ export function RosterPage() {
         if (!alive) return;
         setLeague(l);
         if (!mine) return;
-        const [players, s, c] = await Promise.all([
+        const [players, s, c, staff] = await Promise.all([
           teamRoster(mine.id),
           teamSettings(mine.id),
           coachDelegation(mine.id),
+          teamStaff(mine.id),
         ]);
         if (!alive) return;
         setRoster(players);
         setCoach(c);
+        setHeadCoach(staff.coach);
         // Chi non è più in squadra lo sostituisce il bot, come alla partita: il manager controlla e salva
         const fixed = s && settingsForRoster(s, players);
-        const initial = fixed ?? s ?? fromAuto(mine.code, players, DEFAULT_TACTICS);
+        const initial = fixed ?? s ?? fromAuto(mine.code, players, DEFAULT_TACTICS, staff.coach);
         setSettings(initial);
         setRepaired(fixed !== null);
         setDirty(s === null || fixed !== null);
@@ -269,8 +282,12 @@ export function RosterPage() {
           <Button
             variant="ghost"
             className="px-2"
-            onClick={() => update(fromAuto(team.code, roster, settings.tactics))}
-            title="Il bot propone quintetto e minuti, poi puoi cambiarli"
+            onClick={() => update(fromAuto(team.code, roster, settings.tactics, headCoach))}
+            title={
+              headCoach
+                ? `${coachFullName(headCoach)} propone quintetto, minuti e tattiche secondo la sua idea di gioco: poi puoi cambiarli`
+                : 'Il bot propone quintetto e minuti, poi puoi cambiarli'
+            }
           >
             Auto
           </Button>
@@ -287,8 +304,9 @@ export function RosterPage() {
 
       {coach?.active && (
         <p className="text-sm italic">
-          Squadra affidata all'allenatore {coachUntilText(coach)}: a ogni turno fa lui quintetto e minuti, con
-          le tue tattiche. La riprendi da Tattiche.
+          {headCoach
+            ? `Squadra affidata a ${coachFullName(headCoach)} ${coachUntilText(coach)}: a ogni turno fa lui quintetto, minuti e tattiche, con la sua idea di gioco (${PHILOSOPHY_LABEL[headCoach.philosophy]}). La riprendi da Tattiche.`
+            : `Squadra affidata all'allenatore ${coachUntilText(coach)}: a ogni turno fa lui quintetto e minuti, con le tue tattiche. La riprendi da Tattiche.`}
         </p>
       )}
 
@@ -418,6 +436,7 @@ export function RosterPage() {
           tactics={settings.tactics}
           onTactics={(t) => update({ ...settings, tactics: t })}
           coach={coach}
+          headCoach={headCoach}
           roundNumber={league.roundNumber}
           onCoach={changeCoach}
           onClose={() => setTacticsOpen(false)}
@@ -482,8 +501,20 @@ function LeaveDialog({
   );
 }
 
-/** Quintetto e minuti proposti dal bot (pulsante Auto). */
-function fromAuto(code: string, roster: RosterPlayer[], tactics: Tactics): SavedTeamSettings {
+/**
+ * Pulsante Auto: quintetto, minuti e tattiche dell'allenatore della squadra, con la sua idea di gioco; senza allenatori
+ * (leghe create prima) quintetto e minuti del bot, con le tattiche di adesso.
+ */
+function fromAuto(
+  code: string,
+  roster: RosterPlayer[],
+  tactics: Tactics,
+  coach: CoachInfo | null,
+): SavedTeamSettings {
+  if (coach) {
+    const setup = coachSetup(code, roster, coach);
+    return { starters: [...setup.starters], minutes: setup.minutes, tactics: setup.tactics };
+  }
   const setup = autoSetup(code, roster, tactics);
   return { starters: [...setup.starters], minutes: setup.minutes, tactics };
 }

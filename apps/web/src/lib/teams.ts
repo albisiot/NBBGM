@@ -1,5 +1,6 @@
 // Pagina di una squadra qualsiasi della lega: rosa con overall, ruoli e contratti (pubblici), scelte al draft
 // possedute con protezioni e swap, record. Il bilancio resta riservato (team_balance): qui non si legge.
+import type { OwnerProfile } from '@nbbgm/engine';
 import { involving, type PickInfo } from './market.ts';
 import { supabase } from './supabase.ts';
 
@@ -47,23 +48,38 @@ export async function openSwaps(leagueId: string, teamId?: string | readonly str
 export interface TeamExtra {
   strategy: 'contend' | 'middle' | 'rebuild';
   deadMoney: { playerName: string; salaries: number[] }[];
+  /** Proprietario e GM (conta per i bot); null nelle leghe create prima degli allenatori. */
+  owner: OwnerProfile | null;
+  /** Vittorie che il proprietario si aspetta in questa stagione. */
+  expectedWins: number | null;
 }
 
-/** Strategia del bot e stipendi residui dei tagliati (sul cap di tutti, quindi pubblici). */
+/**
+ * Strategia del bot, proprietario, vittorie attese e stipendi residui dei tagliati (sul cap di tutti, quindi
+ * pubblici). Senza le colonne del proprietario (app pubblicata prima della migrazione) si rilegge senza.
+ */
 export async function teamExtra(teamId: string): Promise<TeamExtra> {
-  const [team, dead] = await Promise.all([
-    supabase.from('teams').select('strategy').eq('id', teamId).maybeSingle(),
+  const read = (columns: string) => supabase.from('teams').select(columns).eq('id', teamId).maybeSingle();
+  const [first, dead] = await Promise.all([
+    read('strategy, owner_profile, expected_wins'),
     supabase.from('dead_money').select('player_name, salaries').eq('team_id', teamId),
   ]);
+  const team = first.error?.code === '42703' ? await read('strategy') : first;
   if (team.error) throw team.error;
   if (dead.error) throw dead.error;
+  const t = team.data as {
+    strategy: TeamExtra['strategy'];
+    owner_profile?: OwnerProfile | null;
+    expected_wins?: number | null;
+  } | null;
   return {
-    strategy: ((team.data as { strategy: TeamExtra['strategy'] } | null)?.strategy ??
-      'middle') as TeamExtra['strategy'],
+    strategy: (t?.strategy ?? 'middle') as TeamExtra['strategy'],
     deadMoney: ((dead.data ?? []) as { player_name: string; salaries: (number | string)[] }[]).map((d) => ({
       playerName: d.player_name,
       salaries: d.salaries.map(Number),
     })),
+    owner: t?.owner_profile ?? null,
+    expectedWins: t?.expected_wins ?? null,
   };
 }
 

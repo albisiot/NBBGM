@@ -183,6 +183,7 @@ describe('pannelli dal basso', () => {
         tactics: { ...DEFAULT_TACTICS, defense: 'zone' },
         onTactics: () => {},
         coach: null,
+        headCoach: null,
         roundNumber: 22,
         onCoach: async () => {},
         onClose: () => {},
