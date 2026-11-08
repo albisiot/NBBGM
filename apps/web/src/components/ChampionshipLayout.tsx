@@ -1,5 +1,5 @@
-// Campionato: occhiello, titolo e schede Risultati, Classifica e Playoff sopra le tre pagine, che restano alle loro
-// rotte (risultati, risultati/<turno>, classifica, playoff): i link già in giro (notifiche, riepilogo condiviso,
+// Campionato: occhiello, titolo e schede Risultati, Calendario, Classifica e Playoff sopra le pagine, che restano
+// alle loro rotte (risultati, risultati/<turno>, calendario, classifica, playoff): i link già in giro (notifiche, riepilogo condiviso,
 // scheda del turno) continuano a funzionare. Titolo e schede restano al loro posto mentre la pagina arriva a pezzi.
 import { Suspense } from 'react';
 import { Link, Outlet, useLocation, useMatch } from 'react-router';

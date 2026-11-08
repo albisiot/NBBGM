@@ -24,6 +24,7 @@ const ChampionshipLayout = lazyPage(
   () => import('./components/ChampionshipLayout.tsx'),
   'ChampionshipLayout',
 );
+const CalendarPage = lazyPage(() => import('./pages/CalendarPage.tsx'), 'CalendarPage');
 const ChroniclePage = lazyPage(() => import('./pages/ChroniclePage.tsx'), 'ChroniclePage');
 const ComparePage = lazyPage(() => import('./pages/ComparePage.tsx'), 'ComparePage');
 const CreateLeaguePage = lazyPage(() => import('./pages/CreateLeaguePage.tsx'), 'CreateLeaguePage');
@@ -79,10 +80,11 @@ const routes = createRoutesFromElements(
       <Route path="lega/:id/squadre/:code" element={<TeamPage />} />
       <Route path="lega/:id/giocatore/:pid" element={<PlayerPage />} />
       <Route path="lega/:id/confronta" element={<ComparePage />} />
-      {/* Campionato: le tre pagine alle rotte di sempre, con le schede in comune */}
+      {/* Campionato: le pagine alle rotte di sempre, con le schede in comune */}
       <Route element={<ChampionshipLayout />}>
         <Route path="lega/:id/risultati" element={<ResultsPage />} />
         <Route path="lega/:id/risultati/:round" element={<ResultsPage />} />
+        <Route path="lega/:id/calendario" element={<CalendarPage />} />
         <Route path="lega/:id/classifica" element={<StandingsPage />} />
         <Route path="lega/:id/playoff" element={<PlayoffPage />} />
       </Route>

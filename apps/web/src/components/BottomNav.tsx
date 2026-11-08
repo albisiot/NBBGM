@@ -15,7 +15,7 @@ const ICON: Record<string, ReactNode> = {
     </>
   ),
   mercato: <path d="m17 2 4 4-4 4M3 11V9a3 3 0 0 1 3-3h15M7 22l-4-4 4-4M21 13v2a3 3 0 0 1-3 3H3" />,
-  // Coppa: risultati, classifica e playoff
+  // Coppa: risultati, calendario, classifica e playoff
   campionato: (
     <path d="M7 3h10v6a5 5 0 0 1-10 0zM7 5H4v1.5A3.5 3.5 0 0 0 7.5 10M17 5h3v1.5a3.5 3.5 0 0 1-3.5 3.5M12 14v4M8 21h8M9.5 18h5" />
   ),
@@ -59,7 +59,7 @@ export function BottomNav({ id }: { id: string }) {
   const first = useRef<HTMLAnchorElement>(null);
   const main = LEAGUE_LINKS.filter((l) => MAIN_LINKS.includes(l.key));
   const more = LEAGUE_LINKS.filter((l) => !MAIN_LINKS.includes(l.key));
-  // Voce attiva anche per le pagine sotto una voce (Campionato: risultati, classifica, playoff, partite)
+  // Voce attiva anche per le pagine sotto una voce (Campionato: risultati, calendario, classifica, playoff, partite)
   const active = activeLink(pathname, id);
   const moreActive = more.some((l) => l.key === active);
 

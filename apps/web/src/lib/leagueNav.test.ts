@@ -62,6 +62,7 @@ describe('schede di Campionato', () => {
   it('la scheda aperta', () => {
     expect(championshipTab(`/lega/${L}/risultati`, L)).toBe('risultati');
     expect(championshipTab(`/lega/${L}/risultati/40`, L)).toBe('risultati');
+    expect(championshipTab(`/lega/${L}/calendario`, L)).toBe('calendario');
     expect(championshipTab(`/lega/${L}/classifica`, L)).toBe('classifica');
     expect(championshipTab(`/lega/${L}/playoff`, L)).toBe('playoff');
     expect(championshipTab(`/lega/${L}/partita/abc`, L)).toBeNull();
@@ -72,22 +73,23 @@ describe('schede di Campionato', () => {
     championshipTabs(kind, current).map((t) => t.label);
 
   it('Playoff fuori dalla regular season, come il tabellone della scheda del turno', () => {
-    expect(labels('regular')).toEqual(['Risultati', 'Classifica']);
-    expect(labels('play-in')).toEqual(['Risultati', 'Classifica', 'Playoff']);
-    expect(labels('playoffs')).toEqual(['Risultati', 'Classifica', 'Playoff']);
+    expect(labels('regular')).toEqual(['Risultati', 'Calendario', 'Classifica']);
+    expect(labels('play-in')).toEqual(['Risultati', 'Calendario', 'Classifica', 'Playoff']);
+    expect(labels('playoffs')).toEqual(['Risultati', 'Calendario', 'Classifica', 'Playoff']);
     // In offseason il tabellone della stagione appena finita
-    expect(labels('offseason')).toEqual(['Risultati', 'Classifica', 'Playoff']);
+    expect(labels('offseason')).toEqual(['Risultati', 'Calendario', 'Classifica', 'Playoff']);
   });
 
   it('turno non ancora letto: niente Playoff, salvo se è la pagina aperta (un link vecchio)', () => {
-    expect(labels(null)).toEqual(['Risultati', 'Classifica']);
-    expect(labels(null, 'playoff')).toEqual(['Risultati', 'Classifica', 'Playoff']);
-    expect(labels('regular', 'playoff')).toEqual(['Risultati', 'Classifica', 'Playoff']);
+    expect(labels(null)).toEqual(['Risultati', 'Calendario', 'Classifica']);
+    expect(labels(null, 'playoff')).toEqual(['Risultati', 'Calendario', 'Classifica', 'Playoff']);
+    expect(labels('regular', 'playoff')).toEqual(['Risultati', 'Calendario', 'Classifica', 'Playoff']);
   });
 
   it('le schede portano alle rotte di sempre', () => {
     expect(championshipTabs('playoffs', null).map((t) => t.to)).toEqual([
       'risultati',
+      'calendario',
       'classifica',
       'playoff',
     ]);

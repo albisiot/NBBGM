@@ -52,7 +52,7 @@ const SECTIONS: { title: string; text: string[] }[] = [
   {
     title: 'Le pagine',
     text: [
-      'Lega: le decisioni da prendere, il turno con chi è pronto e le ultime notizie. Squadra: quintetto, minuti, tattiche e allenatore. Mercato: svincolati, scambi, rinnovi e bilancio. Campionato: risultati, classifica e, da play-in in poi, il tabellone dei playoff.',
+      'Lega: le decisioni da prendere, il turno con chi è pronto e le ultime notizie. Squadra: quintetto, minuti, tattiche e allenatore. Mercato: svincolati, scambi, rinnovi e bilancio. Campionato: risultati, calendario della stagione (mese o settimana: tocca un giorno per vederne le partite), classifica e, da play-in in poi, il tabellone dei playoff.',
       'In Altro (sul telefono) o nel menu in alto: statistiche, cronaca della lega, storico delle stagioni, confronto tra giocatori e Info lega, con il codice invito per gli amici, le squadre, le impostazioni e la gestione per il commissario.',
     ],
   },

@@ -181,7 +181,7 @@ function ProfileLink({ name }: { name: string }) {
 function LeagueNav({ id, width }: { id: string; width: string }) {
   const nav = useRef<HTMLElement>(null);
   const { pathname } = useLocation();
-  // Voce attiva anche per le pagine sotto una voce (Campionato: risultati, classifica, playoff, partite)
+  // Voce attiva anche per le pagine sotto una voce (Campionato: risultati, calendario, classifica, playoff, partite)
   const active = activeLink(pathname, id);
   // La voce della pagina aperta in vista (su telefono il menu scorre): solo il menu, non la pagina
   useEffect(() => {

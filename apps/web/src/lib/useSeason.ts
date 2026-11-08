@@ -1,6 +1,6 @@
 // La stagione corrente di una lega: dettagli, partite e serie di playoff. Partite e serie cambiano solo quando la
 // lega passa al turno successivo (apply_turn le scrive insieme al turno nuovo): restano in memoria per lega,
-// con la chiave di stagione e turno, e Risultati, Classifica e Playoff non le riscaricano a ogni visita. I dettagli
+// con la chiave di stagione e turno, e Risultati, Calendario, Classifica e Playoff non le riscaricano a ogni visita. I dettagli
 // della lega si leggono ogni volta: sono pochi dati e dicono qual è il turno corrente.
 import type { Conference, GameRecord, StandingsLine } from '@nbbgm/engine';
 import { KeyedCache } from './cache.ts';

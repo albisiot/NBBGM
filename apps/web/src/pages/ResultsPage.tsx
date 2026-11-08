@@ -7,6 +7,7 @@ import { useState } from 'react';
 import { Link, useParams } from 'react-router';
 import { ErrorText, Spinner } from '../components/ui.tsx';
 import { useUserId } from '../lib/auth.tsx';
+import { dayKey, roundDay, shortDate } from '../lib/calendar.ts';
 import { readSpoilerFree, writeSpoilerFree } from '../lib/replay.ts';
 import { roundLabel, type SeasonGame, type Series } from '../lib/results.ts';
 import { NOTE, overtimeShort, winnerSide } from '../lib/tabellino.ts';
@@ -37,6 +38,7 @@ export function ResultsPage() {
     .sort((a, b) => Number(isMine(b, mine)) - Number(isMine(a, mine)));
   const kind = list[0]?.kind ?? 'regular';
   const label = roundLabel(selected, kind);
+  const day = list.length && league.seasonYear !== null ? roundDay(league.seasonYear, selected) : null;
 
   return (
     <div className="space-y-3">
@@ -47,6 +49,15 @@ export function ResultsPage() {
             <span className="font-titolo text-lg font-semibold tracking-wider uppercase">{label}</span>
             {kind !== 'regular' && (
               <span className={`block ${NOTE}`}>turno {selected - 81} della post-season</span>
+            )}
+            {/* Il giorno del turno nel calendario della stagione (lib/calendar.ts), con il link alla pagina */}
+            {day !== null && (
+              <Link
+                to={`/lega/${id}/calendario?giorno=${dayKey(day)}`}
+                className={`block ${NOTE} underline-offset-2 hover:underline`}
+              >
+                {shortDate(day)}
+              </Link>
             )}
           </p>
           <RoundLink id={id} round={rounds[index + 1]} label="Turno successivo" arrow="›" />
@@ -61,54 +72,17 @@ export function ResultsPage() {
       </div>
       {spoilerFree && <p className={NOTE}>Punteggi nascosti: ogni partita si guarda dal vivo.</p>}
 
-      <section
-        aria-label={`Partite: ${label}`}
-        className="border-t-2 border-stampa-900 md:grid md:grid-cols-2 md:gap-x-8 dark:border-stampa-100"
-      >
-        {list.map((g) => {
-          const hide = spoilerFree && g.homeScore !== null;
-          const own = isMine(g, mine);
-          // Nei playoff la situazione della serie (il play-in lo dice già il titolo del turno)
-          const sub = g.kind === 'playoffs' && g.seriesId ? seriesText(g, games, series, code, hide) : null;
-          const body = (
-            <>
-              <span className="min-w-0 flex-1">
-                <ScoreLine game={g} code={code} hide={hide} size={own ? 'text-xl' : 'text-lg'} />
-                {sub && <span className={`block ${NOTE}`}>{sub}</span>}
-              </span>
-              <span
-                className={`shrink-0 text-[0.8125rem] font-semibold italic ${
-                  own ? 'text-rosso-700 dark:text-rosso-300' : 'text-stampa-600 dark:text-stampa-300'
-                }`}
-              >
-                {g.homeScore === null
-                  ? own
-                    ? 'la tua · da giocare'
-                    : 'da giocare'
-                  : `${own ? 'la tua · ' : ''}${hide ? 'guarda dal vivo' : 'box score'} ›`}
-              </span>
-            </>
-          );
-          const row = `flex min-h-12 items-center gap-2 border-b px-2 py-1 ${
-            own
-              ? 'border-stampa-900 bg-stampa-25 dark:border-stampa-100 dark:bg-stampa-800'
-              : 'border-stampa-200 dark:border-stampa-700'
-          }`;
-          return g.homeScore === null ? (
-            <div key={g.id} className={row}>
-              {body}
-            </div>
-          ) : (
-            <Link
-              key={g.id}
-              to={`/lega/${id}/partita/${g.id}${hide ? '?vista=dal-vivo' : ''}`}
-              className={`${row} text-stampa-900 hover:bg-stampa-100 dark:text-stampa-50 dark:hover:bg-stampa-800`}
-            >
-              {body}
-            </Link>
-          );
-        })}
-      </section>
+      <GameList
+        leagueId={id}
+        label={`Partite: ${label}`}
+        list={list}
+        games={games}
+        series={series}
+        code={code}
+        mine={mine}
+        highlight={mine}
+        spoilerFree={spoilerFree}
+      />
       {list.length === 0 ? (
         <p className={NOTE}>Nessuna partita in questo turno.</p>
       ) : (
@@ -118,6 +92,87 @@ export function ResultsPage() {
         </p>
       )}
     </div>
+  );
+}
+
+/**
+ * Partite di un turno come righe di giornale: punteggio (o da giocare), situazione della serie nei playoff e link
+ * a box score e cronaca (o alla partita dal vivo senza spoiler). La squadra in evidenza (la propria in Risultati,
+ * quella scelta nel Calendario) ha la riga marcata; "la tua" segna sempre la propria. Lo usa anche il Calendario.
+ */
+export function GameList({
+  leagueId,
+  label,
+  list,
+  games,
+  series,
+  code,
+  mine,
+  highlight,
+  spoilerFree,
+}: {
+  leagueId: string;
+  label: string;
+  /** Le partite da mostrare, già nell'ordine voluto. */
+  list: readonly SeasonGame[];
+  /** Tutte le partite della stagione, per la situazione delle serie. */
+  games: readonly SeasonGame[];
+  series: readonly Series[];
+  code: (teamId: string) => string;
+  mine: string | null;
+  highlight: string | null;
+  spoilerFree: boolean;
+}) {
+  return (
+    <section
+      aria-label={label}
+      className="border-t-2 border-stampa-900 md:grid md:grid-cols-2 md:gap-x-8 dark:border-stampa-100"
+    >
+      {list.map((g) => {
+        const hide = spoilerFree && g.homeScore !== null;
+        const own = isMine(g, mine);
+        const marked = isMine(g, highlight);
+        // Nei playoff la situazione della serie (il play-in lo dice già il titolo del turno)
+        const sub = g.kind === 'playoffs' && g.seriesId ? seriesText(g, games, series, code, hide) : null;
+        const body = (
+          <>
+            <span className="min-w-0 flex-1">
+              <ScoreLine game={g} code={code} hide={hide} size={marked ? 'text-xl' : 'text-lg'} />
+              {sub && <span className={`block ${NOTE}`}>{sub}</span>}
+            </span>
+            <span
+              className={`shrink-0 text-[0.8125rem] font-semibold italic ${
+                own ? 'text-rosso-700 dark:text-rosso-300' : 'text-stampa-600 dark:text-stampa-300'
+              }`}
+            >
+              {g.homeScore === null
+                ? own
+                  ? 'la tua · da giocare'
+                  : 'da giocare'
+                : `${own ? 'la tua · ' : ''}${hide ? 'guarda dal vivo' : 'box score'} ›`}
+            </span>
+          </>
+        );
+        const row = `flex min-h-12 items-center gap-2 border-b px-2 py-1 ${
+          marked
+            ? 'border-stampa-900 bg-stampa-25 dark:border-stampa-100 dark:bg-stampa-800'
+            : 'border-stampa-200 dark:border-stampa-700'
+        }`;
+        return g.homeScore === null ? (
+          <div key={g.id} className={row}>
+            {body}
+          </div>
+        ) : (
+          <Link
+            key={g.id}
+            to={`/lega/${leagueId}/partita/${g.id}${hide ? '?vista=dal-vivo' : ''}`}
+            className={`${row} text-stampa-900 hover:bg-stampa-100 dark:text-stampa-50 dark:hover:bg-stampa-800`}
+          >
+            {body}
+          </Link>
+        );
+      })}
+    </section>
   );
 }
 
@@ -176,7 +231,7 @@ export function HiddenScore() {
 }
 
 /** Interruttore Senza spoiler: un vero interruttore (role switch) con la levetta d'inchiostro. */
-function SpoilerSwitch({ on, onChange }: { on: boolean; onChange: (on: boolean) => void }) {
+export function SpoilerSwitch({ on, onChange }: { on: boolean; onChange: (on: boolean) => void }) {
   return (
     <button
       type="button"
@@ -198,7 +253,7 @@ function SpoilerSwitch({ on, onChange }: { on: boolean; onChange: (on: boolean) 
   );
 }
 
-function isMine(g: SeasonGame, mine: string | null): boolean {
+export function isMine(g: SeasonGame, mine: string | null): boolean {
   return mine !== null && (g.homeTeamId === mine || g.awayTeamId === mine);
 }
 

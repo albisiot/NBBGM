@@ -1,5 +1,5 @@
 // Menu della lega: le voci, quale è attiva per un indirizzo e quali stanno nella barra in basso su telefono; le
-// schede di Campionato (Risultati, Classifica, Playoff). Modulo puro: lo usano Layout, BottomNav e
+// schede di Campionato (Risultati, Calendario, Classifica, Playoff). Modulo puro: lo usano Layout, BottomNav e
 // ChampionshipLayout, e i test.
 
 export interface LeagueLink {
@@ -33,6 +33,7 @@ const SECTION: Record<string, string> = {
   squadra: 'squadra',
   mercato: 'mercato',
   risultati: 'campionato',
+  calendario: 'campionato',
   classifica: 'campionato',
   playoff: 'campionato',
   partita: 'campionato',
@@ -65,18 +66,19 @@ export function activeLink(pathname: string, leagueId: string): string | null {
   return s === null ? null : (SECTION[s] ?? null);
 }
 
-export type ChampionshipTab = 'risultati' | 'classifica' | 'playoff';
+export type ChampionshipTab = 'risultati' | 'calendario' | 'classifica' | 'playoff';
 
 const TAB_LABEL: Record<ChampionshipTab, string> = {
   risultati: 'Risultati',
+  calendario: 'Calendario',
   classifica: 'Classifica',
   playoff: 'Playoff',
 };
 
-/** La scheda di Campionato aperta (risultati, risultati/<turno>, classifica, playoff), o null. */
+/** La scheda di Campionato aperta (risultati, risultati/<turno>, calendario, classifica, playoff), o null. */
 export function championshipTab(pathname: string, leagueId: string): ChampionshipTab | null {
   const s = section(pathname, leagueId);
-  return s === 'risultati' || s === 'classifica' || s === 'playoff' ? s : null;
+  return s === 'risultati' || s === 'calendario' || s === 'classifica' || s === 'playoff' ? s : null;
 }
 
 /**
@@ -90,7 +92,7 @@ export function championshipTabs(
   current: ChampionshipTab | null,
 ): { to: ChampionshipTab; label: string }[] {
   const playoff = (roundKind !== null && roundKind !== 'regular') || current === 'playoff';
-  return (['risultati', 'classifica', 'playoff'] as const)
+  return (['risultati', 'calendario', 'classifica', 'playoff'] as const)
     .filter((t) => t !== 'playoff' || playoff)
     .map((t) => ({ to: t, label: TAB_LABEL[t] }));
 }
