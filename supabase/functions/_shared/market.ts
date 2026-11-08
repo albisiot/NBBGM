@@ -3,6 +3,7 @@
 // esegue tutte alla chiusura, ricontrollandole: qui si rifiuta subito quello che già adesso non va.
 import {
   askingSalary,
+  askTerms,
   canSign,
   checkCoachHire,
   expiringAsk,
@@ -10,20 +11,41 @@ import {
   isExpiring,
   contractOf,
   inSeasonAsk,
+  LOWBALL_MORALE,
   maxSalaryFor,
   minimumSalaryFor,
+  MIN_RENEWAL_MORALE,
+  nextConfig,
+  pendingTeamOptions,
   releasedBy,
   renewalMax,
   renewalOffer,
+  renewalReply,
+  RENEWAL_ATTEMPTS,
+  restrictedEligible,
   salaryRun,
   snapToAsk,
+  termsContract,
   validateTrade,
 } from '../../../packages/engine/src/index.ts';
-import type { LeagueState, OffseasonStage, Trade } from '../../../packages/engine/src/index.ts';
+import type {
+  LeagueState,
+  OffseasonStage,
+  PlayerState,
+  RenewalTalk,
+  RenewalTerms,
+  Trade,
+} from '../../../packages/engine/src/index.ts';
 import { leagueStateFromRows, type LeagueStateRows, type StateIds } from './state.ts';
 import { tradeFromRow } from './turn.ts';
 
 export class MarketError extends Error {}
+
+/** Risposta del giocatore a un'offerta di rinnovo, per l'app: mai la soglia nascosta. */
+export type RenewalAnswer =
+  | { kind: 'accept'; salaries: number[]; options: (string | null)[] }
+  | { kind: 'counter'; counter: RenewalTerms; attemptsLeft: number; lowball: boolean }
+  | { kind: 'final'; counter: RenewalTerms; lowball: boolean };
 
 /** Proposte in attesa che una squadra può avere aperte insieme. */
 export const MAX_OPEN_OFFERS = 10;
@@ -46,7 +68,24 @@ export type MarketAction =
   | { kind: 'respond_trade'; offer_id: string; accept: boolean }
   | { kind: 'withdraw_trade'; offer_id: string }
   | { kind: 'release'; player_id: string }
+  /** Rinnovo alla richiesta del giocatore (la si accetta così com'è). */
   | { kind: 'renew'; player_id: string }
+  /** Trattativa del rinnovo: stipendio del primo anno, anni (1-5) e opzione sull'ultimo anno; risposta subito. */
+  | {
+      kind: 'renew_offer';
+      player_id: string;
+      salary: number;
+      years: number;
+      option?: 'player' | 'team' | null;
+    }
+  /** Draft dal vivo: il giocatore scelto per la chiamata del turno. */
+  | { kind: 'draft_pick'; player_id: string }
+  /** Turno delle opzioni: esercitare (true) o declinare l'opzione della squadra. */
+  | { kind: 'option'; player_id: string; exercise: boolean }
+  /** Turno dei rinnovi: offerta di qualifica a un RFA in scadenza (o ritirarla). */
+  | { kind: 'qualify'; player_id: string; qualify: boolean }
+  /** Free agency: pareggiare (true) o no l'offerta che un proprio RFA ha scelto da un'altra squadra. */
+  | { kind: 'match'; player_id: string; match: boolean }
   | { kind: 'withdraw_request'; request_id: string }
   /** Cambio di allenatore: esonera quello di adesso e prende uno libero alla sua richiesta, alla chiusura del turno. */
   | { kind: 'hire_coach'; coach_id: string }
@@ -127,7 +166,7 @@ export function checkMarketAction(
   rows: LeagueStateRows,
   userId: string,
   action: MarketAction,
-): { teamId: string; roundId: string; write: Record<string, unknown> } {
+): { teamId: string; roundId: string; write: Record<string, unknown>; reply?: RenewalAnswer } {
   const round = rows.round;
   if (!round || round.state !== 'open') throw new MarketError('Il turno è già in chiusura: riprova tra poco');
   const team = rows.teams.find((t) => t.owner_id === userId);
@@ -142,10 +181,15 @@ export function checkMarketAction(
 
   switch (action.kind) {
     case 'bid': {
-      if (!marketOpen && faRound === null)
-        throw new MarketError('Svincolati: si firma in regular season e nei turni di free agency');
+      if (!marketOpen && faRound === null && stage !== 'preparation')
+        throw new MarketError('Svincolati: si firma in regular season, in free agency e in preparazione');
       const p = state.players.find((x) => x.id === action.player_id);
       if (!p || p.teamId !== null || p.prospect) throw new MarketError('Il giocatore non è svincolato');
+      const sheet = state.offerSheets?.find((x) => x.playerId === p.id);
+      if (sheet)
+        throw new MarketError(
+          `Ha già scelto l'offerta di ${sheet.teamId}: aspetta che ${sheet.rightsTeamId} decida se pareggiarla`,
+        );
       if (releasedBy(state, me, p.id))
         throw new MarketError('Lo hai tagliato in questa stagione: potrai rifirmarlo dalla prossima');
       const years = Number(action.years);
@@ -158,7 +202,10 @@ export function checkMarketAction(
       const max = maxSalaryFor(state.config, p.yearsInLeague);
       if (!(salary >= min)) throw new MarketError(`Lo stipendio minimo per lui è ${millions(min)}`);
       if (salary > max) throw new MarketError(`Lo stipendio massimo per lui è ${millions(max)}`);
-      if (salary < ask) throw new MarketError(`Chiede almeno ${millions(ask)} a stagione`);
+      // In free agency un'offerta sotto la richiesta resta sul tavolo e firma quando la richiesta scende; in stagione e
+      // in preparazione si firma solo alla richiesta
+      if (salary < ask && faRound === null)
+        throw new MarketError(`Chiede almeno ${millions(ask)} a stagione`);
       const check = canSign(state, me, p, salary);
       if (!check.ok) throw new MarketError(`Non puoi firmarlo: ${check.reason}`);
       return write({ kind: 'bid', player_id: p.id, salaries: salaryRun(salary, years) });
@@ -235,25 +282,111 @@ export function checkMarketAction(
     }
 
     case 'renew': {
+      // La richiesta così com'è: il giocatore la accetta sempre (se il morale non è troppo basso)
+      const p = ownPlayer(state, me, action.player_id);
+      const ctx = renewalContext(state, rows, team.id, p, stage, marketOpen);
+      return write({
+        kind: 'renew',
+        player_id: p.id,
+        salaries: ctx.ask,
+        options: ctx.ask.map(() => null),
+      });
+    }
+
+    case 'renew_offer': {
+      const p = ownPlayer(state, me, action.player_id);
+      const ctx = renewalContext(state, rows, team.id, p, stage, marketOpen);
+      const years = Number(action.years);
+      if (!Number.isInteger(years) || years < 1 || years > 5)
+        throw new MarketError('Il contratto va da 1 a 5 anni');
+      const option = action.option ?? null;
+      if (option !== null && option !== 'player' && option !== 'team')
+        throw new MarketError('Opzione non valida');
+      if (option !== null && years < 2)
+        throw new MarketError('L’opzione si mette sull’ultimo di almeno 2 anni');
+      const ask = askTerms(ctx.ask);
+      const salary = snapToAsk(Math.round(Number(action.salary)), ask.salary);
+      if (!(salary >= ctx.min)) throw new MarketError(`Lo stipendio minimo per lui è ${millions(ctx.min)}`);
+      if (salary > ctx.max) throw new MarketError(`Lo stipendio massimo per lui è ${millions(ctx.max)}`);
+      const offer: RenewalTerms = { salary, years, option };
+      const reply = renewalReply(ask, p, offer, ctx.talk, {
+        min: ctx.min,
+        max: ctx.max,
+        minMorale: MIN_RENEWAL_MORALE,
+      });
+      if (reply.kind === 'refuse') throw new MarketError('Non vuole rinnovare: il morale è troppo basso');
+      const base = { kind: 'renew_offer', player_id: p.id };
+      if (reply.kind === 'accept') {
+        const contract = termsContract(offer);
+        return {
+          ...write({
+            ...base,
+            accepted: true,
+            ...contract,
+            refusals: ctx.talk.refusals,
+            counter: ctx.talk.counter,
+            morale_penalty: 0,
+          }),
+          reply: { kind: 'accept', ...contract },
+        };
+      }
+      const refusals = Math.min(RENEWAL_ATTEMPTS, ctx.talk.refusals + 1);
+      const answer: RenewalAnswer =
+        reply.kind === 'counter'
+          ? {
+              kind: 'counter',
+              counter: reply.counter,
+              attemptsLeft: reply.attemptsLeft,
+              lowball: reply.lowball,
+            }
+          : { kind: 'final', counter: reply.counter, lowball: reply.lowball };
+      return {
+        ...write({
+          ...base,
+          accepted: false,
+          refusals,
+          counter: reply.counter,
+          morale_penalty: reply.lowball ? LOWBALL_MORALE : 0,
+        }),
+        reply: answer,
+      };
+    }
+
+    case 'draft_pick': {
+      if (stage !== 'draft' || !round.draft_team_id)
+        throw new MarketError('Si sceglie nei turni del draft, quando tocca a te');
+      if (round.draft_team_id !== team.id) throw new MarketError('In questo turno non tocca a te scegliere');
+      const p = state.players.find((x) => x.id === action.player_id);
+      if (!p || p.prospect === null || p.prospect === undefined)
+        throw new MarketError('Il giocatore non è tra i prospetti del draft');
+      return write({ kind: 'draft_pick', player_id: p.id, payload: {} });
+    }
+
+    case 'option': {
+      if (stage !== 'options') throw new MarketError('Le opzioni si decidono nel turno delle opzioni');
+      const p = ownPlayer(state, me, action.player_id);
+      if (!pendingTeamOptions(state, me).some((c) => c.playerId === p.id))
+        throw new MarketError('Non c’è un’opzione della squadra da decidere su questo giocatore');
+      return write({ kind: 'option', player_id: p.id, payload: { exercise: action.exercise === true } });
+    }
+
+    case 'qualify': {
+      if (stage !== 'renewals') throw new MarketError('L’offerta di qualifica si fa nel turno dei rinnovi');
       const p = ownPlayer(state, me, action.player_id);
       const c = contractOf(state, p.id);
-      if (!c || c.type === 'two-way') throw new MarketError('I two-way non si rinnovano');
-      if (stage === 'renewals') {
-        // Turno dei rinnovi: i giocatori in scadenza, alla richiesta della stagione che arriva
-        if (!isExpiring(state, p.id)) throw new MarketError('Il giocatore non è in scadenza');
-        const ask = expiringAsk(state, p);
-        if (!ask) throw new MarketError('Non vuole rinnovare: il morale è troppo basso');
-        if ((ask[0] ?? 0) > maxSalaryFor(state.config, p.yearsInLeague))
-          throw new MarketError('La richiesta supera lo stipendio massimo');
-        return write({ kind: 'renew', player_id: p.id, salaries: ask });
-      }
-      if (!marketOpen) throw new MarketError('Si rinnova in regular season o nel turno dei rinnovi');
-      if (c.salaries.length !== 1) throw new MarketError('Si rinnova solo all’ultimo anno di contratto');
-      const offer = renewalOffer(state, p);
-      if (!offer) throw new MarketError('Non vuole rinnovare: il morale è troppo basso');
-      if ((offer.salaries[0] ?? 0) > renewalMax(state.config, p))
-        throw new MarketError('La richiesta supera lo stipendio massimo');
-      return write({ kind: 'renew', player_id: p.id, salaries: offer.salaries });
+      if (!c || !isExpiring(state, p.id)) throw new MarketError('Il giocatore non è in scadenza');
+      if (!restrictedEligible(p, c))
+        throw new MarketError(
+          'Solo chi finisce il contratto da rookie o ha al più 3 anni nella lega è un RFA',
+        );
+      return write({ kind: 'qualify', player_id: p.id, payload: { qualify: action.qualify !== false } });
+    }
+
+    case 'match': {
+      const sheet = state.offerSheets?.find((x) => x.playerId === action.player_id);
+      if (!offseason || !sheet || sheet.rightsTeamId !== me)
+        throw new MarketError('Nessuna offerta da pareggiare per questo giocatore');
+      return write({ kind: 'match', player_id: sheet.playerId, payload: { match: action.match === true } });
     }
 
     case 'withdraw_request':
@@ -274,6 +407,41 @@ export function checkMarketAction(
     default:
       throw new MarketError('Azione non valida');
   }
+}
+
+/**
+ * Da dove parte la trattativa di un rinnovo: la richiesta del giocatore (stipendi dalla stagione che arriva), lo
+ * stipendio minimo e massimo per lui e com'è andata finora con questa squadra. Nel turno dei rinnovi i giocatori in
+ * scadenza (la configurazione è già quella della stagione che arriva), in regular season chi è all'ultimo anno.
+ */
+function renewalContext(
+  state: LeagueState,
+  rows: LeagueStateRows,
+  teamUuid: string,
+  p: PlayerState,
+  stage: string | null,
+  marketOpen: boolean,
+): { ask: number[]; min: number; max: number; talk: RenewalTalk } {
+  const c = contractOf(state, p.id);
+  if (!c || c.type === 'two-way') throw new MarketError('I two-way non si rinnovano');
+  const saved = rows.renewal_talks?.find((t) => t.player_id === p.id && t.team_id === teamUuid);
+  const talk: RenewalTalk = { refusals: saved?.refusals ?? 0, counter: saved?.counter ?? null };
+  if (stage === 'renewals') {
+    if (!isExpiring(state, p.id)) throw new MarketError('Il giocatore non è in scadenza');
+    const ask = expiringAsk(state, p);
+    if (!ask) throw new MarketError('Non vuole rinnovare: il morale è troppo basso');
+    const max = maxSalaryFor(state.config, p.yearsInLeague);
+    if ((ask[0] ?? 0) > max) throw new MarketError('La richiesta supera lo stipendio massimo');
+    return { ask, min: minimumSalaryFor(state.config, p.yearsInLeague), max, talk };
+  }
+  if (!marketOpen) throw new MarketError('Si rinnova in regular season o nel turno dei rinnovi');
+  if (c.salaries.length !== 1) throw new MarketError('Si rinnova solo all’ultimo anno di contratto');
+  const offer = renewalOffer(state, p);
+  if (!offer) throw new MarketError('Non vuole rinnovare: il morale è troppo basso');
+  const max = renewalMax(state.config, p);
+  if ((offer.salaries[0] ?? 0) > max) throw new MarketError('La richiesta supera lo stipendio massimo');
+  const years = p.yearsInLeague === null ? null : p.yearsInLeague + 1;
+  return { ask: offer.salaries, min: minimumSalaryFor(nextConfig(state.config), years), max, talk };
 }
 
 function ownPlayer(state: LeagueState, team: string, id: string) {

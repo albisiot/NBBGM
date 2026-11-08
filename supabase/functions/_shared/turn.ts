@@ -11,6 +11,7 @@
 import {
   BODY_PART_LABEL,
   coachCost,
+  contractOf,
   fillRosterAtMinimum,
   shortDayLabel,
   MIN_STANDARD,
@@ -22,16 +23,25 @@ import {
   regularTurns,
   replayPostseason,
   Rng,
+  advanceDraft,
   botFreeAgencyOffers,
   botProposals,
+  closeOptions,
   closeRenewals,
+  draftOnClock,
   expiringPlayers,
+  FA_MORATORIUM_ROUNDS,
+  FREE_AGENCY_ROUNDS,
   freeAgencyRoundOf,
   generatedDraftClass,
+  isOffseasonStage,
   nextStage,
-  runAnnualDraft,
+  pendingTeamOptions,
+  restrictedEligible,
+  rosterIssues,
   runMarket,
   scaleContracts,
+  signQualifyingOffers,
   startNewSeason,
   startOffseason,
   simulateGame,
@@ -40,13 +50,17 @@ import {
   twoWaySalary,
 } from '../../../packages/engine/src/index.ts';
 import type {
+  ContractOption,
+  DraftSlotState,
   GameResult,
   LeagueState,
+  OptionDecision,
   PlayerState,
   OffseasonStage,
   PostseasonGame,
   PostseasonState,
   RenewalDecision,
+  RosterFix,
   TeamSetup,
   Trade,
 } from '../../../packages/engine/src/index.ts';
@@ -95,13 +109,17 @@ export const ALERT_KINDS = {
   tradeOffer: 'trade_offer',
   /** Informativo: esito di scambi, tagli, rinnovi e offerte agli svincolati. */
   market: 'market',
-  /** Bloccante, offseason: scelte al draft da preparare (lista dei preferiti). */
+  /** Bloccante, offseason: tocca a te scegliere al draft (solo la squadra della chiamata del turno). */
   draft: 'draft_pick',
-  /** Bloccante, offseason: giocatori in scadenza da rinnovare o lasciar andare. */
+  /** Bloccante, offseason: opzioni della squadra da esercitare o declinare. */
+  teamOptions: 'team_options',
+  /** Bloccante, offseason: giocatori in scadenza da rinnovare o lasciar andare, offerte di qualifica agli RFA. */
   renewals: 'renewals',
-  /** Bloccante, offseason: turno di free agency. */
+  /** Informativo, offseason: la free agency comincia (solo offerte) e, al 6° turno, si firma. */
   freeAgency: 'free_agency',
-  /** Bloccante, offseason: preparazione della stagione (rosa, quintetto, tattiche). */
+  /** Bloccante, offseason: un tuo RFA ha scelto l'offerta di un'altra squadra, puoi pareggiarla. */
+  offerSheet: 'offer_sheet',
+  /** Bloccante, offseason: la rosa è fuori dai limiti della stagione (giocatori da tagliare o da firmare). */
   preparation: 'preparation',
 } as const;
 
@@ -131,7 +149,8 @@ export function serverTurn(
   const regular = round.kind === 'regular';
   const offseason = round.kind === 'offseason';
   const stage = offseason ? ((round.stage ?? null) as OffseasonStage | null) : null;
-  if (offseason && !stage) throw new Error('Turno di offseason senza stage');
+  if (offseason && !isOffseasonStage(stage))
+    throw new Error(`Turno di offseason con stage sconosciuto: ${stage}`);
   if (!regular && !offseason && round.kind !== 'play-in' && round.kind !== 'playoffs')
     throw new Error(`Turno sconosciuto: ${round.kind}`);
   const now = opts.now ?? new Date();
@@ -186,8 +205,10 @@ export function serverTurn(
           teamId: code(q.team_id),
           playerId: q.player_id,
           salaries: (q.payload.salaries ?? []).map(Number),
+          options: contractOptions(q.payload.options),
         })),
-      bids: (offseason && faRound === null ? [] : (rows.bids ?? [])).map((b) => ({
+      // Offerte agli svincolati: in regular season, nei turni di free agency e in preparazione
+      bids: (offseason && faRound === null && stage !== 'preparation' ? [] : (rows.bids ?? [])).map((b) => ({
         id: b.id,
         teamId: code(b.team_id),
         playerId: b.player_id,
@@ -199,9 +220,25 @@ export function serverTurn(
         teamId: code(q.team_id),
         coachId: q.coach_id,
       })),
+      // Pareggi degli RFA: le offerte scelte nel turno prima si decidono adesso
+      matches: requests
+        .filter((q) => q.kind === 'match')
+        .map((q) => ({
+          id: q.id,
+          teamId: code(q.team_id),
+          playerId: q.player_id,
+          match: q.payload.match === true,
+        })),
     },
     offseason ? null : turn,
-    faRound === null ? {} : { askRound: faRound, extraOffers: () => botFreeAgencyOffers(state, faRound) },
+    faRound === null
+      ? {}
+      : {
+          askRound: faRound,
+          extraOffers: () => botFreeAgencyOffers(state, faRound),
+          // Le offerte restano sul tavolo fino all'ultimo turno di free agency
+          keepBids: faRound < FREE_AGENCY_ROUNDS - 1,
+        },
   );
 
   // ------------------------------------------------ avvisi del turno che si chiude
@@ -249,13 +286,29 @@ export function serverTurn(
     games.push({ result, seed });
     return result;
   };
-  const renewalResults: { id: string; status: 'done' | 'invalid' }[] = [];
+  // Esito delle richieste che l'offseason decide qui: scelta al draft, opzioni, rinnovi, qualifiche
+  const offseasonResults: { id: string; status: 'done' | 'invalid' }[] = [];
   let newSeason = false;
   let lottery: string[] | null = null;
+  /** La chiamata del draft che aspetta un manager nel turno che si apre (null: draft finito o nessun draft). */
+  let onClock: DraftSlotState | null = null;
+  /** Correzioni del server alle rose umane a inizio stagione. */
+  let rosterFixes: RosterFix[] = [];
+  const lists = () => new Map((rows.draft_lists ?? []).map((l) => [code(l.team_id), l.player_ids]));
+  // A draft finito i contratti scalano, nello stesso turno
+  const draftStep = (slot: DraftSlotState | null) => {
+    onClock = slot;
+    if (!slot) scaleContracts(state);
+  };
+  // Senza risposta all'avviso del turno, con l'allenatore attivo decide la logica del bot
+  const coachDecides = (teamCode: string, kind: string) =>
+    state.teams.find((t) => t.id === teamCode)?.coach === true &&
+    alerts.some((a) => a.kind === kind && a.team_id === uuid(teamCode) && a.status === 'open');
   if (regular) playRegularTurn(state, play);
   else if (!offseason) {
     playPostseasonTurn(state, play);
-    // Finale giocata: fine stagione, lottery, ordine del draft e classe del draft (generata)
+    // Finale giocata: fine stagione, lottery, ordine del draft e classe del draft (generata); poi i bot scelgono
+    // fino alla prima chiamata di un manager
     if (state.phase === 'offseason') {
       const draftYear = state.config.year + 1;
       const draftClass = generatedDraftClass(new Rng(`${claim.seed}:classe`), draftYear).map((p) => ({
@@ -265,36 +318,73 @@ export function serverTurn(
       }));
       startOffseason(state, draftClass);
       lottery = state.offseason?.lottery ?? null;
+      draftStep(advanceDraft(state, { lists: lists() }));
     }
   } else if (stage === 'draft') {
-    runAnnualDraft(state, new Map((rows.draft_lists ?? []).map((l) => [code(l.team_id), l.player_ids])));
-    scaleContracts(state);
-  } else if (stage === 'renewals') {
-    const asked = new Map(requests.filter((q) => q.kind === 'renew').map((q) => [q.player_id, q.id]));
-    const agreed = new Map(
-      requests
-        .filter((q) => q.kind === 'renew')
-        .map((q) => [q.player_id, (q.payload.salaries ?? []).map(Number)] as const),
+    // La chiamata del turno: la scelta del manager, o la sua lista, o la logica del bot; poi i bot fino alla prossima
+    const slot = draftOnClock(state);
+    const choice = slot
+      ? requests.find((q) => q.kind === 'draft_pick' && code(q.team_id) === slot.ownerId)
+      : undefined;
+    draftStep(advanceDraft(state, { onClock: { choice: choice?.player_id ?? null }, lists: lists() }));
+    for (const q of requests.filter((x) => x.kind === 'draft_pick'))
+      offseasonResults.push({
+        id: q.id,
+        status: q === choice && slot?.playerId === q.player_id ? 'done' : 'invalid',
+      });
+  } else if (stage === 'options') {
+    const pending = new Map(pendingTeamOptions(state).map((c) => [c.playerId, c.teamId]));
+    const asked = requests.filter((q) => q.kind === 'option' && pending.get(q.player_id) === code(q.team_id));
+    const decisions = new Map<string, OptionDecision>(
+      asked.map((q) => [q.player_id, q.payload.exercise === true ? 'exercise' : 'decline']),
     );
+    for (const [playerId, teamCode] of pending)
+      if (!decisions.has(playerId) && coachDecides(teamCode, ALERT_KINDS.teamOptions))
+        decisions.set(playerId, 'bot');
+    closeOptions(state, decisions);
+    for (const q of requests.filter((x) => x.kind === 'option'))
+      offseasonResults.push({ id: q.id, status: asked.includes(q) ? 'done' : 'invalid' });
+  } else if (stage === 'renewals') {
+    const mine = (q: { player_id: string; team_id: string }) =>
+      state.players.find((p) => p.id === q.player_id)?.teamId === code(q.team_id);
+    const renewals = requests.filter((q) => q.kind === 'renew' && mine(q));
+    const qualifyAsked = requests.filter((q) => q.kind === 'qualify' && mine(q));
     const decisions = new Map<string, RenewalDecision>();
+    for (const q of renewals) {
+      const salaries = (q.payload.salaries ?? []).map(Number);
+      if (salaries.length)
+        decisions.set(q.player_id, { salaries, options: contractOptions(q.payload.options) });
+    }
+    const qualify = new Set(qualifyAsked.filter((q) => q.payload.qualify !== false).map((q) => q.player_id));
     for (const p of expiringPlayers(state)) {
       const team = state.teams.find((t) => t.id === p.teamId);
-      if (!team?.human) continue;
-      const salaries = agreed.get(p.id);
-      if (salaries?.length) decisions.set(p.id, { salaries });
-      else {
-        // Senza risposta: con l'allenatore decide la logica del bot, altrimenti il giocatore se ne va
-        const open = alerts.some(
-          (a) => a.kind === ALERT_KINDS.renewals && a.team_id === uuid(team.id) && a.status === 'open',
-        );
-        decisions.set(p.id, team.coach && open ? 'bot' : 'release');
-      }
+      if (!team?.human || decisions.has(p.id)) continue;
+      // Senza risposta: con l'allenatore decide la logica del bot (anche la qualifica), altrimenti il giocatore se ne
+      // va, con la qualifica se il manager l'ha fatta
+      decisions.set(
+        p.id,
+        !qualifyAsked.some((q) => q.player_id === p.id) && coachDecides(team.id, ALERT_KINDS.renewals)
+          ? 'bot'
+          : 'release',
+      );
     }
-    const result = closeRenewals(state, decisions);
-    for (const [playerId, id] of asked)
-      renewalResults.push({ id, status: result.renewed.includes(playerId) ? 'done' : 'invalid' });
+    const result = closeRenewals(state, decisions, qualify);
+    for (const q of requests.filter((x) => x.kind === 'renew'))
+      offseasonResults.push({ id: q.id, status: result.renewed.includes(q.player_id) ? 'done' : 'invalid' });
+    for (const q of requests.filter((x) => x.kind === 'qualify'))
+      offseasonResults.push({
+        id: q.id,
+        status:
+          qualifyAsked.includes(q) &&
+          (q.payload.qualify !== false) === result.restricted.includes(q.player_id)
+            ? 'done'
+            : 'invalid',
+      });
+  } else if (faRound !== null) {
+    // Ultimo turno: gli RFA che non hanno firmato firmano la qualifica (chi aspetta un pareggio lo decide in preparazione)
+    if (faRound === FREE_AGENCY_ROUNDS - 1) signQualifyingOffers(state, null);
   } else if (stage === 'preparation') {
-    startNewSeason(state);
+    rosterFixes = startNewSeason(state);
     newSeason = true;
   }
   const ps = state.postseason as PostseasonState | null;
@@ -302,14 +392,33 @@ export function serverTurn(
   const seasonOver = regular && state.phase !== 'regular';
   // Il giorno del turno che si apre: il prossimo giorno con partite (il motore lo mette in state.day); in offseason
   // non c'è
-  const next: { number: number; kind: string; stage?: OffseasonStage; day?: number } = newSeason
+  // Nel draft si resta in "draft" finché c'è una chiamata di un manager, con la chiamata e la squadra del turno
+  const draftTurn = (slot: DraftSlotState) => ({
+    number: turn + 1,
+    kind: 'offseason',
+    stage: 'draft' as OffseasonStage,
+    draft_pick: slot.pick,
+    draft_team_id: uuid(slot.ownerId),
+  });
+  const next: {
+    number: number;
+    kind: string;
+    stage?: OffseasonStage;
+    day?: number;
+    draft_pick?: number;
+    draft_team_id?: string;
+  } = newSeason
     ? { number: 0, kind: 'regular', day: state.day }
     : offseason
-      ? { number: turn + 1, kind: 'offseason', stage: nextStage(stage as OffseasonStage) as OffseasonStage }
+      ? stage === 'draft' && onClock
+        ? draftTurn(onClock)
+        : { number: turn + 1, kind: 'offseason', stage: nextStage(stage as OffseasonStage) as OffseasonStage }
       : state.phase === 'regular'
         ? { number: state.turn, kind: 'regular', day: state.day }
         : state.phase === 'offseason'
-          ? { number: turn + 1, kind: 'offseason', stage: 'draft' }
+          ? onClock
+            ? draftTurn(onClock)
+            : { number: turn + 1, kind: 'offseason', stage: 'options' }
           : {
               number: seasonOver ? regularTurns(state.schedule) : turn + 1,
               kind: ps?.stage === 'playoffs' ? 'playoffs' : 'play-in',
@@ -335,17 +444,81 @@ export function serverTurn(
   if (next.kind === 'offseason' && next.stage) {
     const fa = freeAgencyRoundOf(next.stage);
     for (const team of humans) {
-      const alert = (kind: string, payload: Record<string, unknown>) =>
-        newAlerts.push({ team_id: uuid(team), kind, blocking: true, payload, deadline: null });
+      const alert = (kind: string, payload: Record<string, unknown>, blocking = true) =>
+        newAlerts.push({ team_id: uuid(team), kind, blocking, payload, deadline: null });
       if (next.stage === 'draft') {
-        const picks = (state.offseason?.slots ?? []).filter((s) => s.ownerId === team).map((s) => s.pick);
-        if (picks.length) alert(ALERT_KINDS.draft, { picks, draft_year: state.offseason?.draftYear });
+        // Solo chi deve scegliere in questo turno
+        const slot = onClock as DraftSlotState | null;
+        if (slot?.ownerId === team)
+          alert(ALERT_KINDS.draft, {
+            pick: slot.pick,
+            round: slot.round,
+            number: slot.number,
+            draft_year: state.offseason?.draftYear,
+          });
+      } else if (next.stage === 'options') {
+        const n = pendingTeamOptions(state, team).length;
+        if (n) alert(ALERT_KINDS.teamOptions, { players: n });
       } else if (next.stage === 'renewals') {
-        const n = expiringPlayers(state, team).length;
-        if (n) alert(ALERT_KINDS.renewals, { players: n });
-      } else if (fa !== null) alert(ALERT_KINDS.freeAgency, { round: fa + 1 });
-      else alert(ALERT_KINDS.preparation, {});
+        const expiring = expiringPlayers(state, team);
+        const restricted = expiring.filter((p) => {
+          const c = contractOf(state, p.id);
+          return c !== undefined && restrictedEligible(p, c);
+        }).length;
+        if (expiring.length) alert(ALERT_KINDS.renewals, { players: expiring.length, restricted });
+      } else if (fa === 0 || fa === FA_MORATORIUM_ROUNDS) {
+        // Informativo: la free agency comincia con le sole offerte; dal 6° turno si firma
+        alert(
+          ALERT_KINDS.freeAgency,
+          { round: fa + 1, rounds: FREE_AGENCY_ROUNDS, signing_from: FA_MORATORIUM_ROUNDS + 1 },
+          false,
+        );
+      } else if (next.stage === 'preparation') {
+        const issues = rosterIssues(state, team);
+        if (issues.cut || issues.sign || issues.cutTwoWay)
+          alert(ALERT_KINDS.preparation, {
+            cut: issues.cut,
+            sign: issues.sign,
+            cut_two_way: issues.cutTwoWay,
+            standard: issues.standard,
+            two_way: issues.twoWay,
+          });
+      }
     }
+  }
+  // Offerte scelte da un RFA in questo turno: la sua squadra, se è umana, decide nel turno dopo se pareggiarle (quelle
+  // dei turni prima sono già state decise da runMarket)
+  for (const sheet of state.offerSheets ?? []) {
+    if (!humans.has(sheet.rightsTeamId)) continue;
+    const p = state.players.find((x) => x.id === sheet.playerId);
+    newAlerts.push({
+      team_id: uuid(sheet.rightsTeamId),
+      kind: ALERT_KINDS.offerSheet,
+      blocking: true,
+      payload: {
+        player_id: sheet.playerId,
+        player: p ? `${p.firstName} ${p.lastName}` : '',
+        team_id: uuid(sheet.teamId),
+        team: sheet.teamId,
+        salaries: sheet.salaries.map(Math.round),
+      },
+      deadline: null,
+    });
+  }
+  // Rose che il server ha dovuto sistemare a inizio stagione
+  for (const fix of rosterFixes) {
+    if (!humans.has(fix.teamId)) continue;
+    const parts = [
+      ...(fix.released.length ? [`tagliati ${fix.released.join(', ')}`] : []),
+      ...(fix.signed.length ? [`firmati al minimo ${fix.signed.join(', ')}`] : []),
+    ];
+    newAlerts.push({
+      team_id: uuid(fix.teamId),
+      kind: ALERT_KINDS.market,
+      blocking: false,
+      payload: { text: `La rosa non era nei limiti: il server l'ha sistemata (${parts.join('; ')}).` },
+      deadline: null,
+    });
   }
   for (const n of market.notes) {
     if (!humans.has(n.teamId)) continue;
@@ -525,6 +698,7 @@ export function serverTurn(
       salaries: c.salaries,
       options: c.options,
       guaranteed: c.guaranteed,
+      last_salary: c.lastSalary ?? null,
     }));
   const kept = new Set(state.contracts.map((c) => c.playerId));
   const contractsRemoved = before.contracts.map((c) => c.playerId).filter((id) => !kept.has(id));
@@ -838,8 +1012,23 @@ export function serverTurn(
   if (coachExpired.length) payload.coach_expired = coachExpired;
   if (seriesRows.length) payload.playoff_series = seriesRows;
   if (market.trades.length) payload.trades = market.trades;
-  if (market.bids.length) payload.bids = market.bids;
-  const rosterRequests = [...market.requests, ...renewalResults].filter((r) => !coachRequestIds.has(r.id));
+  // Le offerte che restano sul tavolo non cambiano
+  const bids = market.bids.filter((b) => b.status !== 'pending');
+  if (bids.length) payload.bids = bids;
+  if (JSON.stringify(before.restricted ?? []) !== JSON.stringify(state.restricted ?? []))
+    payload.restricted = (state.restricted ?? []).map((r) => ({
+      player_id: r.playerId,
+      team_id: uuid(r.teamId),
+      qualifying_offer: Math.round(r.qualifyingOffer),
+    }));
+  if (JSON.stringify(before.offerSheets ?? []) !== JSON.stringify(state.offerSheets ?? []))
+    payload.offer_sheets = (state.offerSheets ?? []).map((x) => ({
+      player_id: x.playerId,
+      team_id: uuid(x.teamId),
+      rights_team_id: uuid(x.rightsTeamId),
+      salaries: x.salaries.map(Math.round),
+    }));
+  const rosterRequests = [...market.requests, ...offseasonResults].filter((r) => !coachRequestIds.has(r.id));
   if (rosterRequests.length) payload.requests = rosterRequests;
   const coachRequests = market.requests.filter((r) => coachRequestIds.has(r.id));
   if (coachRequests.length) payload.coach_requests = coachRequests;
@@ -922,6 +1111,12 @@ function playerRow(
     season_stats: p.stats,
     retired,
   };
+}
+
+/** Opzioni salvate in una richiesta di rinnovo -> opzioni del motore. */
+function contractOptions(x: unknown): ContractOption[] | undefined {
+  if (!Array.isArray(x)) return undefined;
+  return x.map((o) => (o === 'player' || o === 'team' ? o : null));
 }
 
 /** Proposta di scambio salvata -> scambio del motore (A = chi propone, B = chi riceve). */

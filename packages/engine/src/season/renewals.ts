@@ -4,7 +4,7 @@
 // davvero resta nascosto: tra l'85 e il 100% della richiesta, meno con il morale alto e un buon carattere. Anni
 // diversi da quelli che vuole valgono meno per lui, l'opzione del giocatore di più, quella della squadra di meno.
 // Un'offerta sotto l'80% della richiesta gli toglie un po' di morale; dopo 3 rifiuti la trattativa si chiude e resta
-// solo la sua ultima controproposta. Tutto senza caso: la stessa offerta ha sempre la stessa risposta, così la
+// solo la sua ultima controproposta. Una controproposta resta valida anche se poi il morale scende. Tutto senza caso: la stessa offerta ha sempre la stessa risposta, così la
 // funzione del mercato risponde subito e la chiusura del turno non deve rifare nulla.
 import type { ContractOption } from '../types.ts';
 import { salaryRun } from './finance.ts';
@@ -95,11 +95,11 @@ export function renewalReply(
 ): RenewalReply {
   if (p.morale < limits.minMorale) return { kind: 'refuse' };
   const worth = offerWorth(offer, ask.years);
+  // La sua ultima controproposta resta valida, anche se nel frattempo il morale è sceso: offrirla (o di più) basta
+  if (talk.counter && worth >= offerWorth(talk.counter, ask.years) - 1) return { kind: 'accept' };
   // Trattativa chiusa: vale solo la sua ultima controproposta
-  if (talk.refusals >= RENEWAL_ATTEMPTS && talk.counter) {
-    if (worth >= offerWorth(talk.counter, ask.years) - 1) return { kind: 'accept' };
+  if (talk.refusals >= RENEWAL_ATTEMPTS && talk.counter)
     return { kind: 'final', counter: talk.counter, lowball: false };
-  }
   const floor = ask.salary * renewalFloorShare(p);
   if (worth >= floor) return { kind: 'accept' };
   const lowball = worth < LOWBALL_SHARE * ask.salary;

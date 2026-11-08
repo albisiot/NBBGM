@@ -400,7 +400,7 @@ describe('notifiche sul database', () => {
     const payload = JSON.parse(await annaPhone.decrypt(phone!.body)) as PushPayload;
     expect(payload).toMatchObject({
       title: 'Lega di prova',
-      body: 'Rinnovi: decidi chi tenere tra i giocatori in scadenza.',
+      body: 'Rinnovi: tratta con i giocatori in scadenza e decidi le offerte di qualifica.',
       url: `./#/lega/${LEAGUE}`,
       tag: `nbbgm-${LEAGUE}`,
     });

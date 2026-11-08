@@ -277,6 +277,19 @@ describe('trattativa dei rinnovi', () => {
     );
   });
 
+  it('la controproposta resta valida anche se il morale scende dopo un’offerta offensiva', () => {
+    const p = player(100, 0);
+    const reply = renewalReply(ask, p, { ...ask, salary: 10_000_000 }, start, limits);
+    if (reply.kind !== 'counter') throw new Error(reply.kind);
+    expect(reply.counter.salary).toBe(18_000_000);
+    // Il morale scende a 60: la soglia sale al 98% della richiesta, ma la controproposta (90%) vale ancora
+    const lower = player(60, 0);
+    expect(renewalReply(ask, lower, reply.counter, start, limits).kind).toBe('counter');
+    expect(
+      renewalReply(ask, lower, reply.counter, { refusals: 1, counter: reply.counter }, limits).kind,
+    ).toBe('accept');
+  });
+
   it('dopo 3 rifiuti resta solo l’ultima controproposta', () => {
     const p = player(60, 20);
     let talk: RenewalTalk = start;

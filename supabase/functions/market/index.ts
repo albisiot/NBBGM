@@ -3,7 +3,7 @@
 // controlli, circa un quinto di league_state), controlla l'azione con il motore (checkMarketAction) e la scrive con
 // market_write, che la accetta solo a turno aperto. Si esegue tutto alla chiusura del turno.
 //
-// POST { league_id, action }  ->  { id }
+// POST { league_id, action }  ->  { id, reply? } (reply: la risposta del giocatore a un'offerta di rinnovo)
 import { createClient } from 'npm:@supabase/supabase-js@2.118.0';
 import { actionPlayer, checkMarketAction, MarketError, type MarketAction } from '../_shared/market.ts';
 import type { LeagueStateRows } from '../_shared/state.ts';
@@ -30,7 +30,7 @@ function serverKey(): string {
 
 // Errori del database che il manager deve leggere così come sono
 const USER_ERRORS =
-  /turno è già in chiusura|non trovata|già decisa|già chiusa|Niente da cambiare|Squadra non|proposte a questa squadra|Allenatore non/;
+  /turno è già in chiusura|non trovata|già decisa|già chiusa|Niente da cambiare|Squadra non|proposte a questa squadra|Allenatore non|non è della tua squadra/;
 
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: CORS });
@@ -69,7 +69,8 @@ Deno.serve(async (req) => {
         return json({ error: 'Richiesta già fatta in questo turno' }, 409);
       throw new Error(`Scrittura: ${writeError.message}`);
     }
-    return json(data);
+    // Nella trattativa di un rinnovo, la risposta del giocatore
+    return json(checked.reply ? { ...(data as object), reply: checked.reply } : data);
   } catch (e) {
     if (e instanceof MarketError) return json({ error: e.message }, 400);
     console.error(e);

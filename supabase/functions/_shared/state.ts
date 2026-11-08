@@ -60,10 +60,13 @@ export interface LeagueStateRows {
     state: string;
     seed?: string | null;
     close_reason?: string | null;
-    /** Turno di offseason: draft, renewals, fa1-fa4, preparation. */
+    /** Turno di offseason: draft, options, renewals, fa1-fa15, preparation. */
     stage?: string | null;
     /** Giorno della stagione del turno (giorni dall'apertura). */
     day?: number | null;
+    /** Draft dal vivo: la chiamata da fare in questo turno e la squadra che sceglie. */
+    draft_pick?: number | null;
+    draft_team_id?: string | null;
   } | null;
   teams: {
     id: string;
@@ -101,6 +104,7 @@ export interface LeagueStateRows {
     years_in_league: number | null;
     ratings: Record<string, number>;
     tendencies: Record<string, number>;
+    /** In market_state solo per il giocatore dell'azione. */
     hidden: Record<string, number>;
     energy: Num;
     morale: Num;
@@ -115,6 +119,8 @@ export interface LeagueStateRows {
     salaries: Num[];
     options: (string | null)[];
     guaranteed: Num | null;
+    /** Offseason: ultimo stipendio di chi è in scadenza o ha l'opzione della squadra da decidere. */
+    last_salary?: Num | null;
   }[];
   dead_money: { team_id: string; player_name: string; salaries: Num[] }[];
   injuries: { player_id: string; body_part: string; severity: string; games_remaining: number }[];
@@ -184,13 +190,22 @@ export interface LeagueStateRows {
   trade_offers?: TradeOfferRow[];
   /** Offerte agli svincolati del turno. */
   bids?: { id: string; team_id: string; player_id: string; salaries: Num[] }[];
-  /** Tagli e rinnovi chiesti nel turno. */
+  /**
+   * Richieste del turno: tagli, rinnovi (stipendi e opzioni concordati), scelta al draft, opzioni della squadra
+   * (exercise), offerte di qualifica (qualify) e pareggi degli RFA (match).
+   */
   requests?: {
     id: string;
     team_id: string;
     player_id: string;
-    kind: 'release' | 'renew';
-    payload: { salaries?: Num[] };
+    kind: 'release' | 'renew' | 'draft_pick' | 'option' | 'qualify' | 'match';
+    payload: {
+      salaries?: Num[];
+      options?: (string | null)[];
+      exercise?: boolean;
+      qualify?: boolean;
+      match?: boolean;
+    };
   }[];
   /** Tagli eseguiti nei turni della stagione corrente: chi ha tagliato non rifirma (LeagueState.releases). */
   releases?: { player_id: string; team_id: string }[];
@@ -214,6 +229,17 @@ export interface LeagueStateRows {
   coach_buyouts?: { id?: string; team_id: string; coach_id: string; coach_name: string; salaries: Num[] }[];
   /** Cambi di allenatore chiesti nel turno, in attesa. */
   coach_requests?: { id: string; team_id: string; coach_id: string }[];
+  /** RFA: squadra con i diritti e offerta di qualifica. */
+  restricted?: { player_id: string; team_id: string; qualifying_offer: Num }[];
+  /** Offerte scelte da un RFA, in attesa del pareggio della sua squadra. */
+  offer_sheets?: { player_id: string; team_id: string; rights_team_id: string; salaries: Num[] }[];
+  /** Trattative dei rinnovi della stagione (in market_state solo quella del giocatore dell'azione). */
+  renewal_talks?: {
+    player_id: string;
+    team_id: string;
+    refusals: number;
+    counter: { salary: number; years: number; option: 'player' | 'team' | null } | null;
+  }[];
 }
 
 export interface CoachRow {
@@ -409,6 +435,7 @@ export function leagueStateFromRows(rows: LeagueStateRows): { state: LeagueState
       salaries: c.salaries.map(num),
       options: c.options.map((o) => (o === 'player' || o === 'team' ? o : null) as ContractOption),
       guaranteed: c.guaranteed === null ? null : num(c.guaranteed),
+      ...(c.last_salary === null || c.last_salary === undefined ? {} : { lastSalary: num(c.last_salary) }),
     })),
     deadMoney: r.dead_money.map((d) => ({
       teamId: codeOf(d.team_id),
@@ -467,6 +494,21 @@ export function leagueStateFromRows(rows: LeagueStateRows): { state: LeagueState
         }
       : {}),
     releases: (r.releases ?? []).map((x) => ({ playerId: x.player_id, teamId: codeOf(x.team_id) })),
+    restricted: [...(r.restricted ?? [])]
+      .sort((a, b) => byText(a.player_id, b.player_id))
+      .map((x) => ({
+        playerId: x.player_id,
+        teamId: codeOf(x.team_id),
+        qualifyingOffer: num(x.qualifying_offer),
+      })),
+    offerSheets: [...(r.offer_sheets ?? [])]
+      .sort((a, b) => byText(a.player_id, b.player_id))
+      .map((x) => ({
+        playerId: x.player_id,
+        teamId: codeOf(x.team_id),
+        rightsTeamId: codeOf(x.rights_team_id),
+        salaries: x.salaries.map(num),
+      })),
     offseason: r.draft_order?.length
       ? {
           draftYear: (r.draft_order[0] as { draft_year: number }).draft_year,

@@ -63,12 +63,15 @@ export interface PushMessage {
 }
 
 const STAGE: Record<string, string> = {
-  draft: 'draft',
+  draft: 'draft, tocca a te',
+  options: 'opzioni della squadra',
   renewals: 'rinnovi',
-  fa1: 'free agency, turno 1 di 4',
-  fa2: 'free agency, turno 2 di 4',
-  fa3: 'free agency, turno 3 di 4',
-  fa4: 'free agency, turno 4 di 4',
+  ...Object.fromEntries(
+    Array.from({ length: 15 }, (_, i) => [
+      `fa${i + 1}`,
+      `free agency, turno ${i + 1} di 15${i < 5 ? ' (solo offerte)' : ''}`,
+    ]),
+  ),
   preparation: 'preparazione della stagione',
 };
 
@@ -91,10 +94,12 @@ export function roundText(
 const DECISION: Record<string, string> = {
   trade_offer: 'Hai ricevuto una proposta di scambio.',
   roster_minimum: 'La rosa è sotto il minimo: rispondi all’avviso.',
-  draft_pick: 'Draft: ordina i tuoi preferiti.',
-  renewals: 'Rinnovi: decidi chi tenere tra i giocatori in scadenza.',
+  draft_pick: 'Draft: tocca a te scegliere.',
+  team_options: 'Opzioni: decidi se esercitare le opzioni della squadra.',
+  renewals: 'Rinnovi: tratta con i giocatori in scadenza e decidi le offerte di qualifica.',
+  offer_sheet: 'Un tuo RFA ha scelto un’altra squadra: decidi se pareggiare l’offerta.',
   free_agency: 'Free agency: fai le tue offerte agli svincolati.',
-  preparation: 'Prepara rosa, quintetto e tattiche per la stagione nuova.',
+  preparation: 'Preparazione: sistema la rosa per la stagione nuova.',
 };
 
 /** Testo e pagina di una notifica della coda. */
@@ -109,7 +114,12 @@ export function notificationText(r: OutboxRow): { body: string; url: string } {
     case 'decision':
       return {
         body: DECISION[r.detail ?? ''] ?? 'C’è una decisione da prendere.',
-        url: r.detail === 'trade_offer' ? `${league}/mercato?tab=scambi` : league,
+        url:
+          r.detail === 'trade_offer'
+            ? `${league}/mercato?tab=scambi`
+            : r.detail === 'draft_pick'
+              ? `${league}/draft-annuale`
+              : league,
       };
     case 'draft':
       return {
