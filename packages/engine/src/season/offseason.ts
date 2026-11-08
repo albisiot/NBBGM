@@ -210,6 +210,7 @@ export function runAnnualDraft(state: LeagueState, lists: ReadonlyMap<string, re
       list.map((id) => byId.get(id)).find((p) => p !== undefined) ??
       botDraftChoice(state, slot.ownerId, available, rng);
     choice.prospect = null;
+    choice.draft = { year: off.draftYear, round: slot.round, pick: slot.pick };
     slot.playerId = choice.id;
     const salaries =
       slot.round === 1
@@ -236,7 +237,12 @@ export function runAnnualDraft(state: LeagueState, lists: ReadonlyMap<string, re
       text: `Draft ${off.draftYear}, ${slot.round}° giro n. ${slot.number}: ${slot.ownerId} sceglie ${choice.firstName} ${choice.lastName}`,
     });
   }
-  for (const p of state.players) if (p.prospect === off.draftYear) p.prospect = null;
+  // I non scelti diventano svincolati: "non scelto" in quel draft
+  for (const p of state.players) {
+    if (p.prospect !== off.draftYear) continue;
+    p.prospect = null;
+    p.draft = { year: off.draftYear, round: null, pick: null };
+  }
   normalizeTalent(state.players, state.talentReference);
 }
 

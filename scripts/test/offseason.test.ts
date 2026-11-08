@@ -198,6 +198,21 @@ describe('dalla finale al draft', () => {
       [LEAGUE],
     );
     expect(left[0]!.n).toBe(0);
+    // Ogni scelto ha anno, giro e scelta assoluta; i prospetti non scelti sono "non scelti" nel draft 2027
+    const drafts = await q<{ id: string; draft: unknown }>(
+      `select id, draft from public.players where league_id = $1 and (draft ->> 'year')::int = 2027`,
+      [LEAGUE],
+    );
+    for (const o of order) {
+      expect(drafts.find((d) => d.id === o.player_id)?.draft).toEqual({
+        year: 2027,
+        round: o.round,
+        pick: o.pick_no,
+      });
+    }
+    const undrafted = drafts.filter((d) => !order.some((o) => o.player_id === d.id));
+    expect(undrafted.length).toBeGreaterThan(0);
+    for (const d of undrafted) expect(d.draft).toEqual({ year: 2027, round: null, pick: null });
     // Contratti scalati di un anno; chi scadeva è "in scadenza" (senza stipendi) in attesa dei rinnovi
     const after = await q<{ salaries: string[] }>(
       'select salaries from public.contracts where player_id = $1',

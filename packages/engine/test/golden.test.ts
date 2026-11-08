@@ -140,7 +140,9 @@ const EXPECTED = {
   // Un turno è un giorno (calendario NBA a giorni, recupero per notti, playoff a giorni): cambiano turni e
   // stagione; partite, impostazioni automatiche e bot restano identici
   turns: 'cfcaea4cdfd29286',
-  season: 'c233ef3918019d69',
+  // Il draft annuale scrive anno, giro e scelta dei prospetti (Player.draft): cambia solo la stagione, e senza il
+  // campo draft l'impronta è quella di prima (c233ef3918019d69)
+  season: 'da8a2f580f8fc0e0',
 };
 
 describe('golden: il motore gioca sempre le stesse partite', () => {

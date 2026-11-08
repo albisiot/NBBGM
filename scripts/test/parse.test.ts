@@ -210,6 +210,79 @@ describe('parseLeague', () => {
     expect(league.players[0]?.yearsInLeague).toBe(11);
   });
 
+  describe('foglio DRAFT', () => {
+    const DRAFT_HEADER = ['Squadra NBA', 'Nome', 'Cognome', 'Anno draft', 'Giro', 'Scelta', 'Scelto da'];
+    const players = [
+      playerRow('Boston Celtics', 'Luca', 'Bianchi'),
+      playerRow('Fuori NBA', 'Ugo', 'Neri'),
+      playerRow('Free Agent', 'Paolo', 'Verdi'),
+    ];
+    const withDraft = (rows: Row[]): ParseInput => ({
+      ...input(players, [contract('Boston Celtics', 'Luca', 'Bianchi')]),
+      draftHeader: DRAFT_HEADER,
+      draftRows: rows,
+    });
+
+    it('legge anno, giro e scelta, "non scelto" e le righe mancanti, per nome senza accenti', () => {
+      const { league, errors, warnings } = parseLeague(
+        withDraft([
+          ['Boston Celtics', 'Luca', 'Bianchi', 2018, 1, 3, 'ATL'],
+          ['Svincolato', 'Ugo', 'Néri', null, 'Non scelto', null, null],
+          ['Svincolato', 'Mario', 'Rossi', 2010, '2', 45, 'BOS'],
+        ]),
+      );
+      expect(errors).toEqual([]);
+      expect(league.players.map((p) => [p.id, p.draft])).toEqual([
+        ['luca-bianchi', { year: 2018, round: 1, pick: 3 }],
+        ['ugo-neri', { year: null, round: null, pick: null }],
+        ['paolo-verdi', null],
+      ]);
+      expect(warnings).toEqual([
+        'GIOCATORI riga 5 (Paolo Verdi): nessuna riga nel foglio DRAFT, draft non noto',
+        'DRAFT riga 4 (Mario Rossi): nessun giocatore con questo nome nel foglio GIOCATORI',
+      ]);
+    });
+
+    it('senza il foglio il draft resta non noto, senza avvisi', () => {
+      const { league, warnings } = parseLeague(
+        input(players, [contract('Boston Celtics', 'Luca', 'Bianchi')]),
+      );
+      expect(league.players.every((p) => p.draft === null)).toBe(true);
+      expect(warnings).toEqual([]);
+    });
+
+    it('rifiuta righe incoerenti', () => {
+      const { errors } = parseLeague(
+        withDraft([
+          ['Boston Celtics', 'Luca', 'Bianchi', 2018, 3, 3, null],
+          ['Svincolato', 'Ugo', 'Neri', 2019, 'non scelto', 40, null],
+          ['Svincolato', 'Paolo', 'Verdi', 2020, 1, 61, null],
+          ['Svincolato', 'Paolo', 'Verdi', 2020, 1, 5, null],
+          ['Svincolato', 'Gino', 'Gialli', 2020.5, 1, 5, null],
+          ['Svincolato', 'Leo', 'Blu', null, 1, 5, null],
+          ['Svincolato', 'Ivo', 'Viola', 2021, null, 5, null],
+        ]),
+      );
+      expect(errors).toEqual([
+        'DRAFT riga 2 (Luca Bianchi): giro "3" non valido (1, 2 o "non scelto")',
+        'DRAFT riga 3 (Ugo Neri): "non scelto" con una scelta',
+        'DRAFT riga 4 (Paolo Verdi): scelta del draft 61 non valida',
+        "DRAFT riga 5 (Paolo Verdi): giocatore già presente in un'altra riga",
+        'DRAFT riga 6 (Gino Gialli): anno e scelta devono essere numeri interi',
+        'DRAFT riga 7 (Leo Blu): giro 1 senza anno o scelta',
+        'DRAFT riga 8 (Ivo Viola): manca il giro (1, 2 o "non scelto")',
+      ]);
+    });
+
+    it('rifiuta un foglio senza una colonna richiesta', () => {
+      const { errors } = parseLeague({
+        ...withDraft([]),
+        draftHeader: DRAFT_HEADER.filter((h) => h !== 'Scelta'),
+      });
+      expect(errors).toEqual(['Foglio DRAFT: colonna "Scelta" mancante']);
+    });
+  });
+
   it('slug toglie accenti e simboli', () => {
     expect(slug('Nikola Jokić')).toBe('nikola-jokic');
     expect(slug("Nae'Qwan Tomlin")).toBe('nae-qwan-tomlin');

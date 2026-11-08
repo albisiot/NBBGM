@@ -457,10 +457,15 @@ export function serverTurn(
   const fullRows: Row[] = [];
   const hiddenRows: Row[] = [];
   const prospects: Row[] = [];
+  // Draft annuale: anno, giro e scelta dei prospetti (lo stato letto dal database non ha il draft dei giocatori:
+  // qui arriva solo quello che il motore ha appena deciso)
+  const drafts: Row[] = [];
   const card = (p: PlayerState) =>
     JSON.stringify([p.age, p.ratings, p.tendencies, p.yearsInLeague, p.scoutedPotential]);
   for (const p of state.players) {
     const b = beforePlayer.get(p.id) as PlayerState | undefined;
+    if (p.draft && JSON.stringify(p.draft) !== JSON.stringify(b?.draft ?? null))
+      drafts.push({ id: p.id, draft: p.draft });
     if (!b) {
       if (!offseason && !lottery) throw new Error(`Giocatore nuovo durante la stagione: ${p.id}`);
       fullRows.push(playerRow(p, rawPlayer.get(p.id)?.slug, uuid, false));
@@ -706,6 +711,7 @@ export function serverTurn(
   if (fullRows.length) payload.players = fullRows;
   if (hiddenRows.length) payload.player_hidden = hiddenRows;
   if (prospects.length) payload.draft_prospects = prospects;
+  if (drafts.length) payload.player_drafts = drafts;
   if (
     state.offseason &&
     JSON.stringify(state.offseason.slots) !== JSON.stringify(before.offseason?.slots ?? null)

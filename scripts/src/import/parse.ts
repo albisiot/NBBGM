@@ -5,10 +5,12 @@ import {
   TENDENCY_FIELDS,
   teamByFullName,
   TEAMS,
+  draftProblem,
   type Contract,
   type ContractOption,
   type ContractType,
   type DeadMoney,
+  type DraftInfo,
   type Hidden,
   type LeagueData,
   type Player,
@@ -30,12 +32,17 @@ export interface ParseInput {
   contractRows: Row[];
   deadHeader: string[];
   deadRows: Row[];
+  /** Foglio DRAFT del file del draft; senza, il draft di tutti resta non noto. */
+  draftHeader?: string[];
+  draftRows?: Row[];
   season: string;
 }
 
 export interface ParseResult {
   league: LeagueData;
   errors: string[];
+  /** Avvisi che non fermano l'import (righe del draft che mancano o non servono). */
+  warnings: string[];
   /** Prezzo Dunkest per id, solo per il report di qualità. */
   dunkestPrice: Map<string, number>;
 }
@@ -89,8 +96,82 @@ function columns(header: string[], required: string[], sheet: string, errors: st
 
 const text = (v: Cell) => (v === null || v === undefined ? '' : String(v).trim());
 
+/** "non scelto" nella colonna Giro del foglio DRAFT. */
+const UNDRAFTED = 'non scelto';
+
+/**
+ * Foglio DRAFT: per nome e cognome (come gli id dei giocatori, senza accenti) anno, giro e scelta assoluta, oppure
+ * "non scelto" nella colonna Giro. Una riga senza Giro lascia il draft non noto.
+ */
+function readDrafts(
+  header: string[],
+  rows: Row[],
+  errors: string[],
+): Map<string, { draft: DraftInfo | null; where: string }> {
+  const dc = columns(header, ['Nome', 'Cognome', 'Anno draft', 'Giro', 'Scelta'], 'DRAFT', errors);
+  const out = new Map<string, { draft: DraftInfo | null; where: string }>();
+  if (errors.length) return out;
+  const seen = new Set<string>();
+  const get = (row: Row, name: string): Cell => row[dc.get(name) as number] ?? null;
+  const whole = (v: Cell): number | null | undefined => {
+    if (v === null || v === '') return null;
+    const n = typeof v === 'number' ? v : Number(String(v).trim());
+    return Number.isInteger(n) ? n : undefined;
+  };
+  rows.forEach((row, k) => {
+    const first = text(get(row, 'Nome'));
+    const last = text(get(row, 'Cognome'));
+    if (!first && !last) return;
+    const where = `DRAFT riga ${k + 2} (${first} ${last})`;
+    const key = slug(`${first} ${last}`);
+    if (seen.has(key)) {
+      errors.push(`${where}: giocatore già presente in un'altra riga`);
+      return;
+    }
+    seen.add(key);
+    const year = whole(get(row, 'Anno draft'));
+    const pick = whole(get(row, 'Scelta'));
+    const roundText = text(get(row, 'Giro')).toLowerCase();
+    if (year === undefined || pick === undefined) {
+      errors.push(`${where}: anno e scelta devono essere numeri interi`);
+      return;
+    }
+    let draft: DraftInfo | null;
+    if (roundText === '') {
+      if (year !== null || pick !== null) {
+        errors.push(`${where}: manca il giro (1, 2 o "${UNDRAFTED}")`);
+        return;
+      }
+      draft = null;
+    } else if (roundText === UNDRAFTED) {
+      if (pick !== null) {
+        errors.push(`${where}: "${UNDRAFTED}" con una scelta`);
+        return;
+      }
+      draft = { year, round: null, pick: null };
+    } else if (roundText === '1' || roundText === '2') {
+      if (year === null || pick === null) {
+        errors.push(`${where}: giro ${roundText} senza anno o scelta`);
+        return;
+      }
+      draft = { year, round: roundText === '1' ? 1 : 2, pick };
+    } else {
+      errors.push(`${where}: giro "${text(get(row, 'Giro'))}" non valido (1, 2 o "${UNDRAFTED}")`);
+      return;
+    }
+    const problem = draft ? draftProblem(draft) : null;
+    if (problem) {
+      errors.push(`${where}: ${problem}`);
+      return;
+    }
+    out.set(key, { draft, where });
+  });
+  return out;
+}
+
 export function parseLeague(input: ParseInput): ParseResult {
   const errors: string[] = [];
+  const warnings: string[] = [];
   const numericLabels = [...RATING_FIELDS, ...TENDENCY_FIELDS, ...HIDDEN_FIELDS].map((f) => f.label);
   const pc = columns(input.playerHeader, [...IDENTITY, ...numericLabels], 'GIOCATORI', errors);
   const wingspanLabel = WINGSPAN.find((w) => pc.has(w));
@@ -109,7 +190,9 @@ export function parseLeague(input: ParseInput): ParseResult {
     contracts: [],
     deadMoney: [],
   };
-  if (errors.length || !wingspanLabel) return { league: empty, errors, dunkestPrice: new Map() };
+  const drafts = input.draftHeader ? readDrafts(input.draftHeader, input.draftRows ?? [], errors) : null;
+  if (errors.length || !wingspanLabel) return { league: empty, errors, warnings, dunkestPrice: new Map() };
+  const usedDrafts = new Set<string>();
 
   const get = (row: Row, map: Map<string, number>, name: string): Cell =>
     row[map.get(name) as number] ?? null;
@@ -184,6 +267,11 @@ export function parseLeague(input: ParseInput): ParseResult {
     // Senza riga nei contratti (svincolati e giocatori fuori dalla NBA aggiunti dal v4) gli anni nella lega si
     // stimano dall'età, come nel generatore: decidono minimo e massimo dello stipendio
     const yearsInLeague = typeof yearsRaw === 'number' ? yearsRaw : crow ? null : Math.max(0, age - 20);
+    const nameKey = slug(`${first} ${last}`);
+    const draftRow = drafts?.get(nameKey);
+    if (drafts && !draftRow) warnings.push(`${where}: nessuna riga nel foglio DRAFT, draft non noto`);
+    else if (draftRow && draftRow.draft === null) warnings.push(`${draftRow.where}: draft non noto`);
+    if (draftRow) usedDrafts.add(nameKey);
     const player: Player & { teamId: string | null } = {
       id,
       firstName: first,
@@ -198,6 +286,7 @@ export function parseLeague(input: ParseInput): ParseResult {
       wingspanCm,
       weightKg,
       yearsInLeague,
+      draft: draftRow?.draft ?? null,
       ratings,
       tendencies,
       hidden,
@@ -265,9 +354,15 @@ export function parseLeague(input: ParseInput): ParseResult {
     });
   }
 
+  for (const [key, row] of drafts ?? []) {
+    if (!usedDrafts.has(key))
+      warnings.push(`${row.where}: nessun giocatore con questo nome nel foglio GIOCATORI`);
+  }
+
   return {
     league: { season: input.season, teams: [...TEAMS], players, contracts, deadMoney },
     errors,
+    warnings,
     dunkestPrice,
   };
 }

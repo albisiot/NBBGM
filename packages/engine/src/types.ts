@@ -30,6 +30,16 @@ export interface Injury {
   gamesRemaining: number;
 }
 
+/** Draft NBA di un giocatore: anno e, se è stato scelto, giro e scelta assoluta. */
+export interface DraftInfo {
+  /** Anno del draft (es. 2018 per il draft di giugno 2018); null per chi non è stato scelto e non ha un anno noto. */
+  year: number | null;
+  /** null: non scelto. */
+  round: 1 | 2 | null;
+  /** Scelta assoluta (1-60); null: non scelto. */
+  pick: number | null;
+}
+
 export interface Player {
   id: string;
   firstName: string;
@@ -45,6 +55,11 @@ export interface Player {
   wingspanCm: number;
   weightKg: number;
   yearsInLeague: number | null;
+  /**
+   * Draft NBA (giocatori reali dal file del draft, prospetti al draft annuale della lega). Assente o null: non noto
+   * (giocatori generati fuori dal draft). Il motore non lo usa: è una voce della scheda.
+   */
+  draft?: DraftInfo | null;
   ratings: Ratings;
   tendencies: Tendencies;
   /** Valori nascosti: non escono mai dal server. */

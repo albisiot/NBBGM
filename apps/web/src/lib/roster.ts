@@ -4,6 +4,7 @@ import {
   overall,
   setupFromSettings,
   validTactics,
+  type DraftInfo,
   type Hidden,
   type InjurySeverity,
   type Player,
@@ -54,6 +55,8 @@ type PlayerRow = {
   wingspan_cm: number | string;
   weight_kg: number | string;
   years_in_league: number | null;
+  /** Solo nella scheda del giocatore (playerCard). */
+  draft?: DraftInfo | null;
   ratings: Ratings;
   tendencies: Tendencies;
   energy: number | string;
@@ -91,6 +94,7 @@ async function withContractsAndInjuries(rows: PlayerRow[]): Promise<RosterPlayer
       wingspanCm: Number(r.wingspan_cm),
       weightKg: Number(r.weight_kg),
       yearsInLeague: r.years_in_league,
+      draft: r.draft ?? null,
       ratings: r.ratings,
       tendencies: r.tendencies,
       // I valori nascosti non arrivano al client: il motore qui serve solo per overall e Auto
@@ -261,12 +265,13 @@ export async function playersLite(ids: readonly string[]): Promise<Map<string, P
   );
 }
 
+/** Scheda di un giocatore: come la rosa, più il draft. */
 export async function playerCard(playerId: string): Promise<RosterPlayer | null> {
-  const { data, error } = await supabase
-    .from('players')
-    .select(PLAYER_COLUMNS)
-    .eq('id', playerId)
-    .maybeSingle();
+  const read = (columns: string) => supabase.from('players').select(columns).eq('id', playerId).maybeSingle();
+  let res = await read(`${PLAYER_COLUMNS}, draft`);
+  // Database non ancora aggiornato (l'app si pubblica insieme alle migrazioni): senza la colonna il draft è non noto
+  if (res.error?.code === '42703') res = await read(PLAYER_COLUMNS);
+  const { data, error } = res;
   if (error) throw error;
   if (!data) return null;
   return (await withContractsAndInjuries([data as unknown as PlayerRow]))[0] ?? null;

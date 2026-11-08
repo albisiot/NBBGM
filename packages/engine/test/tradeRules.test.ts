@@ -317,3 +317,27 @@ describe('draft annuale con liste lunghe', () => {
     expect(bosPicks).toBeGreaterThan(0);
   });
 });
+
+describe('draft dei giocatori', () => {
+  it('il draft annuale scrive anno, giro e scelta di chi è scelto, e "non scelto" con l’anno degli altri', () => {
+    const s = league('draft-giocatori');
+    while (s.phase === 'regular') playRegularTurn(s, quickGame);
+    while (s.phase === 'postseason') playPostseasonTurn(s, quickGame);
+    startOffseason(s, generatedDraftClass(new Rng('classe'), s.config.year + 1));
+    const year = s.offseason!.draftYear;
+    const prospects = new Set(s.players.filter((p) => p.prospect === year).map((p) => p.id));
+    const before = new Map(s.players.filter((p) => !prospects.has(p.id)).map((p) => [p.id, p.draft]));
+    expect(prospects.size).toBeGreaterThan(60);
+    runAnnualDraft(s, new Map());
+    const byId = new Map(s.players.map((p) => [p.id, p]));
+    for (const slot of s.offseason!.slots) {
+      expect(byId.get(slot.playerId!)!.draft).toEqual({ year, round: slot.round, pick: slot.pick });
+    }
+    const chosen = new Set(s.offseason!.slots.map((x) => x.playerId));
+    const left = [...prospects].filter((id) => !chosen.has(id));
+    expect(left.length).toBe(prospects.size - 60);
+    for (const id of left) expect(byId.get(id)!.draft).toEqual({ year, round: null, pick: null });
+    // Gli altri restano come erano
+    for (const [id, draft] of before) expect(byId.get(id)!.draft).toEqual(draft);
+  });
+});

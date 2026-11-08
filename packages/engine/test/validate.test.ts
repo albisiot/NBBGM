@@ -3,7 +3,7 @@ import { ARCHETYPE_PROFILES } from '../src/archetype-profiles.ts';
 import { generateLeague } from '../src/generator.ts';
 import { overall } from '../src/overall.ts';
 import { Rng } from '../src/rng.ts';
-import { validateLeague } from '../src/validate.ts';
+import { draftProblem, validateLeague } from '../src/validate.ts';
 
 const base = () => generateLeague(new Rng('validazione'), ARCHETYPE_PROFILES);
 
@@ -37,6 +37,21 @@ describe('validateLeague', () => {
       .filter((i) => i.level === 'warning')
       .map((i) => i.message);
     expect(warnings).toContain('Boston Celtics: 17 contratti standard, oltre il massimo di 15');
+  });
+
+  it('controlla il draft dei giocatori', () => {
+    expect(draftProblem({ year: 2018, round: 1, pick: 3 })).toBeNull();
+    expect(draftProblem({ year: null, round: null, pick: null })).toBeNull();
+    expect(draftProblem({ year: 2027, round: null, pick: null })).toBeNull();
+    expect(draftProblem({ year: 2018, round: 1, pick: null })).toBe('giro e scelta del draft vanno insieme');
+    expect(draftProblem({ year: 2018, round: 2, pick: 61 })).toBe('scelta del draft 61 non valida');
+    expect(draftProblem({ year: null, round: 2, pick: 40 })).toBe('scelta del draft senza anno');
+    expect(draftProblem({ year: 2018.5, round: 1, pick: 3 })).toBe('anno del draft 2018.5 non valido');
+    const league = base();
+    league.players[0]!.draft = { year: 2018, round: 1, pick: 0 };
+    expect(
+      validateLeague(league).some((i) => i.level === 'error' && i.message.includes('scelta del draft 0')),
+    ).toBe(true);
   });
 
   it('un giocatore migliore in tutto ha un overall più alto', () => {

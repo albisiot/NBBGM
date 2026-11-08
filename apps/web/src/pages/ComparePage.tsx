@@ -20,6 +20,7 @@ import {
 } from '../lib/compare.ts';
 import { leagueDetail, type LeagueTeam } from '../lib/leagues.ts';
 import { millions } from '../lib/market.ts';
+import { draftShort } from '../lib/playerDraft.ts';
 import { contractSummary } from '../lib/teams.ts';
 import { useAsync } from '../lib/useAsync.ts';
 
@@ -55,6 +56,7 @@ function lines(list: readonly Compared[], teams: Map<string, LeagueTeam>): { tit
         ),
         row('Età', (c) => num(c.player.age, `${c.player.age}`), null),
         row('Altezza', (c) => num(c.player.heightCm, `${Math.round(c.player.heightCm)} cm`)),
+        row('Draft', (c) => txt(draftShort(c.player.draft)), null),
         row('Overall', (c) => num(Math.round(overall(c.player)), `${Math.round(overall(c.player))}`)),
         row('Potenziale (stima)', (c) => num(c.scouting.potential, `${c.scouting.potential}`)),
         row('Costanza in attacco', (c) => txt(c.scouting.offensive_consistency ?? '—'), null),

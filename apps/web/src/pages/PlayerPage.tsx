@@ -47,6 +47,7 @@ import {
   type RosterRequest,
 } from '../lib/market.ts';
 import { contractEnd, gradeTone, LOW_ENERGY, LOW_MORALE, mln1 } from '../lib/marketView.ts';
+import { draftText } from '../lib/playerDraft.ts';
 import { playerCard, playerScouting, type RosterPlayer } from '../lib/roster.ts';
 import { useAsync } from '../lib/useAsync.ts';
 
@@ -227,6 +228,7 @@ export function PlayerPage() {
           <Leader label={<Muted>Mano</Muted>} value={p.hand === 'L' ? 'sinistra' : 'destra'} />
           <Leader label={<Muted>Nazionalità</Muted>} value={p.nationality || '—'} />
           <Leader label={<Muted>Anni nella lega</Muted>} value={p.yearsInLeague ?? '—'} />
+          <Leader label={<Muted>Draft</Muted>} value={draftText(p.draft)} />
         </div>
       </section>
 

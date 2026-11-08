@@ -13,6 +13,7 @@ import {
 import type {
   Contract,
   DeadMoney,
+  DraftInfo,
   DraftMode,
   Hidden,
   LeagueData,
@@ -56,6 +57,8 @@ export interface BasePlayerRow {
   wingspan_cm: number | string;
   weight_kg: number | string;
   years_in_league: number | null;
+  /** Draft NBA (null: non noto); manca nelle righe scritte prima della colonna. */
+  draft?: DraftInfo | null;
   ratings: Record<string, number>;
   tendencies: Record<string, number>;
   hidden: Record<string, number>;
@@ -114,6 +117,7 @@ export function baseRowsFromLeague(league: LeagueData, dataset = league.season):
       wingspan_cm: p.wingspanCm,
       weight_kg: p.weightKg,
       years_in_league: p.yearsInLeague,
+      draft: p.draft ?? null,
       ratings: p.ratings,
       tendencies: p.tendencies,
       hidden: p.hidden,
@@ -157,6 +161,7 @@ export function leagueFromBaseRows(rows: BaseRows, dataset = BASE_DATASET): Leag
       wingspanCm: num(p.wingspan_cm),
       weightKg: num(p.weight_kg),
       yearsInLeague: p.years_in_league,
+      draft: p.draft ?? null,
       ratings: p.ratings as Ratings,
       tendencies: p.tendencies as Tendencies,
       hidden: p.hidden as Hidden,
@@ -368,6 +373,7 @@ export function leaguePayload(state: LeagueState, o: LeaguePayloadOptions): Reco
       wingspan_cm: p.wingspanCm,
       weight_kg: p.weightKg,
       years_in_league: p.yearsInLeague,
+      draft: p.draft ?? null,
       ratings: p.ratings,
       tendencies: p.tendencies,
       energy: p.energy,

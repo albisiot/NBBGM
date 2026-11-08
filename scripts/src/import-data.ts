@@ -1,13 +1,14 @@
-// pnpm data:import [file giocatori] [file contratti] [--profili]
-// Legge i due Excel, controlla i dati e scrive in data/ la lega e il report di qualità.
+// pnpm data:import [file giocatori] [file contratti] [file draft] [--profili]
+// Legge gli Excel, controlla i dati e scrive in data/ la lega e il report di qualità. Il file del draft (anno, giro e
+// scelta di ogni giocatore) è facoltativo: senza, il draft di tutti resta non noto.
 // Con --profili aggiorna anche i profili degli archetipi usati dal generatore (solo medie, nessun nome). Di solito
 // restano quelli ricavati dal file v2: quelli dei dati 2K del v4, anche riportati sulla scala del v2, generano classi
 // del draft più deboli (overall medio 51,6 contro 54,5; l'1% migliore da 75 invece che da 81) e nelle simulazioni
 // di 10 stagioni le squadre in rosso salgono da circa 14 a 16 in media. Cambiarli cambia anche le classi del draft
 // delle leghe in corso e le impronte del test golden.
-import { mkdir, writeFile } from 'node:fs/promises';
+import { access, mkdir, writeFile } from 'node:fs/promises';
 import path from 'node:path';
-import { computeArchetypeProfiles, validateLeague } from '@nbbgm/engine';
+import { computeArchetypeProfiles, validateLeague, type Issue } from '@nbbgm/engine';
 import { openWorkbook, readSheet } from './import/excel.ts';
 import { parseLeague } from './import/parse.ts';
 import { qualityReport } from './import/report.ts';
@@ -20,14 +21,25 @@ const files = args.filter((a) => !a.startsWith('--'));
 const writeProfiles = args.includes('--profili');
 const playersFile = files[0] ?? path.join(ROOT, 'NBA_2026-27_valutazioni_v4_completo.xlsx');
 const contractsFile = files[1] ?? path.join(ROOT, 'NBA_2026-27_contratti.xlsx');
+const draftFile = files[2] ?? path.join(ROOT, 'NBA_2026-27_draft.xlsx');
+
+const exists = (file: string) =>
+  access(file).then(
+    () => true,
+    () => false,
+  );
 
 async function main() {
-  console.log(`Giocatori: ${playersFile}\nContratti: ${contractsFile}`);
+  const withDraft = await exists(draftFile);
+  console.log(
+    `Giocatori: ${playersFile}\nContratti: ${contractsFile}\nDraft: ${withDraft ? draftFile : 'nessun file, draft non noto'}`,
+  );
   const pw = await openWorkbook(playersFile);
   const cw = await openWorkbook(contractsFile);
   const players = readSheet(pw, 'GIOCATORI', 2);
   const contracts = readSheet(cw, 'CONTRATTI', 1);
   const dead = readSheet(cw, 'TAGLIATI', 1);
+  const draft = withDraft ? readSheet(await openWorkbook(draftFile), 'DRAFT', 1) : null;
 
   const parsed = parseLeague({
     playerHeader: players.header,
@@ -37,6 +49,8 @@ async function main() {
     contractRows: contracts.rows,
     deadHeader: dead.header,
     deadRows: dead.rows,
+    draftHeader: draft?.header,
+    draftRows: draft?.rows,
     season: SEASON,
   });
   const { errors, dunkestPrice } = parsed;
@@ -52,7 +66,10 @@ async function main() {
   const scaled = toReferenceScale(parsed.league.players);
   const league = { ...parsed.league, players: scaled.players };
 
-  const issues = validateLeague(league);
+  const issues: Issue[] = [
+    ...validateLeague(league),
+    ...parsed.warnings.map((message): Issue => ({ level: 'warning', message })),
+  ];
   const blocking = issues.filter((i) => i.level === 'error');
   if (blocking.length) {
     console.error(`\nLega non valida: ${blocking.length} errori`);

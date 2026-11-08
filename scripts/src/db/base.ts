@@ -34,5 +34,11 @@ export function buildBaseSql(league: LeagueData, dataset = league.season): strin
   sql += rowsSql('public.base_players', rows.players);
   sql += rowsSql('public.base_contracts', rows.contracts);
   sql += rowsSql('public.base_dead_money', rows.deadMoney);
+  // Il draft è una voce della scheda che non cambia: le leghe già create lo prendono dai giocatori reali con lo
+  // stesso slug, solo dove manca (il resto dei giocatori delle leghe in corso resta com'era alla creazione)
+  sql +=
+    'update public.players p set draft = b.draft\n' +
+    `from public.base_players b\n` +
+    `where b.dataset = '${ds}' and b.slug = p.slug and p.draft is null and b.draft is not null;\n\n`;
   return sql + 'commit;\n';
 }

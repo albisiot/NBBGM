@@ -199,7 +199,7 @@ La Edge Function simula il turno con il pacchetto engine e passa il risultato ad
 
 - `pnpm db:seed` scrive `supabase/seed.sql` (lega di prova con giocatori generati, tre utenti di test: anna, bruno e carla `@nbbgm.test`, su Boston, Lakers e Knicks) e, se c'è l'import dei file Excel, `data/base.sql` con i giocatori reali per le tabelle `base_*`. Nessuno dei due va nel repo.
 - `seed.sql` serve al database locale (`supabase db reset`, con Docker): nel progetto vero non va caricato.
-- `data/base.sql` si carica nel progetto con `db query --remote -f data/base.sql` e sostituisce il dataset 2026-27.
+- `data/base.sql` si carica nel progetto con `db query --remote -f data/base.sql` e sostituisce il dataset 2026-27. In fondo riempie anche il draft (`players.draft`) dei giocatori reali delle leghe già create, solo dove manca: il resto dei giocatori delle leghe in corso resta com'era alla creazione.
 
 ## Test
 

@@ -49,6 +49,12 @@ export function qualityReport(
   out.push(`- Giocatori: ${players.length} (${players.length - free} in squadra, ${free} svincolati)`);
   out.push(`- Contratti: ${[...types].map(([t, n]) => `${n} ${t}`).join(', ')}`);
   out.push(`- Residui di tagliati: ${league.deadMoney.length}`);
+  const drafted = (round: 1 | 2) => players.filter((p) => p.draft?.round === round).length;
+  out.push(
+    `- Draft: ${drafted(1)} scelti al primo giro, ${drafted(2)} al secondo, ` +
+      `${players.filter((p) => p.draft && p.draft.round === null).length} non scelti, ` +
+      `${players.filter((p) => !p.draft).length} non noti`,
+  );
   out.push(
     `- Avvisi: ${issues.filter((i) => i.level === 'warning').length}, errori: ${issues.filter((i) => i.level === 'error').length}`,
     '',

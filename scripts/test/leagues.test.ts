@@ -28,6 +28,11 @@ let base: LeagueData;
 beforeAll(async () => {
   db = await createTestDb();
   base = generateLeague(new Rng('dati-di-partenza'), ARCHETYPE_PROFILES, { season: BASE_DATASET });
+  // Il draft come lo dà l'import: scelto, non scelto, non noto
+  base.players.forEach((p, i) => {
+    p.draft =
+      i === 0 ? { year: 2018, round: 1, pick: 3 } : i === 1 ? { year: null, round: null, pick: null } : null;
+  });
   await db.exec(buildBaseSql(base, BASE_DATASET));
   await db.query(
     `insert into auth.users (id, email, raw_user_meta_data) values
@@ -151,6 +156,47 @@ describe('creazione della lega', () => {
         )
       ).rows.map((r) => r.code),
     ).toEqual(['BOS']);
+  });
+
+  it('i giocatori reali portano il loro draft, che leggono i membri', async () => {
+    const draftOf = async (user: string, slug: string) =>
+      asUser(
+        db,
+        user,
+        async (tx) =>
+          (
+            await tx.query<{ draft: unknown }>(
+              'select draft from public.players where league_id = $1 and slug = $2',
+              [league.league_id, slug],
+            )
+          ).rows[0]?.draft,
+      );
+    const [first, second, third] = base.players;
+    expect(await draftOf(GIULIA, first!.id)).toEqual({ year: 2018, round: 1, pick: 3 });
+    expect(await draftOf(GIULIA, second!.id)).toEqual({ year: null, round: null, pick: null });
+    expect(await draftOf(GIULIA, third!.id)).toBeNull();
+    expect(await draftOf(ESTRANEO, first!.id)).toBeUndefined();
+  });
+
+  it('ricaricando i dati di partenza le leghe già create prendono il draft dove manca', async () => {
+    const [first, , third] = base.players;
+    await db.query('update public.players set draft = null where league_id = $1 and slug = $2', [
+      league.league_id,
+      first!.id,
+    ]);
+    const withThird = structuredClone(base);
+    withThird.players[2]!.draft = { year: 2020, round: 2, pick: 40 };
+    await db.exec(buildBaseSql(withThird, BASE_DATASET));
+    const draft = async (slug: string) =>
+      (
+        await db.query<{ draft: unknown }>(
+          'select draft from public.players where league_id = $1 and slug = $2',
+          [league.league_id, slug],
+        )
+      ).rows[0]!.draft;
+    expect(await draft(first!.id)).toEqual({ year: 2018, round: 1, pick: 3 });
+    expect(await draft(third!.id)).toEqual({ year: 2020, round: 2, pick: 40 });
+    await db.exec(buildBaseSql(base, BASE_DATASET));
   });
 
   it('solo il server la crea', async () => {

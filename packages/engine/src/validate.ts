@@ -1,5 +1,5 @@
 import { HIDDEN_KEYS, RATING_KEYS, TENDENCY_KEYS } from './fields.ts';
-import { ROLES, type LeagueData } from './types.ts';
+import { ROLES, type DraftInfo, type LeagueData } from './types.ts';
 
 export interface Issue {
   level: 'error' | 'warning';
@@ -7,6 +7,19 @@ export interface Issue {
 }
 
 export const ROSTER_LIMITS = { minStandard: 13, maxStandard: 15, maxTwoWay: 3 } as const;
+
+/** Che cosa non va nel draft di un giocatore, o null: anno intero, giro 1 o 2 con la scelta 1-60, o non scelto. */
+export function draftProblem(d: DraftInfo): string | null {
+  if (d.year !== null && !(Number.isInteger(d.year) && d.year >= 1947 && d.year <= 2100))
+    return `anno del draft ${d.year} non valido`;
+  if ((d.round === null) !== (d.pick === null)) return 'giro e scelta del draft vanno insieme';
+  if (d.round !== null && d.round !== 1 && d.round !== 2)
+    return `giro del draft ${String(d.round)} non valido`;
+  if (d.pick !== null && !(Number.isInteger(d.pick) && d.pick >= 1 && d.pick <= 60))
+    return `scelta del draft ${d.pick} non valida`;
+  if (d.pick !== null && d.year === null) return 'scelta del draft senza anno';
+  return null;
+}
 
 /**
  * Controlla una lega. Gli errori la rendono inutilizzabile (valori fuori scala, riferimenti rotti);
@@ -42,6 +55,8 @@ export function validateLeague(data: LeagueData): Issue[] {
     }
     if (!(p.heightCm > 150 && p.heightCm < 245)) error(`${who}: altezza ${p.heightCm} cm non plausibile`);
     if (!(p.age >= 17 && p.age <= 45)) error(`${who}: età ${p.age} non plausibile`);
+    const draft = p.draft ? draftProblem(p.draft) : null;
+    if (draft) error(`${who}: ${draft}`);
   }
 
   const playerIds = new Set(data.players.map((p) => p.id));
