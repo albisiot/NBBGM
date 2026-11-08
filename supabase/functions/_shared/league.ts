@@ -338,7 +338,7 @@ export function leaguePayload(state: LeagueState, o: LeaguePayloadOptions): Reco
       revenue: c.revenue,
       growth: c.growth,
     },
-    round: { id: o.id(`round:${year}:${state.turn}`), number: state.turn, kind: 'regular' },
+    round: { id: o.id(`round:${year}:${state.turn}`), number: state.turn, kind: 'regular', day: state.day },
     teams: state.teams.map((t) => ({
       id: team(t.id),
       code: t.id,
@@ -415,6 +415,7 @@ export function leaguePayload(state: LeagueState, o: LeaguePayloadOptions): Reco
     games: state.schedule.map((g) => ({
       id: o.id(`game:${year}:${g.turn}:${g.homeId}`),
       round_number: g.turn,
+      day: g.day,
       kind: 'regular',
       home_team_id: team(g.homeId),
       away_team_id: team(g.awayId),

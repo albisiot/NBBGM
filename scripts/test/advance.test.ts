@@ -52,6 +52,48 @@ const allReady = async () => {
   for (const [user, team] of MANAGERS) await ready(user, team);
 };
 
+/** Stato delle squadre umane nel turno, come lo vede un membro. */
+const states = async () =>
+  asUser(db, ANNA, async (tx) =>
+    Object.fromEntries(
+      (
+        await tx.query<{ team_id: string; state: string }>('select * from public.round_readiness($1)', [
+          LEAGUE,
+        ])
+      ).rows.map((r) => [r.team_id, r.state]),
+    ),
+  );
+
+/** La squadra gioca nel turno corrente? */
+const plays = async (team: string) =>
+  (
+    await db.query(
+      `select 1 from public.games g join public.leagues l on l.current_season_id = g.season_id
+       join public.rounds r on r.id = l.current_round_id
+       where l.id = $1 and g.round_number = r.number and $2 in (g.home_team_id, g.away_team_id)`,
+      [LEAGUE, team],
+    )
+  ).rows.length > 0;
+
+/** Con tutti pronti da soli (allenatori, riposo) la lega avanza al ritmo massimo fino a un giorno in cui la squadra gioca. */
+async function untilPlays(team: string): Promise<void> {
+  for (let i = 0; i < 10 && !(await plays(team)); i++) {
+    await pastPace();
+    expect((await advance()).advanced).toBe(true);
+  }
+  expect(await plays(team)).toBe(true);
+}
+
+/** Partite in calendario nel turno (un giorno: da 2 a 15). */
+const scheduled = async (number: number) =>
+  (
+    await db.query<{ n: number }>(
+      `select count(*)::int as n from public.games g join public.leagues l on l.current_season_id = g.season_id
+       where l.id = $1 and g.round_number = $2`,
+      [LEAGUE, number],
+    )
+  ).rows[0]!.n;
+
 /** Il turno corrente è aperto da più del ritmo massimo (60 secondi). */
 const pastPace = async () =>
   db.query(
@@ -90,27 +132,30 @@ beforeAll(async () => {
 }, 120_000);
 
 describe('Pronto', () => {
-  it('il turno avanza solo all’ultimo Pronto', async () => {
-    expect(await ready(ANNA, BOS)).toBe(false);
+  it('il turno avanza solo all’ultimo Pronto; chi riposa parte pronto', async () => {
+    // Il primo giorno (3 partite) gioca Los Angeles: Boston e New York riposano, con il Pronto già messo
+    expect(await states()).toEqual({ [BOS]: 'rest', [LAL]: 'waiting', [NYK]: 'rest' });
     expect((await advance()).advanced).toBe(false);
-    expect(await ready(BRUNO, LAL)).toBe(false);
-    // Togliere il Pronto si può finché il turno è aperto
+    // Chi riposa può togliere il Pronto (per fare mercato) e rimetterlo
     expect(await ready(ANNA, BOS, false)).toBe(false);
-    expect(await ready(ANNA, BOS)).toBe(false);
+    expect(await ready(BRUNO, LAL)).toBe(false);
+    expect(await states()).toEqual({ [BOS]: 'waiting', [LAL]: 'ready', [NYK]: 'rest' });
     expect((await advance()).advanced).toBe(false);
     expect((await current()).number).toBe(0);
 
-    expect(await ready(CARLA, NYK)).toBe(true);
+    expect(await ready(ANNA, BOS)).toBe(true);
+    expect(await states()).toEqual({ [BOS]: 'ready', [LAL]: 'ready', [NYK]: 'rest' });
     const r = await advance();
     expect(r).toMatchObject({ advanced: true, reason: 'ready', reclaimed: false });
     const now = await current();
     expect(now).toMatchObject({ number: 1, state: 'open' });
 
-    const games = await db.query<{ id: string; home_score: number; away_score: number }>(
-      `select id, home_score, away_score from public.games where league_id = $1 and round_number = 0`,
+    const games = await db.query<{ id: string; home_score: number; away_score: number; day: number }>(
+      `select id, home_score, away_score, day from public.games where league_id = $1 and round_number = 0`,
       [LEAGUE],
     );
-    expect(games.rows).toHaveLength(15);
+    expect(games.rows).toHaveLength(3);
+    expect(games.rows.every((g) => g.day === 0)).toBe(true);
     for (const g of games.rows) {
       expect(g.home_score).not.toBe(g.away_score);
       // Punti = somma dei punti del box score
@@ -124,9 +169,15 @@ describe('Pronto', () => {
       expect(byHome.get('true')).toBe(g.home_score);
       expect(byHome.get('false')).toBe(g.away_score);
     }
-    // Nuovo turno: nessuno è pronto
-    const flags = await db.query('select * from public.ready_flags where round_id = $1', [now.id]);
-    expect(flags.rows).toHaveLength(0);
+    // Nuovo turno (il giorno dopo): giocano Boston e New York, Los Angeles riposa con il Pronto automatico
+    const day = await db.query<{ day: number }>('select day from public.rounds where id = $1', [now.id]);
+    expect(day.rows[0]!.day).toBe(1);
+    const flags = await db.query<{ team_id: string; ready: boolean; auto: boolean }>(
+      'select team_id, ready, auto from public.ready_flags where round_id = $1',
+      [now.id],
+    );
+    expect(flags.rows).toEqual([{ team_id: LAL, ready: true, auto: true }]);
+    expect(await states()).toEqual({ [BOS]: 'waiting', [LAL]: 'rest', [NYK]: 'waiting' });
   });
 
   it('il Pronto vale per il turno che il manager vede: su un turno già chiuso è rifiutato', async () => {
@@ -147,7 +198,9 @@ describe('Pronto', () => {
       );
     // L'app è ferma al turno vecchio: niente Pronto sul turno nuovo, che il manager non ha visto
     await expect(readyFor(old)).rejects.toThrow(/turno è cambiato/);
-    const flags = await db.query('select * from public.ready_flags where round_id = $1', [now.id]);
+    const flags = await db.query('select * from public.ready_flags where round_id = $1 and not auto', [
+      now.id,
+    ]);
     expect(flags.rows).toHaveLength(0);
     // Sul turno giusto vale; senza turno (app già installate) vale per il turno corrente
     expect(await readyFor(now.id)).toBe(false);
@@ -246,17 +299,19 @@ describe('una sola simulazione per turno', () => {
     await allReady();
     const [a, b] = await Promise.all([advance(), advance()]);
     expect([a.advanced, b.advanced].filter(Boolean)).toHaveLength(1);
+    const n = await scheduled(round.number);
+    expect(n).toBeGreaterThan(1);
     const games = await db.query<{ n: number }>(
       `select count(*)::int as n from public.games where league_id = $1 and round_number = $2 and home_score is not null`,
       [LEAGUE, round.number],
     );
-    expect(games.rows[0]!.n).toBe(15);
+    expect(games.rows[0]!.n).toBe(n);
     const stats = await db.query<{ n: number }>(
       `select count(distinct game_id)::int as n from public.player_game_stats s
        join public.games g on g.id = s.game_id where g.league_id = $1 and g.round_number = $2`,
       [LEAGUE, round.number],
     );
-    expect(stats.rows[0]!.n).toBe(15);
+    expect(stats.rows[0]!.n).toBe(n);
     // Una terza chiamata e un apply_turn ripetuto non fanno nulla
     expect((await advance()).advanced).toBe(false);
     await expect(
@@ -380,8 +435,10 @@ describe('allenatore delegato', () => {
           [team, LEAGUE],
         ),
       );
-    const round = await current();
     // Tutti pronti, ma il turno è appena aperto: si aspetta il ritmo massimo
+    expect((await advance()).advanced).toBe(false);
+    await untilPlays(BOS);
+    const round = await current();
     expect((await advance()).advanced).toBe(false);
     await pastPace();
     expect(await advance()).toMatchObject({ advanced: true, reason: 'coach' });
@@ -480,7 +537,9 @@ describe('allenatore delegato', () => {
       [NYK],
     );
     expect(d.rows[0]!.active).toBe(false);
-    // Carla non ha più l'allenatore: senza il suo Pronto la lega si ferma
+    // Carla non ha più l'allenatore: nei giorni in cui riposa è pronta da sola, quando gioca senza il suo Pronto
+    // la lega si ferma
+    await untilPlays(NYK);
     await pastPace();
     expect((await advance()).advanced).toBe(false);
     expect(await ready(CARLA, NYK)).toBe(true);
@@ -491,18 +550,21 @@ describe('allenatore delegato', () => {
 describe('dopo i turni', () => {
   it('classifica, bilancio e statistiche tornano con le partite giocate', async () => {
     const round = await current();
-    const played = await db.query<{ n: number }>(
-      `select count(*)::int as n from public.games where league_id = $1 and home_score is not null`,
-      [LEAGUE],
+    // Si sono giocate tutte e sole le partite dei turni passati, quelle del calendario di ogni squadra
+    const perTeam = await db.query<{ played: number; due: number; wrong: number }>(
+      `select count(*) filter (where g.home_score is not null)::int as played,
+              count(*) filter (where g.round_number < $2)::int as due,
+              count(*) filter (where (g.home_score is not null) <> (g.round_number < $2))::int as wrong
+       from public.games g join public.teams t on t.id in (g.home_team_id, g.away_team_id)
+       where g.league_id = $1 group by t.id`,
+      [LEAGUE, round.number],
     );
-    expect(played.rows[0]!.n).toBe(15 * round.number);
-    // Ogni squadra ha giocato una partita a turno
-    const perTeam = await db.query<{ n: number }>(
-      `select count(*)::int as n from public.games g join public.teams t on t.id in (g.home_team_id, g.away_team_id)
-       where g.league_id = $1 and g.home_score is not null group by t.id`,
-      [LEAGUE],
-    );
-    expect(new Set(perTeam.rows.map((r) => r.n))).toEqual(new Set([round.number]));
+    expect(perTeam.rows).toHaveLength(30);
+    for (const r of perTeam.rows) {
+      expect(r.wrong).toBe(0);
+      expect(r.played).toBe(r.due);
+    }
+    expect(perTeam.rows.reduce((a, r) => a + r.played, 0)).toBeGreaterThan(30);
     // Il saldo è il saldo di partenza più la somma dei movimenti
     const ledger = await db.query<{ id: string; balance: string; total: string }>(
       `select t.id, t.balance, coalesce(sum(l.amount), 0) as total
@@ -586,7 +648,7 @@ describe('turni bloccati in chiusura', () => {
        where league_id = $1 and round_number = $2 and home_score is null`,
       [LEAGUE, round.number],
     );
-    expect(unplayed.rows[0]!.n).toBe(15);
+    expect(unplayed.rows[0]!.n).toBe(await scheduled(round.number));
     // Nei primi 5 minuti la simulazione potrebbe essere ancora in corso: non si riapre
     await expect(reopen(ANNA)).rejects.toThrow(/in corso/);
 
@@ -636,8 +698,9 @@ describe('turni bloccati in chiusura', () => {
       seed: null,
     });
     expect(before).not.toBeNull();
+    // Restano solo i Pronto automatici di chi riposa
     const flags = await db.query<{ n: number }>(
-      'select count(*)::int as n from public.ready_flags where round_id = $1',
+      'select count(*)::int as n from public.ready_flags where round_id = $1 and not auto',
       [round.id],
     );
     expect(flags.rows[0]!.n).toBe(0);

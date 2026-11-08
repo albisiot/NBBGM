@@ -201,6 +201,48 @@ describe('pausa automatica delle leghe abbandonate', () => {
     expect((await league()).idle_rounds).toBe(0);
   });
 
+  it('un giorno di riposo senza nessuno non tocca il conto; un turno con tutti gli allenatori lo azzera', async () => {
+    const round = async () => (await league()).round;
+    const pastPace = async () =>
+      db.query(`update public.rounds set created_at = now() - interval '2 minutes' where id = $1`, [
+        await round(),
+      ]);
+    await expire();
+    expect(await advance()).toMatchObject({ advanced: true, reason: 'deadline' });
+    expect((await league()).idle_rounds).toBe(1);
+    // Un giorno in cui riposano tutti e tre (Pronto automatico): si chiude al ritmo massimo, ma una lega abbandonata
+    // deve comunque fermarsi, quindi il conto resta com'è
+    const r = await round();
+    // Le impostazioni scritte dal seed, pochi secondi fa, cadrebbero nel turno spostato indietro di 2 minuti: si
+    // portano a un'ora fa (senza il trigger che rimette l'ora di adesso)
+    await db.exec(`
+      set session_replication_role = replica;
+      update public.team_settings set updated_at = now() - interval '1 hour' where league_id = '${LEAGUE}';
+      set session_replication_role = origin;
+    `);
+    for (const team of [BOS, LAL, NYK])
+      await db.query(
+        `insert into public.ready_flags (round_id, team_id, league_id, ready, auto) values ($1, $2, $3, true, true)
+         on conflict (round_id, team_id) do update set ready = true, auto = true`,
+        [r, team, LEAGUE],
+      );
+    expect((await advance()).advanced).toBe(false);
+    await pastPace();
+    expect(await advance()).toMatchObject({ advanced: true, reason: 'coach' });
+    expect((await league()).idle_rounds).toBe(1);
+    // Tutti con l'allenatore: la lega avanza da sola apposta, il conto riparte
+    for (const team of [BOS, LAL, NYK])
+      await db.query(
+        `insert into public.coach_delegations (team_id, league_id, active) values ($1, $2, true)
+         on conflict (team_id) do update set active = true, until_round = null, until_at = null`,
+        [team, LEAGUE],
+      );
+    await pastPace();
+    expect(await advance()).toMatchObject({ advanced: true, reason: 'coach' });
+    expect((await league()).idle_rounds).toBe(0);
+    await db.query('delete from public.coach_delegations where league_id = $1', [LEAGUE]);
+  });
+
   it('ogni attività umana, o una chiusura non per scadenza, rimette il conto a zero', async () => {
     const idleClose = async () => {
       await expire();

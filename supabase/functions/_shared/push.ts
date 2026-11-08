@@ -3,6 +3,7 @@
 // rifiutate più volte di fila (400, 401, 403: per esempio dopo un cambio delle chiavi VAPID) le conta e le
 // cancella il database (push_failed).
 // Comune alla Edge Function push (Deno) e ai test (Node). I testi stanno qui, in italiano.
+import { dayLabel } from '../../../packages/engine/src/season/calendar.ts';
 import { pushRequest, type PushOptions, type VapidKeys } from './webpush.ts';
 
 export type PushKind = 'turn' | 'decision' | 'draft';
@@ -21,6 +22,9 @@ export interface OutboxRow {
   round_kind: string | null;
   round_number: number | null;
   round_stage: string | null;
+  /** Giorno del turno, in giorni dall'apertura della stagione (dal 20261108090000; null in offseason). */
+  round_day?: number | null;
+  season_year?: number | null;
 }
 
 export interface SubscriptionRow {
@@ -68,11 +72,18 @@ const STAGE: Record<string, string> = {
   preparation: 'preparazione della stagione',
 };
 
-/** "giornata 14 di 82", "play-in", "playoff", "offseason, rinnovi" */
-export function roundText(kind: string | null, number: number | null, stage: string | null): string {
-  if (kind === 'regular' && number !== null) return `giornata ${number + 1} di 82`;
-  if (kind === 'play-in') return 'play-in';
-  if (kind === 'playoffs') return 'playoff';
+/** "mercoledì 21 ottobre", "play-in, venerdì 16 aprile", "playoff, sabato 18 aprile", "offseason, rinnovi" */
+export function roundText(
+  kind: string | null,
+  number: number | null,
+  stage: string | null,
+  day: number | null = null,
+  year: number | null = null,
+): string {
+  const date = day !== null && year !== null ? dayLabel(year, day) : null;
+  if (kind === 'regular') return date ?? (number !== null ? `turno ${number + 1}` : 'turno nuovo');
+  if (kind === 'play-in') return date ? `play-in, ${date}` : 'play-in';
+  if (kind === 'playoffs') return date ? `playoff, ${date}` : 'playoff';
   if (kind === 'offseason') return stage && STAGE[stage] ? `offseason, ${STAGE[stage]}` : 'offseason';
   return 'turno nuovo';
 }
@@ -92,7 +103,7 @@ export function notificationText(r: OutboxRow): { body: string; url: string } {
   switch (r.kind) {
     case 'turn':
       return {
-        body: `Si è giocato. Turno nuovo: ${roundText(r.round_kind, r.round_number, r.round_stage)}.`,
+        body: `Si è giocato. Turno nuovo: ${roundText(r.round_kind, r.round_number, r.round_stage, r.round_day ?? null, r.season_year ?? null)}.`,
         url: league,
       };
     case 'decision':

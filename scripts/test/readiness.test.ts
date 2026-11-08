@@ -1,5 +1,6 @@
 // Dopo la Fase 13: stato di ogni squadra umana nel turno dato dal server (round_readiness), con la stessa regola
-// che decide la chiusura del turno. Lega di prova del seed: anna su BOS, bruno su LAL, carla su NYK.
+// che decide la chiusura del turno. Lega di prova del seed: anna su BOS, bruno su LAL, carla su NYK. Il primo giorno
+// (3 partite) gioca solo LAL: BOS e NYK riposano, con il Pronto automatico (un turno = un giorno).
 import type { PGlite } from '@electric-sql/pglite';
 import { beforeAll, describe, expect, it } from 'vitest';
 import { buildSeedSql, seedIds, stableUuid } from '../src/db/seed.ts';
@@ -55,6 +56,10 @@ const allReady = async () =>
 const ready = (user: string, team: string, value = true) =>
   asUser(db, user, (tx) => tx.query('select public.set_ready($1, $2)', [team, value]));
 
+/** Perché il turno si chiuderebbe adesso (private.round_due): ready, coach, deadline, forced o null. */
+const due = async () =>
+  (await db.query<{ r: string | null }>('select private.round_due($1) as r', [await roundId()])).rows[0]!.r;
+
 const coach = (user: string, team: string) =>
   asUser(db, user, (tx) =>
     tx.query(
@@ -78,10 +83,76 @@ describe('stato delle squadre nel turno', () => {
     ).rejects.toThrow(/permission denied/);
   });
 
-  it('pronta, con l’allenatore, in attesa di una decisione o non pronta, come la conta il server', async () => {
-    expect(await states()).toEqual({ [BOS]: 'waiting', [LAL]: 'waiting', [NYK]: 'waiting' });
+  it('chi riposa parte pronto; il turno si chiude subito solo con un Pronto premuto', async () => {
+    expect(await states()).toEqual({ [BOS]: 'rest', [LAL]: 'waiting', [NYK]: 'rest' });
+    expect(await allReady()).toBe(false);
+    expect(await due()).toBeNull();
+    // Il Pronto di chi gioca chiude il turno
+    await ready(BRUNO, LAL);
+    expect(await allReady()).toBe(true);
+    expect(await due()).toBe('ready');
+    await ready(BRUNO, LAL, false);
 
+    // Tutti pronti da soli (allenatore e riposo): si aspetta il ritmo massimo, così chi riposa ha il tempo di
+    // togliere il Pronto
+    await coach(BRUNO, LAL);
+    expect(await states()).toEqual({ [BOS]: 'rest', [LAL]: 'coach', [NYK]: 'rest' });
+    expect(await allReady()).toBe(true);
+    expect(await due()).toBeNull();
+    const round = await roundId();
+    await db.query(`update public.rounds set created_at = now() - interval '2 minutes' where id = $1`, [
+      round,
+    ]);
+    expect(await due()).toBe('coach');
+    // Chi riposa e preme Pronto (non più automatico) fa partire il turno subito
     await ready(ANNA, BOS);
+    await db.query(`update public.rounds set created_at = now() where id = $1`, [round]);
+    expect(await states()).toEqual({ [BOS]: 'ready', [LAL]: 'coach', [NYK]: 'rest' });
+    expect(await due()).toBe('ready');
+    await asUser(db, BRUNO, (tx) =>
+      tx.query('update public.coach_delegations set active = false where team_id = $1', [LAL]),
+    );
+
+    // Il Pronto automatico va a chi riposa senza avvisi bloccanti aperti: con una decisione si risponde e poi si
+    // preme Pronto. E chi prende una squadra a riposo a turno aperto parte pronto (tutto torna indietro alla fine)
+    const result = await db.transaction(async (tx) => {
+      const read = async () =>
+        Object.fromEntries(
+          (
+            await tx.query<{ team_id: string; state: string }>('select * from private.team_readiness($1)', [
+              round,
+            ])
+          ).rows.map((r) => [r.team_id, r.state]),
+        );
+      await tx.query('delete from public.ready_flags where round_id = $1 and team_id = $2', [round, NYK]);
+      const alert = (
+        await tx.query<{ id: string }>(
+          `insert into public.alerts (league_id, team_id, kind, blocking, round_id)
+           values ($1, $2, 'trade_offer', true, $3) returning id`,
+          [LEAGUE, NYK, round],
+        )
+      ).rows[0]!.id;
+      await tx.query('select private.auto_ready($1)', [round]);
+      const withAlert = (await read())[NYK];
+      await tx.query(`update public.alerts set status = 'resolved' where id = $1`, [alert]);
+      await tx.query('select private.auto_ready($1)', [round]);
+      const answered = (await read())[NYK];
+      // Carla lascia la squadra (il Pronto si chiude) e la riprende
+      await tx.query('update public.teams set owner_id = null where id = $1', [NYK]);
+      await tx.query('delete from public.ready_flags where round_id = $1 and team_id = $2', [round, NYK]);
+      await tx.query('update public.teams set owner_id = $1 where id = $2', [CARLA, NYK]);
+      const joined = (await read())[NYK];
+      await tx.rollback();
+      return { withAlert, answered, joined };
+    });
+    expect(result).toEqual({ withAlert: 'waiting', answered: 'rest', joined: 'rest' });
+  });
+
+  it('pronta, con l’allenatore, in attesa di una decisione o non pronta, come la conta il server', async () => {
+    // Carla toglie il Pronto automatico
+    await ready(CARLA, NYK, false);
+    expect(await states()).toEqual({ [BOS]: 'ready', [LAL]: 'waiting', [NYK]: 'waiting' });
+
     await coach(BRUNO, LAL);
     expect(await states(CARLA)).toEqual({ [BOS]: 'ready', [LAL]: 'coach', [NYK]: 'waiting' });
     expect(await allReady()).toBe(false);
@@ -137,15 +208,9 @@ describe('stato delle squadre nel turno', () => {
       tx.query('update public.coach_delegations set active = false where team_id = $1', [LAL]),
     );
     const round = await roundId();
-    // Il turno diventa di playoff e i Knicks restano senza partita (tutto torna indietro alla fine)
+    // Il turno diventa di playoff: Celtics e Knicks sono senza partita (tutto torna indietro alla fine)
     const result = await db.transaction(async (tx) => {
       await tx.query(`update public.rounds set kind = 'playoffs' where id = $1`, [round]);
-      await tx.query(
-        `delete from public.games g using public.rounds r
-         where r.id = $1 and g.season_id = r.season_id and g.round_number = r.number
-           and $2 in (g.home_team_id, g.away_team_id)`,
-        [round, NYK],
-      );
       await tx.query(`select set_config('request.jwt.claims', $1, true)`, [
         JSON.stringify({ sub: CARLA, role: 'authenticated' }),
       ]);
@@ -157,17 +222,17 @@ describe('stato delle squadre nel turno', () => {
       ).rows;
       await tx.exec('reset role');
       await tx.query(
-        `insert into public.ready_flags (round_id, team_id, league_id, ready) values ($1, $2, $3, true),
-         ($1, $4, $3, true) on conflict (round_id, team_id) do update set ready = true`,
-        [round, BOS, LEAGUE, LAL],
+        `insert into public.ready_flags (round_id, team_id, league_id, ready) values ($1, $2, $3, true)
+         on conflict (round_id, team_id) do update set ready = true`,
+        [round, LAL, LEAGUE],
       );
       const ok = (await tx.query<{ ok: boolean }>('select public.round_all_ready($1) as ok', [round]))
         .rows[0]!.ok;
       await tx.rollback();
       return { states: Object.fromEntries(rows.map((r) => [r.team_id, r.state])), ok };
     });
-    expect(result.states).toEqual({ [BOS]: 'waiting', [LAL]: 'waiting', [NYK]: 'out' });
-    // Pronti i due che giocano: il turno è completo anche senza i Knicks
+    expect(result.states).toEqual({ [BOS]: 'out', [LAL]: 'waiting', [NYK]: 'out' });
+    // Pronto chi gioca: il turno è completo anche senza Celtics e Knicks
     expect(result.ok).toBe(true);
     expect(await states()).toEqual({ [BOS]: 'waiting', [LAL]: 'waiting', [NYK]: 'waiting' });
   });

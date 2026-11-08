@@ -5,10 +5,12 @@ import { describe, expect, it } from 'vitest';
 import {
   LAST_REGULAR_DAY,
   christmasDay,
+  dayLabel,
   dayOf,
   noGameDays,
   openingDay,
   seasonDate,
+  shortDayLabel,
   tradeDeadlineDay,
   weekday,
   ymd,
@@ -63,6 +65,12 @@ describe('date della stagione', () => {
     expect(key(2026, tradeDeadlineDay(2026))).toBe('2027-02-04');
     expect(weekday(seasonDate(2030, tradeDeadlineDay(2030)))).toBe(3);
     expect(dayOf(2027, 2, 4) - openingDay(2026)).toBe(tradeDeadlineDay(2026));
+  });
+
+  it('nomi delle date in italiano', () => {
+    expect(dayLabel(2026, 0)).toBe('martedì 20 ottobre');
+    expect(shortDayLabel(2026, LAST_REGULAR_DAY)).toBe('dom 11 apr');
+    expect(dayLabel(2026, christmasDay(2026))).toBe('venerdì 25 dicembre');
   });
 });
 

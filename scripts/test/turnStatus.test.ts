@@ -78,7 +78,10 @@ describe('stato del turno in una lettura', () => {
     const s = turnFromServer(LEAGUE, row);
     expect(s.myTeamId).toBe(BOS);
     expect(s.round?.id).toBe(round);
-    expect([...s.ready]).toEqual([BOS]);
+    // Il turno ha il suo giorno (il primo della stagione) e l'anno della stagione
+    expect(row?.round).toMatchObject({ day: 0, season_year: 2026 });
+    // Pronti: Boston (a mano) e New York, che riposa (Pronto automatico)
+    expect([...s.ready].sort()).toEqual([BOS, NYK].sort());
     expect(s.delegations.map((d) => d.teamId)).toEqual([LAL]);
     // Gli avvisi di Bruno restano suoi
     expect(s.alerts.map((a) => a.kind)).toEqual(['trade_offer']);
@@ -93,18 +96,24 @@ describe('stato del turno in una lettura', () => {
         ).rows.map((r) => [r.team_id, r.state]),
       ),
     );
-    expect(Object.fromEntries(s.teamStates ?? new Map())).toEqual(server);
-    expect(server).toEqual({ [BOS]: 'ready', [LAL]: 'blocked', [NYK]: 'waiting' });
+    // TODO Fase 3 (app): l'app legge anche lo stato rest; per ora lo scarta come uno stato sconosciuto
+    expect(Object.fromEntries(s.teamStates ?? new Map())).toEqual(
+      Object.fromEntries(Object.entries(server).filter(([, state]) => state !== 'rest')),
+    );
+    expect(server).toEqual({ [BOS]: 'ready', [LAL]: 'blocked', [NYK]: 'rest' });
   });
 
-  it('dopo un turno: l’ultima partita della propria squadra; in play-in e playoff chi gioca', async () => {
-    await asUser(db, ANNA, (tx) => tx.query('select public.force_round($1)', [LEAGUE]));
-    const r = await advanceLeague(serviceRpc(db), LEAGUE, {
-      newId: randomUUID,
-      playGame: quickGame,
-      botProposals: false,
-    });
-    expect(r.advanced).toBe(true);
+  it('dopo un turno: l’ultima partita della propria squadra; chi gioca nel turno', async () => {
+    // Boston riposa il primo giorno e gioca il secondo
+    for (let i = 0; i < 2; i++) {
+      await asUser(db, ANNA, (tx) => tx.query('select public.force_round($1)', [LEAGUE]));
+      const r = await advanceLeague(serviceRpc(db), LEAGUE, {
+        newId: randomUUID,
+        playGame: quickGame,
+        botProposals: false,
+      });
+      expect(r.advanced).toBe(true);
+    }
     const s = turnFromServer(LEAGUE, await turnStatus(ANNA));
     const last = (
       await db.query<{ home_team_id: string; away_team_id: string; home_score: number }>(
@@ -120,12 +129,22 @@ describe('stato del turno in una lettura', () => {
       homeScore: last.home_score,
     });
     expect(s.playing).toBeNull();
-    // Lo stesso turno visto come un turno di playoff: giocano le squadre delle partite di quel turno
+    // Chi gioca nel turno: le squadre delle partite di quel giorno, anche in regular season
     const round = await roundId();
+    const teams = (
+      await db.query<{ team: string }>(
+        `select unnest(array[g.home_team_id, g.away_team_id]) as team from public.games g
+         join public.rounds r on r.season_id = g.season_id and r.number = g.round_number where r.id = $1`,
+        [round],
+      )
+    ).rows.map((x) => x.team);
+    expect(teams.length).toBeLessThan(30);
+    expect([...((await turnStatus(ANNA))?.playing ?? [])].sort()).toEqual([...teams].sort());
+    // Lo stesso turno visto come un turno di playoff: l'app guarda chi gioca
     await db.query(`update public.rounds set kind = 'playoffs' where id = $1`, [round]);
     try {
       const p = turnFromServer(LEAGUE, await turnStatus(ANNA));
-      expect(p.playing?.size).toBe(30);
+      expect(p.playing?.size).toBe(teams.length);
     } finally {
       await db.query(`update public.rounds set kind = 'regular' where id = $1`, [round]);
     }

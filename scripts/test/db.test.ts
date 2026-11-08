@@ -460,11 +460,15 @@ describe('Pronto', () => {
   });
 
   it("il turno è completo quando l'ultimo umano è pronto", async () => {
+    // Il primo giorno gioca solo LAL: BOS e NYK riposano, con il Pronto automatico
+    expect(
+      await asUser(db, ANNA, (tx) => count(tx, 'select 1 from public.ready_flags where ready and auto')),
+    ).toBe(2);
     expect(await ready(ANNA, BOS)).toBe(false);
-    expect(await ready(BRUNO, LAL)).toBe(false);
-    expect(await ready(CARLA, NYK)).toBe(true);
-    // Chi è pronto lo vedono tutti
+    expect(await ready(BRUNO, LAL)).toBe(true);
+    // Chi è pronto lo vedono tutti; il Pronto premuto non è più automatico
     expect(await asUser(db, ANNA, (tx) => count(tx, 'select 1 from public.ready_flags where ready'))).toBe(3);
+    expect(await asUser(db, ANNA, (tx) => count(tx, 'select 1 from public.ready_flags where auto'))).toBe(1);
     expect(await ready(CARLA, NYK, false)).toBe(false);
   });
 
@@ -552,6 +556,8 @@ function turnPayload(): Record<string, unknown> {
   const beforeTeams = teamOf(before);
   const beforeBalance = new Map(before.teams.map((t) => [t.id, Math.round(t.balance)]));
   const perTurn = Math.round(before.config.revenue / 82);
+  // Bilancio solo per chi ha giocato (una partita di ricavi e stipendi)
+  const played = new Set(results.flatMap(({ result: r }) => [r.home.teamId, r.away.teamId]));
   const afterContracts = new Set(after.contracts.map((c) => c.playerId));
 
   return {
@@ -605,6 +611,7 @@ function turnPayload(): Record<string, unknown> {
     games: results.map(({ seed, result: r }) => ({
       id: ids.game(year, 0, r.home.teamId),
       round_number: 0,
+      day: 0,
       kind: 'regular',
       home_team_id: team(r.home.teamId),
       away_team_id: team(r.away.teamId),
@@ -641,22 +648,24 @@ function turnPayload(): Record<string, unknown> {
         })),
       ),
     ),
-    ledger: after.teams.flatMap((t) => [
-      { team_id: team(t.id), kind: 'revenue', amount: perTurn, note: 'Ricavi della giornata 1' },
-      {
-        team_id: team(t.id),
-        kind: 'salary',
-        amount: Math.round(t.balance) - (beforeBalance.get(t.id) as number) - perTurn,
-        note: 'Stipendi della giornata 1',
-      },
-    ]),
+    ledger: after.teams
+      .filter((t) => played.has(t.id))
+      .flatMap((t) => [
+        { team_id: team(t.id), kind: 'revenue', amount: perTurn, note: 'Ricavi della partita' },
+        {
+          team_id: team(t.id),
+          kind: 'salary',
+          amount: Math.round(t.balance) - (beforeBalance.get(t.id) as number) - perTurn,
+          note: 'Stipendi della partita',
+        },
+      ]),
     transactions: after.transactions.slice(before.transactions.length).map((t) => ({
       season_year: t.year,
       round_number: t.turn,
       type: t.type,
       text: t.text,
     })),
-    next_round: { number: 1, kind: 'regular' },
+    next_round: { number: 1, kind: 'regular', day: after.day },
   };
 }
 
@@ -702,15 +711,19 @@ describe('apply_turn', () => {
     expect(await roundState()).toBe('done');
     const league = await one<{ current_round_id: string }>(db, 'select current_round_id from public.leagues');
     expect(league.current_round_id).toBe(next);
-    const round = await one<{ number: number; state: string }>(
+    const round = await one<{ number: number; state: string; day: number }>(
       db,
-      'select number, state from public.rounds where id = $1',
+      'select number, state, day from public.rounds where id = $1',
       [next],
     );
-    expect(round).toEqual({ number: 1, state: 'open' });
+    expect(round).toEqual({ number: 1, state: 'open', day: 1 });
+    // Il primo giorno si giocano 3 partite
+    const games = (payload.games as unknown[]).length;
+    expect(games).toBe(3);
     expect(
       await count(db, 'select 1 from public.games where round_number = 0 and home_score is not null'),
-    ).toBe(15);
+    ).toBe(games);
+    expect(await count(db, 'select 1 from public.games where round_number = 0 and day = 0')).toBe(games);
     expect(await count(db, 'select 1 from public.player_game_stats')).toBe(
       (payload.player_game_stats as unknown[]).length,
     );
@@ -733,10 +746,14 @@ describe('apply_turn', () => {
         [start],
       ),
     ).toBe(0);
-    // Il manager vede i risultati e il proprio bilancio, non quello degli altri
+    // Il manager vede i risultati e il proprio bilancio, non quello degli altri (il commissario li vede tutti)
+    const ledger = payload.ledger as { team_id: string }[];
+    expect(ledger).toHaveLength(games * 4);
     await asUser(db, ANNA, async (tx) => {
       expect(await count(tx, 'select 1 from public.player_game_stats')).toBeGreaterThan(0);
-      expect(await count(tx, 'select 1 from public.ledger where team_id <> $1', [BOS])).toBe(30 * 2 - 2);
+      expect(await count(tx, 'select 1 from public.ledger where team_id <> $1', [BOS])).toBe(
+        ledger.filter((l) => l.team_id !== BOS).length,
+      );
     });
     await asUser(db, BRUNO, async (tx) => {
       expect(await count(tx, 'select 1 from public.ledger')).toBe(2);
@@ -746,7 +763,7 @@ describe('apply_turn', () => {
   it('una seconda chiamata non duplica nulla', async () => {
     await expect(apply(payload)).rejects.toThrow(/non è in chiusura/);
     expect(await count(db, 'select 1 from public.rounds')).toBe(2);
-    expect(await count(db, 'select 1 from public.ledger')).toBe(60);
+    expect(await count(db, 'select 1 from public.ledger')).toBe((payload.ledger as unknown[]).length);
   });
 
   it('nel turno nuovo il manager torna a poter cambiare le impostazioni', async () => {
@@ -759,11 +776,25 @@ describe('apply_turn', () => {
         ),
       ),
     ).toBe(1);
-    // Il Pronto del turno vecchio non vale per quello nuovo
+    // Il Pronto del turno vecchio non vale per quello nuovo: c'è solo quello automatico di LAL, che riposa
+    expect(
+      await count(
+        db,
+        'select 1 from public.ready_flags f join public.leagues l on l.current_round_id = f.round_id',
+      ),
+    ).toBe(1);
+    expect(
+      await count(
+        db,
+        'select 1 from public.ready_flags f join public.leagues l on l.current_round_id = f.round_id where f.auto and f.team_id = $1',
+        [LAL],
+      ),
+    ).toBe(1);
+    // Con il Pronto di BOS sono tutti pronti: LAL riposa e NYK ha l'allenatore
     expect(
       await asUser(db, ANNA, (tx) => one<{ r: boolean }>(tx, 'select public.set_ready($1) as r', [BOS])),
     ).toEqual({
-      r: false,
+      r: true,
     });
   });
 });

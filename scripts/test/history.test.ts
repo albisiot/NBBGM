@@ -1,13 +1,14 @@
-// Dopo la Fase 13: storico delle stagioni. Alla chiusura della giornata 82 il turno salva le statistiche di
+// Dopo la Fase 13: storico delle stagioni. Alla chiusura dell'ultimo giorno di regular season il turno salva le statistiche di
 // regular season di ogni giocatore (player_seasons); le stagioni giocate prima si ricostruiscono dai box score
 // con le stesse regole. Le leggono solo i membri della lega.
 import type { PGlite } from '@electric-sql/pglite';
-import { Rng, seasonAwards, type SeasonStats } from '@nbbgm/engine';
+import { seasonAwards, type SeasonStats } from '@nbbgm/engine';
 import { randomUUID } from 'node:crypto';
 import { beforeAll, describe, expect, it } from 'vitest';
 import { advanceLeague } from '../../supabase/functions/_shared/turn.ts';
 import { buildSeedSql, seedIds, stableUuid } from '../src/db/seed.ts';
 import { asService, asUser, createTestDb, serviceRpc } from '../src/db/testdb.ts';
+import { skipToLastRegularDay } from '../src/db/testSeason.ts';
 import { quickGame } from '../src/quick-game.ts';
 
 const ids = seedIds();
@@ -26,23 +27,8 @@ beforeAll(async () => {
     'esterno-storico@nbbgm.test',
     { name: 'Esterno' },
   ]);
-  // Le prime 81 giornate con punteggi finti (senza box score), come nel test dell'offseason
-  const rng = new Rng('storico-finto');
-  const games = await q<{ id: string }>(
-    'select id from public.games where league_id = $1 and round_number < 81 order by id',
-    [LEAGUE],
-  );
-  const values = games.map((g) => {
-    const h = 95 + Math.floor(rng.next() * 40);
-    let a = 95 + Math.floor(rng.next() * 40);
-    if (a === h) a++;
-    return `('${g.id}'::uuid, ${h}, ${a})`;
-  });
-  await db.exec(`
-    update public.games g set home_score = v.h, away_score = v.a, overtimes = 0, played_at = now()
-    from (values ${values.join(',')}) as v(id, h, a) where g.id = v.id;
-    update public.rounds set number = 81 where id = '${ids.round}';
-  `);
+  // I giorni prima dell'ultimo con punteggi finti (senza box score), come nel test dell'offseason
+  await skipToLastRegularDay(db, LEAGUE, ids.round, 'storico-finto');
 }, 120_000);
 
 type Snapshot = { player_id: string; team_id: string | null; rookie: boolean | null; stats: SeasonStats };
@@ -56,7 +42,7 @@ const snapshot = (season: string) =>
 describe('storico delle stagioni', () => {
   let season: string;
 
-  it('la chiusura della giornata 82 salva le statistiche di regular season', async () => {
+  it('la chiusura dell’ultimo giorno salva le statistiche di regular season', async () => {
     season = (
       await q<{ id: string }>('select current_season_id as id from public.leagues where id = $1', [LEAGUE])
     )[0]!.id;

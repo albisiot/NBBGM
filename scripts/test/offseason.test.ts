@@ -1,9 +1,15 @@
 // Fase 12: offseason a turni sulla lega di prova (anna commissario su BOS, bruno su LAL, carla su NYK).
-// Le prime 81 giornate hanno punteggi finti; ultima giornata, post-season e offseason le gioca il server, con la
-// partita finta per fare presto. Fatto quando: la lega passa da una stagione alla successiva con rose valide,
+// I giorni di regular season prima dell'ultimo hanno punteggi finti; ultimo giorno, post-season e offseason li gioca
+// il server, con la partita finta per fare presto. Fatto quando: la lega passa da una stagione alla successiva con rose valide,
 // contratti scalati, rookie firmati e cap aggiornato.
 import type { PGlite } from '@electric-sql/pglite';
-import { askingSalary, CONFIG_2026_27, minimumSalaryFor, nextConfig, Rng } from '@nbbgm/engine';
+import {
+  askingSalary,
+  CONFIG_2026_27,
+  minimumSalaryFor,
+  nextConfig,
+  OPENING_NIGHT_GAMES,
+} from '@nbbgm/engine';
 import { randomUUID } from 'node:crypto';
 import { beforeAll, describe, expect, it } from 'vitest';
 import type { MarketAction } from '../../supabase/functions/_shared/market.ts';
@@ -12,6 +18,7 @@ import { advanceLeague } from '../../supabase/functions/_shared/turn.ts';
 import { checkedMarketAction } from '../src/db/marketCheck.ts';
 import { buildSeedSql, seedIds } from '../src/db/seed.ts';
 import { asUser, createTestDb, serviceRpc } from '../src/db/testdb.ts';
+import { skipToLastRegularDay } from '../src/db/testSeason.ts';
 import { quickGame } from '../src/quick-game.ts';
 
 const ids = seedIds();
@@ -29,8 +36,15 @@ const q = async <T>(sql: string, params: unknown[] = []) => (await db.query<T>(s
 
 async function current() {
   return (
-    await q<{ id: string; number: number; kind: string; stage: string | null; season_id: string }>(
-      `select r.id, r.number, r.kind, r.stage, r.season_id from public.leagues l
+    await q<{
+      id: string;
+      number: number;
+      kind: string;
+      stage: string | null;
+      season_id: string;
+      day: number | null;
+    }>(
+      `select r.id, r.number, r.kind, r.stage, r.season_id, r.day from public.leagues l
        join public.rounds r on r.id = l.current_round_id where l.id = $1`,
       [LEAGUE],
     )
@@ -74,22 +88,7 @@ beforeAll(async () => {
     [LEAGUE],
   );
   initialBalance = new Map(r.map((t) => [t.id, Number(t.balance)]));
-  const rng = new Rng('offseason-finta');
-  const games = await q<{ id: string }>(
-    'select id from public.games where league_id = $1 and round_number < 81 order by id',
-    [LEAGUE],
-  );
-  const values = games.map((g) => {
-    const h = 95 + Math.floor(rng.next() * 40);
-    let a = 95 + Math.floor(rng.next() * 40);
-    if (a === h) a++;
-    return `('${g.id}'::uuid, ${h}, ${a})`;
-  });
-  await db.exec(`
-    update public.games g set home_score = v.h, away_score = v.a, overtimes = 0, played_at = now()
-    from (values ${values.join(',')}) as v(id, h, a) where g.id = v.id;
-    update public.rounds set number = 81 where id = '${ids.round}';
-  `);
+  await skipToLastRegularDay(db, LEAGUE, ids.round, 'offseason-finta');
 }, 120_000);
 
 let multiYear: { player_id: string; salaries: string[] };
@@ -98,7 +97,7 @@ let listTop: string;
 
 describe('dalla finale al draft', () => {
   it('alla chiusura della finale: fine stagione, lottery, ordine del draft e classe', async () => {
-    for (let i = 0; i < 40; i++) {
+    for (let i = 0; i < 120; i++) {
       const r = await current();
       if (r.kind === 'offseason') break;
       await nextTurn();
@@ -310,7 +309,7 @@ describe('rinnovi, free agency e preparazione', () => {
     const oldSeason = (await current()).season_id;
     await nextTurn();
     const round = await current();
-    expect(round).toMatchObject({ number: 0, kind: 'regular', stage: null });
+    expect(round).toMatchObject({ number: 0, kind: 'regular', stage: null, day: 0 });
     expect(round.season_id).not.toBe(oldSeason);
     const season = await q<{ year: number; phase: string; salary_cap: string; luxury_tax: string }>(
       'select year, phase, salary_cap, luxury_tax from public.seasons where id = $1',
@@ -327,6 +326,15 @@ describe('rinnovi, free agency e preparazione', () => {
       [round.season_id],
     );
     expect(games[0]!.n).toBe(1230);
+    // Calendario a giorni: un giorno per turno, con le date
+    const days = await q<{ turns: number; bad: number }>(
+      `select count(distinct round_number)::int as turns,
+              count(*) filter (where day is null)::int as bad
+       from public.games where season_id = $1`,
+      [round.season_id],
+    );
+    expect(days[0]!.turns).toBeGreaterThan(160);
+    expect(days[0]!.bad).toBe(0);
 
     // Rose nei limiti per tutte le squadre, umane comprese
     const rosters = await q<{ team_id: string; standard: number; two_way: number }>(
@@ -376,17 +384,18 @@ describe('rinnovi, free agency e preparazione', () => {
   it('la prima giornata della stagione nuova si gioca', async () => {
     await nextTurn();
     const round = await current();
-    expect(round).toMatchObject({ number: 1, kind: 'regular' });
+    expect(round).toMatchObject({ number: 1, kind: 'regular', day: 1 });
     const played = await q<{ n: number }>(
       'select count(*)::int as n from public.games where season_id = $1 and round_number = 0 and home_score is not null',
       [round.season_id],
     );
-    expect(played[0]!.n).toBe(15);
+    expect(played[0]!.n).toBe(OPENING_NIGHT_GAMES);
     // Con le stipendi della stagione nuova
     const ledger = await q<{ n: number }>(
       `select count(*)::int as n from public.ledger where season_id = $1 and kind = 'revenue'`,
       [round.season_id],
     );
-    expect(ledger[0]!.n).toBe(30);
+    // Ricavi solo per chi ha giocato
+    expect(ledger[0]!.n).toBe(OPENING_NIGHT_GAMES * 2);
   });
 });

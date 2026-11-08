@@ -89,7 +89,7 @@ describe('stato di tutte le leghe dell’utente', () => {
       paused: false,
       my_team_id: BOS,
       decisions: 0,
-      round: { id: round, kind: 'regular', state: 'open', attempts: 0 },
+      round: { id: round, kind: 'regular', state: 'open', attempts: 0, day: 0, season_year: 2026 },
     });
     const server = await asUser(db, ANNA, async (tx) =>
       Object.fromEntries(
@@ -101,7 +101,8 @@ describe('stato di tutte le leghe dell’utente', () => {
       ),
     );
     expect(Object.fromEntries(anna[0]!.readiness.map((r) => [r.team_id, r.state]))).toEqual(server);
-    expect(server).toEqual({ [BOS]: 'ready', [LAL]: 'blocked', [NYK]: 'waiting' });
+    // New York riposa il primo giorno: è pronta da sola
+    expect(server).toEqual({ [BOS]: 'ready', [LAL]: 'blocked', [NYK]: 'rest' });
     // Le decisioni di Bruno restano sue
     const bruno = await status(BRUNO);
     expect(bruno[0]).toMatchObject({ my_team_id: LAL, decisions: 2 });

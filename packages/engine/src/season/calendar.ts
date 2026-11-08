@@ -71,3 +71,39 @@ export const tradeDeadlineDay = (year: number): number => nthWeekday(year + 1, 2
 
 /** Giorni tra la fine della regular season e il primo giorno di play-in. */
 export const PLAY_IN_GAP = 2;
+
+const MONTHS = [
+  'gennaio',
+  'febbraio',
+  'marzo',
+  'aprile',
+  'maggio',
+  'giugno',
+  'luglio',
+  'agosto',
+  'settembre',
+  'ottobre',
+  'novembre',
+  'dicembre',
+] as const;
+const WEEKDAYS = ['lunedì', 'martedì', 'mercoledì', 'giovedì', 'venerdì', 'sabato', 'domenica'] as const;
+
+/** Nome del mese (1-12). */
+export const monthName = (month: number): string => MONTHS[month - 1] ?? '';
+
+/** Nome del giorno della settimana di una data. */
+export const weekdayName = (date: EpochDay): string => WEEKDAYS[weekday(date)] ?? '';
+
+/** "mercoledì 21 ottobre": un giorno della stagione (giorni dall'apertura). */
+export function dayLabel(year: number, day: number): string {
+  const date = seasonDate(year, day);
+  const { month, date: d } = ymd(date);
+  return `${weekdayName(date)} ${d} ${monthName(month)}`;
+}
+
+/** "mer 21 ott". */
+export function shortDayLabel(year: number, day: number): string {
+  const date = seasonDate(year, day);
+  const { month, date: d } = ymd(date);
+  return `${weekdayName(date).slice(0, 3)} ${d} ${monthName(month).slice(0, 3)}`;
+}

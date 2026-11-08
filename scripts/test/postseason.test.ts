@@ -1,10 +1,10 @@
 // Fase 10: una post-season completa sulla lega di prova, come la gioca la Edge Function advance-turn.
-// Le prime 81 giornate hanno punteggi finti scritti a mano (per fare presto); l'ultima e tutta la post-season le
-// gioca il server. Fatto quando: i totali di classifica coincidono con le partite giocate e una post-season
+// I giorni di regular season prima dell'ultimo hanno punteggi finti scritti a mano (per fare presto); l'ultimo e
+// tutta la post-season, un giorno per turno, li gioca il server. Fatto quando: i totali di classifica coincidono con le partite giocate e una post-season
 // completa si gioca senza errori.
 import type { PGlite } from '@electric-sql/pglite';
 import {
-  Rng,
+  PLAY_IN_GAP,
   standingsSeed,
   standingsTable,
   type Conference,
@@ -17,6 +17,7 @@ import { beforeAll, describe, expect, it } from 'vitest';
 import { advanceLeague } from '../../supabase/functions/_shared/turn.ts';
 import { buildSeedSql, seedIds } from '../src/db/seed.ts';
 import { asUser, createTestDb, serviceRpc } from '../src/db/testdb.ts';
+import { skipToLastRegularDay, type RegularTurn } from '../src/db/testSeason.ts';
 
 const ids = seedIds();
 const LEAGUE = ids.league;
@@ -27,12 +28,13 @@ const MANAGERS = new Map([
 ]);
 
 let db: PGlite;
+let last: RegularTurn;
 
 const advance = () => advanceLeague(serviceRpc(db), LEAGUE, { newId: randomUUID, botProposals: false });
 
 async function current() {
-  const r = await db.query<{ id: string; number: number; kind: string; state: string }>(
-    `select r.id, r.number, r.kind, r.state from public.leagues l join public.rounds r on r.id = l.current_round_id
+  const r = await db.query<{ id: string; number: number; kind: string; state: string; day: number | null }>(
+    `select r.id, r.number, r.kind, r.state, r.day from public.leagues l join public.rounds r on r.id = l.current_round_id
      where l.id = $1`,
     [LEAGUE],
   );
@@ -57,53 +59,44 @@ const allReady = async (roundId: string) =>
 beforeAll(async () => {
   db = await createTestDb();
   await db.exec(buildSeedSql());
-  // 81 giornate con punteggi finti (niente pareggi), poi il turno aperto diventa l'ultima giornata
-  const rng = new Rng('post-season-finta');
-  const games = await db.query<{ id: string }>(
-    `select id from public.games where league_id = $1 and round_number < 81 order by id`,
-    [LEAGUE],
-  );
-  const values = games.rows.map((g) => {
-    const h = 95 + Math.floor(rng.next() * 40);
-    let a = 95 + Math.floor(rng.next() * 40);
-    if (a === h) a++;
-    return `('${g.id}'::uuid, ${h}, ${a})`;
-  });
-  await db.exec(`
-    update public.games g set home_score = v.h, away_score = v.a, overtimes = 0, played_at = now()
-    from (values ${values.join(',')}) as v(id, h, a) where g.id = v.id;
-    update public.rounds set number = 81 where id = '${ids.round}';
-  `);
+  // I giorni prima dell'ultimo con punteggi finti (niente pareggi), poi il turno aperto diventa l'ultimo giorno
+  last = await skipToLastRegularDay(db, LEAGUE, ids.round, 'post-season-finta');
 }, 120_000);
 
 describe('dall’ultima giornata alla finale', () => {
-  it('il server gioca l’ultima giornata e mette in calendario il play-in', async () => {
+  it('il server gioca l’ultimo giorno e mette in calendario il play-in', async () => {
     const round = await current();
-    expect(round).toMatchObject({ number: 81, kind: 'regular' });
+    expect(round).toMatchObject({ number: last.number, kind: 'regular', day: last.day });
     for (const [team, user] of MANAGERS)
       await asUser(db, user, (tx) => tx.query('select public.set_ready($1)', [team]));
     expect(await advance()).toMatchObject({
       advanced: true,
-      summary: { next: { number: 82, kind: 'play-in' } },
+      summary: { next: { number: last.number + 1, kind: 'play-in' } },
     });
     const next = await current();
-    expect(next).toMatchObject({ number: 82, kind: 'play-in', state: 'open' });
+    // Il primo giorno di play-in (l'Est) 2 giorni dopo la fine della regular season
+    expect(next).toMatchObject({
+      number: last.number + 1,
+      kind: 'play-in',
+      state: 'open',
+      day: last.day + PLAY_IN_GAP,
+    });
     const phase = await db.query<{ phase: string }>(
       'select s.phase from public.seasons s join public.leagues l on l.current_season_id = s.id where l.id = $1',
       [LEAGUE],
     );
     expect(phase.rows[0]!.phase).toBe('play-in');
     const playIn = await db.query<{ n: number }>(
-      `select count(*)::int as n from public.games where league_id = $1 and round_number = 82 and kind = 'play-in'
-       and home_score is null`,
-      [LEAGUE],
+      `select count(*)::int as n from public.games where league_id = $1 and round_number = $2 and kind = 'play-in'
+       and home_score is null and day = $3`,
+      [LEAGUE, last.number + 1, last.day + PLAY_IN_GAP],
     );
-    expect(playIn.rows[0]!.n).toBe(4);
+    expect(playIn.rows[0]!.n).toBe(2);
   });
 
   it('play-in e playoff si giocano fino al campione; chi non gioca non deve essere pronto', async () => {
     let champion: string | null = null;
-    for (let i = 0; i < 40; i++) {
+    for (let i = 0; i < 120; i++) {
       const round = await current();
       if (round.kind === 'offseason') break;
       const humansPlaying = await readyPlaying(round.number);
@@ -122,13 +115,32 @@ describe('dall’ultima giornata alla finale', () => {
     expect(end.kind).toBe('offseason');
     expect(champion).not.toBeNull();
 
-    // Play-in: 6 partite, 2 turni
-    const playIn = await db.query<{ n: number; rounds: number }>(
-      `select count(*)::int as n, count(distinct round_number)::int as rounds from public.games
-       where league_id = $1 and kind = 'play-in' and home_score is not null`,
+    // Play-in: 6 partite in 3 giorni (Est, Ovest, poi le partite per l'ottavo posto)
+    const playIn = await db.query<{ n: number; rounds: number; days: number }>(
+      `select count(*)::int as n, count(distinct round_number)::int as rounds, count(distinct day)::int as days
+       from public.games where league_id = $1 and kind = 'play-in' and home_score is not null`,
       [LEAGUE],
     );
-    expect(playIn.rows[0]).toEqual({ n: 6, rounds: 2 });
+    expect(playIn.rows[0]).toEqual({ n: 6, rounds: 3, days: 3 });
+    // Un turno di post-season è un giorno, dopo la regular season e sempre più avanti
+    const days = await db.query<{ round_number: number; days: number; day: number }>(
+      `select round_number, count(distinct day)::int as days, min(day) as day from public.games
+       where league_id = $1 and kind <> 'regular' group by round_number order by round_number`,
+      [LEAGUE],
+    );
+    expect(days.rows[0]!.day).toBe(last.day + PLAY_IN_GAP);
+    for (const [i, r] of days.rows.entries()) {
+      expect(r.days).toBe(1);
+      expect(r.round_number).toBe(last.number + 1 + i);
+      if (i > 0) expect(r.day).toBeGreaterThan(days.rows[i - 1]!.day);
+    }
+    // Ogni serie gioca una partita ogni 2 giorni
+    const gaps = await db.query<{ gap: number }>(
+      `select day - lag(day) over (partition by series_id order by day) as gap from public.games
+       where league_id = $1 and series_id is not null`,
+      [LEAGUE],
+    );
+    expect(new Set(gaps.rows.map((g) => g.gap).filter((g) => g !== null))).toEqual(new Set([2]));
 
     // 15 serie chiuse, ognuna con le vittorie delle sue partite
     const series = await db.query<{

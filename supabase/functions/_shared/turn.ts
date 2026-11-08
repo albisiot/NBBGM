@@ -11,6 +11,7 @@
 import {
   BODY_PART_LABEL,
   fillRosterAtMinimum,
+  shortDayLabel,
   MIN_STANDARD,
   payroll,
   playPostseasonTurn,
@@ -102,7 +103,8 @@ export const ALERT_KINDS = {
   preparation: 'preparation',
 } as const;
 
-const PERIODS = 82;
+/** Ricavi, stipendi e two-way di una stagione si dividono sulle partite di regular season di ogni squadra. */
+const GAMES_PER_SEASON = 82;
 
 /** Partite di stop da cui un infortunio finisce nella cronaca della lega (medi e gravi). */
 export const INJURY_NEWS_GAMES = 4;
@@ -211,16 +213,23 @@ export function serverTurn(
     if (a.blocking && a.status === 'open' && !closed.has(a.id)) closed.set(a.id, 'expired');
 
   // ------------------------------------------------ partite
-  // Ricavi e stipendi del turno con le rose che vanno in campo, come li conta il motore (chargeTurn); in
-  // post-season non ci sono movimenti
+  // Ricavi e stipendi di una partita per chi gioca oggi, con le rose che vanno in campo, come li conta il motore
+  // (chargeGames); chi riposa e la post-season non hanno movimenti
+  const today = regular ? state.schedule.filter((g) => g.turn === turn) : [];
+  const day = today[0]?.day ?? state.day;
+  const opponent = new Map(
+    today.flatMap((g) => [[g.homeId, `vs ${g.awayId}`] as const, [g.awayId, `@ ${g.homeId}`] as const]),
+  );
   const charge = new Map(
     state.teams.map((t) => [
       t.id,
-      regular
+      opponent.has(t.id)
         ? {
-            revenue: Math.round(state.config.revenue / PERIODS),
-            salary: Math.round(payroll(state, t.id) / PERIODS),
-            twoWay: Math.round((twoWayRoster(state, t.id).length * twoWaySalary(state.config)) / PERIODS),
+            revenue: Math.round(state.config.revenue / GAMES_PER_SEASON),
+            salary: Math.round(payroll(state, t.id) / GAMES_PER_SEASON),
+            twoWay: Math.round(
+              (twoWayRoster(state, t.id).length * twoWaySalary(state.config)) / GAMES_PER_SEASON,
+            ),
           }
         : { revenue: 0, salary: 0, twoWay: 0 },
     ]),
@@ -276,17 +285,20 @@ export function serverTurn(
   const ps = state.postseason as PostseasonState | null;
   // Fine della regular season in questo turno: tassa, monte minimo e primo turno di play-in
   const seasonOver = regular && state.phase !== 'regular';
-  const next: { number: number; kind: string; stage?: OffseasonStage } = newSeason
-    ? { number: 0, kind: 'regular' }
+  // Il giorno del turno che si apre: il prossimo giorno con partite (il motore lo mette in state.day); in offseason
+  // non c'è
+  const next: { number: number; kind: string; stage?: OffseasonStage; day?: number } = newSeason
+    ? { number: 0, kind: 'regular', day: state.day }
     : offseason
       ? { number: turn + 1, kind: 'offseason', stage: nextStage(stage as OffseasonStage) as OffseasonStage }
       : state.phase === 'regular'
-        ? { number: state.turn, kind: 'regular' }
+        ? { number: state.turn, kind: 'regular', day: state.day }
         : state.phase === 'offseason'
           ? { number: turn + 1, kind: 'offseason', stage: 'draft' }
           : {
               number: seasonOver ? regularTurns(state.schedule) : turn + 1,
               kind: ps?.stage === 'playoffs' ? 'playoffs' : 'play-in',
+              day: state.day,
             };
 
   // ------------------------------------------------ avvisi nuovi
@@ -404,14 +416,16 @@ export function serverTurn(
   // ------------------------------------------------ bilancio: il saldo è la somma dei movimenti
   const settlement = new Map(seasonOver ? (state.lastSettlement ?? []).map((s) => [s.teamId, s]) : []);
   const ledger: Row[] = [];
-  const note = `Giornata ${turn + 1}`;
+  const date = shortDayLabel(before.config.year, day);
   const teams = state.teams.map((t) => {
     const c = charge.get(t.id) as { revenue: number; salary: number; twoWay: number };
     const s = settlement.get(t.id);
     const tax = Math.round(s?.tax ?? 0);
     const shortfall = Math.round(s?.shortfall ?? 0);
     const id = uuid(t.id);
-    if (regular) {
+    // "mer 21 ott, vs LAL": la partita del giorno
+    const note = `${date}, ${opponent.get(t.id) ?? ''}`;
+    if (opponent.has(t.id)) {
       ledger.push({ team_id: id, kind: 'revenue', amount: c.revenue, note });
       ledger.push({ team_id: id, kind: 'salary', amount: -c.salary, note });
     }
@@ -599,6 +613,7 @@ export function serverTurn(
     gameRows.push({
       id,
       round_number: turn,
+      day: regular ? day : (ref?.day ?? day),
       kind: regular ? 'regular' : (ref?.phase ?? 'playoffs'),
       home_team_id: home,
       away_team_id: away,
@@ -645,6 +660,7 @@ export function serverTurn(
       gameRows.push({
         id: opts.newId(),
         round_number: next.number,
+        day: g.day,
         kind: g.phase,
         home_team_id: uuid(g.homeId),
         away_team_id: uuid(g.awayId),
@@ -722,6 +738,7 @@ export function serverTurn(
     payload.new_games = state.schedule.map((g) => ({
       id: opts.newId(),
       round_number: g.turn,
+      day: g.day,
       kind: 'regular',
       home_team_id: uuid(g.homeId),
       away_team_id: uuid(g.awayId),

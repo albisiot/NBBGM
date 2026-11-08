@@ -141,10 +141,15 @@ describe('testi delle notifiche', () => {
   });
 
   it('turno nuovo, decisione e draft con la pagina giusta', () => {
-    expect(notificationText(row({}))).toEqual({
-      body: 'Si è giocato. Turno nuovo: giornata 14 di 82.',
+    expect(notificationText(row({ round_day: 1, season_year: 2026 }))).toEqual({
+      body: 'Si è giocato. Turno nuovo: mercoledì 21 ottobre.',
       url: './#/lega/L',
     });
+    expect(notificationText(row({ round_kind: 'playoffs', round_day: 180, season_year: 2026 })).body).toBe(
+      'Si è giocato. Turno nuovo: playoff, domenica 18 aprile.',
+    );
+    // Senza il giorno (righe di prima): il numero del turno
+    expect(notificationText(row({})).body).toBe('Si è giocato. Turno nuovo: turno 14.');
     expect(notificationText(row({ round_kind: 'offseason', round_stage: 'renewals' })).body).toBe(
       'Si è giocato. Turno nuovo: offseason, rinnovi.',
     );
@@ -176,7 +181,7 @@ describe('testi delle notifiche', () => {
       userId: 'u',
       payload: {
         title: 'Amici',
-        body: 'Si è giocato. Turno nuovo: giornata 14 di 82. Hai 2 decisioni da prendere.',
+        body: 'Si è giocato. Turno nuovo: turno 14. Hai 2 decisioni da prendere.',
         url: './#/lega/L/mercato?tab=scambi',
         tag: 'nbbgm-L',
         badge: 2,
@@ -262,8 +267,11 @@ describe('notifiche sul database', () => {
     expect(await mine(BRUNO)).toBe(0);
   });
 
-  it('turno nuovo: solo a chi è iscritto e non ha l’allenatore; poi la coda si svuota', async () => {
+  it('turno nuovo: solo a chi è iscritto, gioca e non ha l’allenatore; poi la coda si svuota', async () => {
     await subscribe(CARLA, 'https://updates.push.services.mozilla.com/wpush/v2/carla', await browser());
+    // Bruno (LAL) è iscritto, ma il secondo giorno riposa: niente turno nuovo
+    const brunoPhone = 'https://fcm.googleapis.com/fcm/send/bruno-telefono';
+    await subscribe(BRUNO, brunoPhone, await browser());
     await asUser(db, CARLA, (tx) =>
       tx.query(`insert into public.coach_delegations (team_id, league_id, active) values ($1, $2, true)`, [
         NYK,
@@ -281,9 +289,17 @@ describe('notifiche sul database', () => {
     const batch = await take();
     const turns = batch.notifications.filter((n) => n.kind === 'turn');
     expect(turns.map((n) => n.user_id)).toEqual([ANNA]);
-    expect(turns[0]).toMatchObject({ league_id: LEAGUE, round_kind: 'regular', round_number: 1 });
+    expect(turns[0]).toMatchObject({
+      league_id: LEAGUE,
+      round_kind: 'regular',
+      round_number: 1,
+      round_day: 1,
+      season_year: 2026,
+    });
+    expect(notificationText(turns[0]!).body).toBe('Si è giocato. Turno nuovo: mercoledì 21 ottobre.');
     expect(batch.subscriptions.filter((s) => s.user_id === ANNA)).toHaveLength(1);
     expect((await take()).notifications).toEqual([]);
+    await asUser(db, BRUNO, (tx) => tx.query('select public.delete_push_subscription($1)', [brunoPhone]));
   }, 60_000);
 
   it('avviso bloccante nuovo: decisione per il manager, se non l’ha spenta nel profilo', async () => {

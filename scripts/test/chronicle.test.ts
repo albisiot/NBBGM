@@ -57,8 +57,9 @@ describe('cronaca della lega', () => {
   });
 
   it('il turno scrive gli infortuni da 4 partite in su, non quelli leggeri', async () => {
-    const bos = 'BOS';
-    // Partita finta con un infortunio grave per chi gioca in casa contro o con BOS e uno leggero per gli altri
+    // Il primo giorno (3 partite) gioca LAL
+    const bos = 'LAL';
+    // Partita finta con un infortunio grave per chi gioca in casa contro o con LAL e uno leggero per gli altri
     const playGame = (home: TeamSetup, away: TeamSetup, seed: string): GameResult => {
       const r = quickGame(home, away, seed);
       const heavy = home.teamId === bos || away.teamId === bos;

@@ -28,16 +28,19 @@ async function loadState(): Promise<LeagueState> {
   return leagueStateFromRows(rows).state;
 }
 
-/** Gioca il turno corrente e restituisce la partita di Boston. */
+/** Gioca i turni dal corrente fino alla prima partita di Boston (il primo giorno riposa) e la restituisce. */
 function playBoston(state: LeagueState): { result: GameResult; side: 'home' | 'away' } {
-  const results: GameResult[] = [];
-  playRegularTurn(state, (h, a, seed) => {
-    const r = simulateGame(h, a, seed);
-    results.push(r);
-    return r;
-  });
-  const result = results.find((r) => r.home.teamId === 'BOS' || r.away.teamId === 'BOS') as GameResult;
-  return { result, side: result.home.teamId === 'BOS' ? 'home' : 'away' };
+  for (let i = 0; i < 5; i++) {
+    const results: GameResult[] = [];
+    playRegularTurn(state, (h, a, seed) => {
+      const r = simulateGame(h, a, seed);
+      results.push(r);
+      return r;
+    });
+    const result = results.find((r) => r.home.teamId === 'BOS' || r.away.teamId === 'BOS');
+    if (result) return { result, side: result.home.teamId === 'BOS' ? 'home' : 'away' };
+  }
+  throw new Error('Boston non gioca nei primi 5 turni');
 }
 
 describe('stato della lega dal database', () => {
