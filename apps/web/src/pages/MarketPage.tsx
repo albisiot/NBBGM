@@ -309,6 +309,12 @@ export function MarketPage() {
       setBusy(false);
       return null;
     }
+    // Un'offerta offensiva toglie morale: si rilegge anche la rosa, che lo mostra
+    if (reply && reply.kind !== 'accept' && reply.lowball) {
+      reload();
+      setBusy(false);
+      return reply;
+    }
     if (loaded && data) {
       try {
         setLive({ of: loaded, value: await loadLive(data.league, data.me, data.players, data.offerPicks) });
@@ -1814,7 +1820,11 @@ function Options({ data, busy, run }: { data: MarketData; busy: boolean; run: Ru
                 </Link>
                 <p className={META}>
                   {p.role} · {p.age} anni · {millions(p.salaries[0] ?? 0)} nella prossima stagione
-                  {p.salaries.length > 1 ? `, poi ${p.salaries.length - 1} anni di contratto` : ''}
+                  {p.salaries.length > 2
+                    ? `, poi altri ${p.salaries.length - 1} anni di contratto`
+                    : p.salaries.length === 2
+                      ? ', poi un altro anno di contratto'
+                      : ''}
                 </p>
                 <p className={META}>
                   {decision ? (

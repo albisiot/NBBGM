@@ -40,6 +40,8 @@ export const BOT_PROPOSAL_COOLDOWN = 10;
 
 const millions = (x: number) => `${(x / 1e6).toFixed(1).replace('.', ',')} mln`;
 const fullName = (p: Pick<PlayerState, 'firstName' | 'lastName'>) => `${p.firstName} ${p.lastName}`;
+/** "1 anno", "3 anni" */
+const yearsText = (n: number) => `${n} ${n === 1 ? 'anno' : 'anni'}`;
 
 /** Richiesta di uno svincolato in stagione. */
 export function inSeasonAsk(state: LeagueState, p: PlayerState): number {
@@ -107,7 +109,7 @@ export function applyRenewal(
     year: state.config.year,
     turn,
     type: 'renewal',
-    text: `${c.teamId} rinnova ${fullName(p)} (${salaries.length} anni, ${millions(salaries[0] ?? 0)} dalla prossima stagione)`,
+    text: `${c.teamId} rinnova ${fullName(p)} (${yearsText(salaries.length)}, ${millions(salaries[0] ?? 0)} dalla prossima stagione)`,
   });
   return true;
 }
@@ -288,7 +290,7 @@ export function runMarket(
       note(
         r.teamId,
         ok
-          ? `${fullName(p)} ha rinnovato: ${r.salaries.length} anni, ${millions(r.salaries[0] ?? 0)} il primo.`
+          ? `${fullName(p)} ha rinnovato: ${yearsText(r.salaries.length)}, ${millions(r.salaries[0] ?? 0)} il primo.`
           : `Il rinnovo di ${fullName(p)} non è più possibile.`,
       );
   }
@@ -370,7 +372,7 @@ export function runMarket(
       out.bids.push({ id: b.id, status: 'won' });
       note(
         b.teamId,
-        `Hai firmato ${fullName(p)}: ${b.salaries.length} anni, ${millions(b.salaries[0] ?? 0)} il primo.`,
+        `Hai firmato ${fullName(p)}: ${yearsText(b.salaries.length)}, ${millions(b.salaries[0] ?? 0)} il primo.`,
       );
     } else if (p.teamId !== null) {
       out.bids.push({ id: b.id, status: 'lost' });

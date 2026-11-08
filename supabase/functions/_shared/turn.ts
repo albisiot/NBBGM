@@ -123,6 +123,9 @@ export const ALERT_KINDS = {
   preparation: 'preparation',
 } as const;
 
+/** Inizio della nota del mercato sulle offerte agli svincolati ancora sul tavolo (runMarket nel motore). */
+const STANDING_NOTE = 'Offerte ancora sul tavolo';
+
 /** Ricavi, stipendi e two-way di una stagione si dividono sulle partite di regular season di ogni squadra. */
 const GAMES_PER_SEASON = 82;
 
@@ -256,6 +259,14 @@ export function serverTurn(
   // Gli altri avvisi bloccanti senza risposta si chiudono: ha deciso l'allenatore
   for (const a of alerts)
     if (a.blocking && a.status === 'open' && !closed.has(a.id)) closed.set(a.id, 'expired');
+  // Le note sulle offerte ancora sul tavolo valgono per un turno: le sostituisce quella del turno nuovo
+  for (const a of alerts)
+    if (
+      a.kind === ALERT_KINDS.market &&
+      a.status === 'open' &&
+      String(a.payload.text ?? '').startsWith(STANDING_NOTE)
+    )
+      closed.set(a.id, 'resolved');
 
   // ------------------------------------------------ partite
   // Ricavi e stipendi di una partita per chi gioca oggi, con le rose che vanno in campo, come li conta il motore

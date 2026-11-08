@@ -469,6 +469,13 @@ describe('free agency in 15 turni', () => {
       [LAL],
     );
     expect(notes[0]!.payload.text).toMatch(/Offerte ancora sul tavolo/);
+    // La nota di ogni turno sostituisce quella di prima: ne resta aperta una sola
+    const open = await q<{ n: number }>(
+      `select count(*)::int as n from public.alerts where team_id = $1 and kind = 'market' and status = 'open'
+       and payload ->> 'text' like 'Offerte ancora sul tavolo%'`,
+      [LAL],
+    );
+    expect(open[0]!.n).toBe(1);
     expect((await current()).stage).toBe(`fa${FA_MORATORIUM_ROUNDS + 1}`);
     // Avviso informativo: da questo turno si firma
     const fa = await openAlerts(LAL, 'free_agency');
@@ -558,6 +565,24 @@ describe('preparazione e stagione nuova', () => {
     await act(ANNA, { kind: 'release', player_id: mine[0]! });
     await expect(ready(ANNA, BOS)).rejects.toThrow(/Devi tagliare un giocatore/);
     await act(ANNA, { kind: 'release', player_id: mine[1]! });
+    await ready(ANNA, BOS);
+    // Le offerte fatte contano come se firmassero: con 15 contratti un'offerta in più chiede un taglio
+    const state = await engineState();
+    const cheap = state.players.find(
+      (p) =>
+        p.teamId === null &&
+        !p.prospect &&
+        p.injury === null &&
+        askingSalary(state, p, FREE_AGENCY_ROUNDS - 1) === minimumSalaryFor(state.config, p.yearsInLeague),
+    )!;
+    const bid = await act(ANNA, {
+      kind: 'bid',
+      player_id: cheap.id,
+      salary: minimumSalaryFor(state.config, cheap.yearsInLeague),
+      years: 1,
+    });
+    await expect(ready(ANNA, BOS)).rejects.toThrow(/Devi tagliare un giocatore.*contando le offerte/);
+    await act(ANNA, { kind: 'withdraw_bid', bid_id: bid.id });
     await ready(ANNA, BOS);
     // Los Angeles a 11: non sistema, il server firma al minimo a inizio stagione
     const lal = await standard(LAL);
