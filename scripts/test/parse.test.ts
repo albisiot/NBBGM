@@ -165,6 +165,51 @@ describe('parseLeague', () => {
     ]);
   });
 
+  it('legge il formato del v4: Free Agent, Fuori NBA, apertura alare misurata', () => {
+    // stesse colonne, con il nome nuovo dell'apertura alare (le righe restano allineate per posizione)
+    const header = PLAYER_HEADER.map((h) => (h === 'Apertura alare (cm, stima)' ? 'Apertura alare (cm)' : h));
+    const { league, errors } = parseLeague(
+      input(
+        [
+          playerRow('Boston Celtics', 'Luca', 'Bianchi', {
+            'Ruolo secondario': 'SG',
+            'Apertura alare (cm, stima)': 199,
+          }),
+          playerRow('Free Agent', 'Paolo', 'Verdi', { Età: 33 }),
+          playerRow('Fuori NBA', 'Ugo', 'Neri', { Età: 19 }),
+        ],
+        [
+          contract('Boston Celtics', 'Luca', 'Bianchi'),
+          contract('Svincolato', 'Paolo', 'Verdi', 'svincolato'),
+        ],
+        header,
+      ),
+    );
+    expect(errors).toEqual([]);
+    expect(
+      league.players.map((p) => [p.id, p.teamId, p.secondaryRole, p.wingspanCm, p.yearsInLeague]),
+    ).toEqual([
+      // il ruolo secondario uguale al principale vale come nessuno
+      ['luca-bianchi', 'BOS', null, 199, 4],
+      // svincolato: anni dalla riga di "Svincolato" nei contratti
+      ['paolo-verdi', null, 'PG', 203, 4],
+      // senza riga nei contratti: anni stimati dall'età
+      ['ugo-neri', null, 'PG', 203, 0],
+    ]);
+    expect(league.contracts.map((c) => c.playerId)).toEqual(['luca-bianchi']);
+  });
+
+  it('senza nessuna colonna dell’apertura alare il file è rifiutato', () => {
+    const header = PLAYER_HEADER.filter((h) => h !== 'Apertura alare (cm, stima)');
+    const { errors } = parseLeague(input([], [], header));
+    expect(errors).toEqual(['Foglio GIOCATORI: colonna "Apertura alare (cm)" mancante']);
+  });
+
+  it('stima gli anni nella lega di chi non ha contratto', () => {
+    const { league } = parseLeague(input([playerRow('Fuori NBA', 'Ugo', 'Neri', { Età: 31 })], []));
+    expect(league.players[0]?.yearsInLeague).toBe(11);
+  });
+
   it('slug toglie accenti e simboli', () => {
     expect(slug('Nikola Jokić')).toBe('nikola-jokic');
     expect(slug("Nae'Qwan Tomlin")).toBe('nae-qwan-tomlin');

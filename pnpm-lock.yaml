@@ -238,6 +238,9 @@ importers:
       exceljs:
         specifier: 4.4.0
         version: 4.4.0
+      jszip:
+        specifier: 3.10.2
+        version: 3.10.2
     devDependencies:
       '@electric-sql/pglite':
         specifier: 0.5.10

@@ -15,7 +15,8 @@
   },
   "dependencies": {
     "@nbbgm/engine": "workspace:*",
-    "exceljs": "4.4.0"
+    "exceljs": "4.4.0",
+    "jszip": "3.10.2"
   },
   "devDependencies": {
     "@electric-sql/pglite": "0.5.10",

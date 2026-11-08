@@ -1,4 +1,6 @@
+import { readFile } from 'node:fs/promises';
 import ExcelJS from 'exceljs';
+import JSZip from 'jszip';
 import type { Cell, Row } from './parse.ts';
 
 /** Valore semplice di una cella: testo, numero o null (formule e link compresi). */
@@ -35,8 +37,42 @@ export function readSheet(workbook: ExcelJS.Workbook, name: string, headerRow: n
   return { header, rows };
 }
 
+const COMMENTS_REL = 'http://schemas.openxmlformats.org/officeDocument/2006/relationships/comments';
+const VML_REL = 'http://schemas.openxmlformats.org/officeDocument/2006/relationships/vmlDrawing';
+
+/**
+ * Collegamenti dei fogli che ExcelJS sa leggere. I file salvati da openpyxl (come il v4 dei giocatori) scrivono
+ * percorsi assoluti ("/xl/tables/table1.xml") e note in "xl/comments/comment1.xml": ExcelJS cerca i collegamenti
+ * con il percorso relativo e le note solo in "xl/comments1.xml", e si ferma. I percorsi diventano relativi e i
+ * collegamenti alle note che ExcelJS non trova si tolgono: l'import legge solo i valori delle celle.
+ */
+export function sheetLinksForExcelJs(xml: string): string {
+  return xml.replace(/Target="\/xl\//g, 'Target="../').replace(/<Relationship\b[^>]*\/>/g, (rel) => {
+    const target = /Target="([^"]*)"/.exec(rel)?.[1] ?? '';
+    if (rel.includes(`"${COMMENTS_REL}"`) && !/^\.\.\/comments\d+\.xml$/.test(target)) return '';
+    if (rel.includes(`"${VML_REL}"`) && !/^\.\.\/drawings\/vmlDrawing\d+\.vml$/.test(target)) return '';
+    return rel;
+  });
+}
+
+async function readableByExcelJs(data: Buffer): Promise<Buffer> {
+  const zip = await JSZip.loadAsync(data);
+  let changed = false;
+  for (const name of Object.keys(zip.files)) {
+    if (!/^xl\/worksheets\/_rels\/[^/]+\.rels$/.test(name)) continue;
+    const xml = await zip.file(name)!.async('string');
+    const fixed = sheetLinksForExcelJs(xml);
+    if (fixed !== xml) {
+      zip.file(name, fixed);
+      changed = true;
+    }
+  }
+  return changed ? zip.generateAsync({ type: 'nodebuffer' }) : data;
+}
+
 export async function openWorkbook(path: string): Promise<ExcelJS.Workbook> {
   const workbook = new ExcelJS.Workbook();
-  await workbook.xlsx.readFile(path);
+  const data = await readableByExcelJs(await readFile(path));
+  await workbook.xlsx.load(data as unknown as ArrayBuffer);
   return workbook;
 }

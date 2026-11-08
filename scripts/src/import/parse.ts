@@ -40,7 +40,12 @@ export interface ParseResult {
   dunkestPrice: Map<string, number>;
 }
 
-const FREE_AGENT = 'Svincolato';
+/** Giocatori senza squadra NBA: "Svincolato" fino al file v2, "Free Agent" e "Fuori NBA" dal v4. */
+const FREE_AGENTS = new Set(['Svincolato', 'Free Agent', 'Fuori NBA']);
+/** Nel foglio CONTRATTI gli svincolati stanno sotto "Svincolato". */
+const FREE_AGENT_CONTRACTS = 'Svincolato';
+/** Apertura alare: stimata fino al v2, misurata (NBA 2K27) dal v4. */
+const WINGSPAN = ['Apertura alare (cm)', 'Apertura alare (cm, stima)'];
 const SEASONS = ['2026-27', '2027-28', '2028-29', '2029-30', '2030-31', '2031-32'];
 const CONTRACT_TYPES: Record<string, ContractType | 'free-agent'> = {
   standard: 'standard',
@@ -62,7 +67,6 @@ const IDENTITY = [
   'Archetipo',
   'Età',
   'Altezza (cm)',
-  'Apertura alare (cm, stima)',
   'Peso (kg)',
 ];
 
@@ -89,6 +93,8 @@ export function parseLeague(input: ParseInput): ParseResult {
   const errors: string[] = [];
   const numericLabels = [...RATING_FIELDS, ...TENDENCY_FIELDS, ...HIDDEN_FIELDS].map((f) => f.label);
   const pc = columns(input.playerHeader, [...IDENTITY, ...numericLabels], 'GIOCATORI', errors);
+  const wingspanLabel = WINGSPAN.find((w) => pc.has(w));
+  if (!wingspanLabel) errors.push(`Foglio GIOCATORI: colonna "${WINGSPAN[0]}" mancante`);
   const cc = columns(
     input.contractHeader,
     ['Squadra NBA', 'Nome', 'Cognome', 'Tipo contratto', 'Anni nella lega', 'Opzioni', 'Garantito residuo'],
@@ -103,7 +109,7 @@ export function parseLeague(input: ParseInput): ParseResult {
     contracts: [],
     deadMoney: [],
   };
-  if (errors.length) return { league: empty, errors, dunkestPrice: new Map() };
+  if (errors.length || !wingspanLabel) return { league: empty, errors, dunkestPrice: new Map() };
 
   const get = (row: Row, map: Map<string, number>, name: string): Cell =>
     row[map.get(name) as number] ?? null;
@@ -131,13 +137,14 @@ export function parseLeague(input: ParseInput): ParseResult {
     const where = `GIOCATORI riga ${rowNo} (${first} ${last})`;
     const rowErrors: string[] = [];
 
-    const team = teamName === FREE_AGENT ? null : teamByFullName(teamName);
+    const team = FREE_AGENTS.has(teamName) ? null : teamByFullName(teamName);
     if (team === undefined) rowErrors.push(`${where}: squadra "${teamName}" sconosciuta`);
     const role = text(get(row, pc, 'Ruolo principale')) as Role;
     if (!ROLES.includes(role))
       rowErrors.push(`${where}: ruolo principale "${role}" non valido (PG, SG, SF, PF, C)`);
     const secondaryText = text(get(row, pc, 'Ruolo secondario'));
-    const secondary = secondaryText ? (secondaryText as Role) : null;
+    // Il v4 ripete il ruolo principale come secondario quando 2K ne dà uno solo: vale come nessun secondario
+    const secondary = secondaryText && secondaryText !== role ? (secondaryText as Role) : null;
     if (secondary !== null && !ROLES.includes(secondary)) {
       rowErrors.push(`${where}: ruolo secondario "${secondaryText}" non valido`);
     }
@@ -160,7 +167,7 @@ export function parseLeague(input: ParseInput): ParseResult {
     const hidden = fill(HIDDEN_FIELDS) as Hidden;
     const age = num('Età', 17, 45);
     const heightCm = num('Altezza (cm)', 150, 245);
-    const wingspanCm = num('Apertura alare (cm, stima)', 150, 260);
+    const wingspanCm = num(wingspanLabel, 150, 260);
     const weightKg = num('Peso (kg)', 55, 170);
 
     if (rowErrors.length) {
@@ -172,8 +179,11 @@ export function parseLeague(input: ParseInput): ParseResult {
     for (let n = 2; usedIds.has(id); n++) id = `${slug(`${first} ${last}`)}-${n}`;
     usedIds.add(id);
 
-    const crow = contractRows.get([teamName, first, last].join('|'));
+    const crow = contractRows.get([team ? teamName : FREE_AGENT_CONTRACTS, first, last].join('|'));
     const yearsRaw = crow ? get(crow, cc, 'Anni nella lega') : null;
+    // Senza riga nei contratti (svincolati e giocatori fuori dalla NBA aggiunti dal v4) gli anni nella lega si
+    // stimano dall'età, come nel generatore: decidono minimo e massimo dello stipendio
+    const yearsInLeague = typeof yearsRaw === 'number' ? yearsRaw : crow ? null : Math.max(0, age - 20);
     const player: Player & { teamId: string | null } = {
       id,
       firstName: first,
@@ -187,7 +197,7 @@ export function parseLeague(input: ParseInput): ParseResult {
       heightCm,
       wingspanCm,
       weightKg,
-      yearsInLeague: typeof yearsRaw === 'number' ? yearsRaw : null,
+      yearsInLeague,
       ratings,
       tendencies,
       hidden,

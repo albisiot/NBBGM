@@ -11,6 +11,7 @@ import {
   type Player,
   type Role,
 } from '@nbbgm/engine';
+import type { ScaleChange } from './scale.ts';
 
 const mean = (xs: number[]) => xs.reduce((a, b) => a + b, 0) / (xs.length || 1);
 const sd = (xs: number[]) => {
@@ -28,10 +29,18 @@ const f2 = (x: number) => x.toFixed(2).replace('.', ',');
 const money = (x: number) => `${(x / 1e6).toFixed(1).replace('.', ',')} mln`;
 
 /** Report di qualità del file dati, in Markdown. */
-export function qualityReport(league: LeagueData, issues: Issue[], dunkest: Map<string, number>): string {
+export function qualityReport(
+  league: LeagueData,
+  issues: Issue[],
+  dunkest: Map<string, number>,
+  scale: readonly ScaleChange[] = [],
+): string {
   const players = league.players;
   const out: string[] = [];
   const byRole = new Map<Role, Player[]>(ROLES.map((r) => [r, players.filter((p) => p.role === r)]));
+  const rosteredByRole = new Map<Role, Player[]>(
+    ROLES.map((r) => [r, players.filter((p) => p.role === r && p.teamId !== null)]),
+  );
   const free = players.filter((p) => p.teamId === null).length;
   const types = new Map<string, number>();
   for (const c of league.contracts) types.set(c.type, (types.get(c.type) ?? 0) + 1);
@@ -50,13 +59,29 @@ export function qualityReport(league: LeagueData, issues: Issue[], dunkest: Map<
     out.push('');
   }
 
+  if (scale.length) {
+    out.push('## Scala delle abilità', '');
+    out.push(
+      'Abilità riportate ruolo per ruolo alla scala del file v2, poi overall con la distribuzione del v2: ogni giocatore tiene il suo posto in classifica (vedi `scripts/src/import/scale.ts`). Overall grezzo dei giocatori nelle rose, media e dispersione:',
+      '',
+    );
+    out.push('| Ruolo | Nel file | Dopo i campi | Alla fine | Aggiunto alle abilità |');
+    out.push('| --- | --- | --- | --- | --- |');
+    const ms = (x: { mean: number; sd: number }) => `${f1(x.mean)} ± ${f1(x.sd)}`;
+    for (const c of scale)
+      out.push(
+        `| ${c.role} | ${ms(c.overall.file)} | ${ms(c.overall.fields)} | ${ms(c.overall.final)} | da ${f1(c.shift.min)} a ${f1(c.shift.max)} |`,
+      );
+    out.push('');
+  }
+
   out.push('## Overall', '');
   out.push(
-    'Media e dispersione dell’overall grezzo per ruolo (da copiare in `OVERALL_SCALE` se cambiano):',
+    'Media e dispersione dell’overall grezzo per ruolo dei giocatori nelle rose (da copiare in `OVERALL_SCALE` se cambiano):',
     '',
   );
   out.push('| Ruolo | Giocatori | Media | Dispersione |', '| --- | --- | --- | --- |');
-  for (const [role, list] of byRole) {
+  for (const [role, list] of rosteredByRole) {
     const raws = list.map((p) => overallRaw(p.ratings, p.role));
     out.push(`| ${role} | ${list.length} | ${f1(mean(raws))} | ${f1(sd(raws))} |`);
   }

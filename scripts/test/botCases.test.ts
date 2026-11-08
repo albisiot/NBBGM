@@ -152,14 +152,15 @@ describe.skipIf(!real)('casi della seconda analisi con i giocatori reali', () =>
     expect(out.notes.some((n) => n.teamId === 'MIL' && /tagliato/.test(n.text))).toBe(true);
   });
 
-  it('Philadelphia, in corsa, non cede Jaylen Brown per due ventenni da 58', () => {
+  it('Philadelphia, in corsa, non cede Jaylen Brown per due ventenni di Boston', () => {
     const s = fresh(20);
     expect(s.teams.find((t) => t.id === 'PHI')!.strategy).toBe('contend');
     const brown = player(s, 'jaylen-brown');
     const kids = ['gonzalez', 'cenac'].map((n) =>
       best(s, 'BOS').find((p) => p.lastName.toLowerCase().startsWith(n) && p.age <= 21)!,
     );
-    for (const k of kids) expect(Math.round(overall(k))).toBe(58);
+    // 58 tutti e due con il file v2; con il v4 (valori di NBA 2K27) 55 e 57
+    for (const k of kids) expect(overall(k)).toBeLessThan(60);
     const t: Trade = {
       teamA: 'PHI',
       teamB: 'BOS',
