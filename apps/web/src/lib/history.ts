@@ -3,6 +3,7 @@
 import { emptyStats, type Conference, type SeasonStats, type StandingsLine } from '@nbbgm/engine';
 import { KeyedCache } from './cache.ts';
 import type { LeagueDetail } from './leagues.ts';
+import { shortName } from './names.ts';
 import { regularSeasonRecords, standingsFromRecords } from './results.ts';
 import { supabase } from './supabase.ts';
 
@@ -88,6 +89,8 @@ export interface SeasonPlayer {
   id: string;
   teamId: string | null;
   name: string;
+  /** Nome puntato per le classifiche: "J. Tatum". */
+  shortName: string;
   role: string;
   /** Primo anno nella lega; null se non si sa. */
   rookie: boolean | null;
@@ -165,6 +168,7 @@ export async function seasonPlayers(
           id: r.player_id,
           teamId: r.team_id,
           name: r.player ? `${r.player.first_name} ${r.player.last_name}` : 'Giocatore',
+          shortName: r.player ? shortName(r.player.first_name, r.player.last_name) : 'Giocatore',
           role: r.player?.role ?? '',
           rookie: r.rookie,
           stats: toStats(r.stats),
@@ -194,6 +198,7 @@ export async function seasonPlayers(
         id: p.id,
         teamId: p.team_id,
         name: `${p.first_name} ${p.last_name}`,
+        shortName: shortName(p.first_name, p.last_name),
         role: p.role,
         // In offseason l'anzianità è già cresciuta di un anno (fine stagione)
         rookie:

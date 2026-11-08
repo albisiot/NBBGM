@@ -266,9 +266,10 @@ function SeasonDetail({
                             </b>
                             <Link
                               to={`/lega/${league.id}/giocatore/${l.playerId}`}
+                              title={byId.get(l.playerId)?.name}
                               className={`max-w-[9rem] truncate ${INK_LINK}`}
                             >
-                              {byId.get(l.playerId)?.name}
+                              {byId.get(l.playerId)?.shortName}
                             </Link>
                           </span>
                         }

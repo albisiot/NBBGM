@@ -17,6 +17,7 @@ const line = (over: Partial<BoxLine>): BoxLine => ({
   playerId: 'p',
   teamId: 't',
   name: 'Nome',
+  shortName: 'N.',
   role: 'PG',
   starter: false,
   seconds: 0,

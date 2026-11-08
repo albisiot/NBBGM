@@ -229,11 +229,13 @@ function BoxTable({ leagueId, lines }: { leagueId: string; lines: BoxLine[] }) {
     >
       <th scope="row" className={`${STICKY} ${PAPER} py-1.5 pr-2 pl-1 text-left`}>
         <span className="flex max-w-[10rem] min-w-0 items-baseline gap-1 sm:max-w-56">
+          {/* Nome puntato, come nei tabellini: il nome intero nella scheda del giocatore */}
           <Link
             to={`/lega/${leagueId}/giocatore/${l.playerId}`}
+            title={l.name}
             className={`truncate ${l.starter ? 'font-bold' : 'font-normal'} ${INK_LINK}`}
           >
-            {l.name}
+            {l.shortName}
           </Link>
           <i className="shrink-0 text-[0.8125rem] font-normal text-stampa-600 dark:text-stampa-300">
             {l.role}

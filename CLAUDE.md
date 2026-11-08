@@ -641,6 +641,10 @@ Un turno = un giorno (scelto dall'utente dopo lo studio del calendario NBA vero)
   - eliminate con l'ok dell'utente le due leghe di prova ("ciao" e "kokok", solo account dell'utente); push su `main` delle tre fasi: Controlli, Supabase (migrazione `20261108090000`) e Pages riusciti;
   - prova con una lega nuova, "Prova giorni" (Boston, rose reali, nessuna scadenza, un turno al minuto), dall'app in locale sul database di produzione: il primo giorno Boston riposava (Pronto automatico) e il turno si è chiuso da solo al ritmo massimo (pg_cron e advance-turn); nei giorni con la partita il Pronto chiude subito; "Conferma il Pronto" in un giorno di riposo fa partire il turno; tolto il Pronto in un giorno di riposo il turno è rimasto fermo oltre il ritmo massimo, ed è ripartito al Pronto. Cinque giorni giocati (3, 12, 6, 9 e 6 partite), nessun errore di simulazione; risultati per giorno, calendario (back-to-back, riposi, pausa per l'All-Star), bilancio per partita ("mer 21 ott, vs NYK") e cronaca con le date controllati nella pagina.
 
+Nomi puntati nelle tabelle (chiesto dall'utente dopo "un turno = un giorno").
+
+- Box score, pagina Statistiche e classifiche dello Storico (migliori 5 per punti, rimbalzi, assist) mostrano il nome puntato, come nei tabellini: "J. Tatum", "K.-A. Towns", "N. Smith Jr." (`shortName` in `lib/names.ts`, dal nome e dal cognome salvati a parte). Il nome intero resta nel `title` del link e nella scheda del giocatore; premi, cerimonia, mercato, rosa e confronto usano ancora il nome intero.
+
 ## Visione
 
 Un manageriale di basket a turni sincronizzati: ogni utente è presidente e direttore generale di una squadra NBA, e la lega avanza di un turno solo quando tutti hanno confermato le proprie scelte o hanno affidato la squadra all'allenatore. La prima versione ruota attorno a quattro cose: un motore partita credibile, la gestione del roster, un mercato con regole salariali NBA semplificate e una lega che dura più stagioni.

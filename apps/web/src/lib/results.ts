@@ -12,6 +12,7 @@ import {
 } from '@nbbgm/engine';
 import { allPages } from './cache.ts';
 import type { LeagueDetail, LeagueTeam } from './leagues.ts';
+import { shortName } from './names.ts';
 import { whenText } from './roundDate.ts';
 import { supabase } from './supabase.ts';
 
@@ -51,6 +52,8 @@ export interface BoxLine {
   playerId: string;
   teamId: string;
   name: string;
+  /** Nome puntato per la tabella: "J. Tatum". */
+  shortName: string;
   role: string;
   starter: boolean;
   seconds: number;
@@ -209,6 +212,7 @@ export async function gameDetail(gameId: string): Promise<GameDetail | null> {
       playerId: s.player_id,
       teamId: s.team_id,
       name: s.player ? `${s.player.first_name} ${s.player.last_name}` : '?',
+      shortName: s.player ? shortName(s.player.first_name, s.player.last_name) : '?',
       role: s.player?.role ?? '',
       starter: s.starter,
       seconds: s.seconds,
@@ -340,6 +344,8 @@ export interface PlayerSeason {
   id: string;
   teamId: string | null;
   name: string;
+  /** Nome puntato per la tabella: "J. Tatum". */
+  shortName: string;
   role: string;
   g: number;
   min: number;
@@ -379,6 +385,7 @@ export async function playerSeasons(leagueId: string): Promise<PlayerSeason[]> {
         `${p.first_name} ${p.last_name}`,
         p.role,
         p.season_stats as Record<string, number>,
+        shortName(p.first_name, p.last_name),
       ),
     );
 }
@@ -390,6 +397,7 @@ export function perGame(
   name: string,
   role: string,
   s: Record<string, number>,
+  short = name,
 ): PlayerSeason {
   const pct = (m: number, a: number) => (a > 0 ? m / a : null);
   const v = (k: string) => Number(s[k] ?? 0);
@@ -398,6 +406,7 @@ export function perGame(
     id,
     teamId,
     name,
+    shortName: short,
     role,
     g: v('g'),
     min: v('seconds') / 60 / g,

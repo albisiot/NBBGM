@@ -59,7 +59,7 @@ export function StatsPage() {
       league,
       seasons,
       year: season.year,
-      players: players.map((p) => perGame(p.id, p.teamId, p.name, p.role, { ...p.stats })),
+      players: players.map((p) => perGame(p.id, p.teamId, p.name, p.role, { ...p.stats }, p.shortName)),
     };
   }, [id, wanted]);
   // Turno nuovo: le medie della stagione in corso cambiano
@@ -223,8 +223,9 @@ function Row({
         <span className="flex max-w-[13rem] min-w-0 items-center gap-1.5 sm:max-w-72">
           <span className="w-6 shrink-0 font-titolo text-stampa-600 dark:text-stampa-300">{rank}</span>
           <b className="w-9 shrink-0 font-titolo font-semibold">{code ?? 'SV'}</b>
-          <Link to={`/lega/${leagueId}/giocatore/${p.id}`} className={`truncate ${INK_LINK}`}>
-            {p.name}
+          {/* Nome puntato, come nei tabellini: il nome intero nella scheda del giocatore */}
+          <Link to={`/lega/${leagueId}/giocatore/${p.id}`} title={p.name} className={`truncate ${INK_LINK}`}>
+            {p.shortName}
           </Link>
           {/* Su telefono il ruolo lascia spazio al nome: si vede nella scheda del giocatore */}
           <i className="hidden shrink-0 text-[0.8125rem] font-normal text-stampa-600 sm:inline dark:text-stampa-300">
