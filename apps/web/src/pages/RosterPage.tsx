@@ -338,7 +338,9 @@ export function RosterPage() {
         >
           {repaired
             ? 'Qualcuno non è più in squadra: il bot ha sistemato quintetto e minuti come farebbe alla partita. Controlla e salva.'
-            : "È la formazione proposta dal bot: non l'hai mai salvata, e finché non lo fai alla partita sceglie lui."}
+            : headCoach
+              ? `È la formazione proposta da ${coachFullName(headCoach)}: non l'hai mai salvata, e finché non lo fai alla partita sceglie lui.`
+              : "È la formazione proposta dal bot: non l'hai mai salvata, e finché non lo fai alla partita sceglie lui."}
         </Note>
       )}
 
