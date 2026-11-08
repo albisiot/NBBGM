@@ -40,12 +40,18 @@ import { leagueDetail } from '../lib/leagues.ts';
 import {
   contractFirstYear,
   marketAction,
+  marketActionWithReply,
   millions,
   myRequests,
   renewalAsk,
+  renewalTalks,
   seasonConfig,
+  type MarketAction,
+  type RenewalAnswer,
+  type RenewalTalkInfo,
   type RosterRequest,
 } from '../lib/market.ts';
+import { RenewalTalk } from '../components/RenewalTalk.tsx';
 import { contractEnd, gradeTone, LOW_ENERGY, LOW_MORALE, mln1 } from '../lib/marketView.ts';
 import { draftText } from '../lib/playerDraft.ts';
 import { playerCard, playerScouting, type RosterPlayer } from '../lib/roster.ts';
@@ -71,11 +77,15 @@ export function PlayerPage() {
     ]);
     const mine = league?.teams.find((t) => t.ownerId === userId);
     const own = mine !== undefined && player?.teamId === mine.id;
-    const [config, requests] =
+    const [config, requests, talks] =
       own && league?.seasonId
-        ? await Promise.all([seasonConfig(league.seasonId), myRequests(mine.id)])
-        : [null, [] as RosterRequest[]];
-    return { player, scouting, league, config, requests, own };
+        ? await Promise.all([
+            seasonConfig(league.seasonId),
+            myRequests(mine.id),
+            renewalTalks(mine.id, league.seasonId),
+          ])
+        : [null, [] as RosterRequest[], new Map<string, RenewalTalkInfo>()];
+    return { player, scouting, league, config, requests, talks, own };
   }, [id, pid, userId]);
 
   if (loading) return <Spinner />;
@@ -184,6 +194,7 @@ export function PlayerPage() {
           player={p}
           renewal={renewalAsk(data.config, p)}
           requests={data.requests.filter((r) => r.playerId === p.id)}
+          talk={data.talks.get(p.id) ?? null}
           marketOpen={league.roundKind === 'regular' || league.roundKind === 'offseason'}
           renewOpen={league.roundKind === 'regular'}
           onDone={reload}
@@ -353,6 +364,7 @@ function OwnPlayerMarket({
   player: p,
   renewal,
   requests,
+  talk,
   marketOpen,
   renewOpen,
   onDone,
@@ -362,6 +374,8 @@ function OwnPlayerMarket({
   player: RosterPlayer;
   renewal: number[];
   requests: RosterRequest[];
+  /** Com'è andata la trattativa del rinnovo, se c'è. */
+  talk: RenewalTalkInfo | null;
   marketOpen: boolean;
   /** Rinnovo all'ultimo anno: in regular season (in offseason si rinnovano i giocatori in scadenza). */
   renewOpen: boolean;
@@ -376,14 +390,32 @@ function OwnPlayerMarket({
   const release = requests.find((r) => r.kind === 'release');
   const renew = requests.find((r) => r.kind === 'renew');
 
-  async function run(action: Parameters<typeof marketAction>[1]) {
+  async function run(action: Parameters<typeof marketAction>[1]): Promise<boolean> {
     setBusy(true);
     setMessage(null);
     try {
       await marketAction(leagueId, action);
       onDone();
+      return true;
     } catch (e) {
       setMessage(friendlyError(e));
+      return false;
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  /** Offerta di rinnovo: la risposta del giocatore arriva subito. */
+  async function offer(action: MarketAction): Promise<RenewalAnswer | null> {
+    setBusy(true);
+    setMessage(null);
+    try {
+      const { reply } = await marketActionWithReply(leagueId, action);
+      onDone();
+      return reply ?? null;
+    } catch (e) {
+      setMessage(friendlyError(e));
+      return null;
     } finally {
       setBusy(false);
     }
@@ -429,43 +461,26 @@ function OwnPlayerMarket({
           </p>
         )
       )}
-      {lastYear &&
-        (renew ? (
-          <div className={`flex flex-wrap items-center justify-between gap-2 px-3 py-2 text-sm ${BOX}`}>
-            <span>
-              <Tag tone="ink">Rinnovo accettato</Tag>{' '}
-              <span className={META}>
-                {renew.salaries.length} anni, {millions(renew.salaries[0] ?? 0)} il primo, dalla prossima
-                stagione. Si firma alla chiusura del turno.
-              </span>
-            </span>
-            <Button
-              variant="ghost"
-              disabled={busy}
-              onClick={() => void run({ kind: 'withdraw_request', request_id: renew.id })}
-            >
-              Annulla
-            </Button>
-          </div>
-        ) : (
-          renewOpen && (
-            <div className={`space-y-2 px-3 py-2.5 text-sm ${BOX}`}>
-              <p>
-                <b>Ultimo anno di contratto.</b>{' '}
-                {p.morale < LOW_MORALE ? (
-                  <span className={BAD}>Con il morale così basso non vuole rinnovare.</span>
-                ) : (
-                  `Per rinnovare chiede ${renewal.length} anni, ${millions(renewal[0] ?? 0)} il primo (+5% l'anno), dalla prossima stagione.`
-                )}
-              </p>
-              {p.morale >= LOW_MORALE && (
-                <Button disabled={busy} onClick={() => void run({ kind: 'renew', player_id: p.id })}>
-                  Accetta il rinnovo
-                </Button>
-              )}
-            </div>
-          )
-        ))}
+      {lastYear && (renew || renewOpen) && (
+        <div className={`space-y-2 px-3 py-2.5 text-sm ${BOX}`}>
+          <p>
+            <b>Ultimo anno di contratto.</b> Il rinnovo parte dalla prossima stagione.
+          </p>
+          {p.morale < LOW_MORALE && !renew ? (
+            <p className={BAD}>Con il morale così basso non vuole rinnovare.</p>
+          ) : (
+            <RenewalTalk
+              player={p}
+              ask={renewal}
+              talk={talk}
+              request={renew ?? null}
+              busy={busy}
+              offer={offer}
+              run={(action) => run(action)}
+            />
+          )}
+        </div>
+      )}
       {message && <ErrorText>{message}</ErrorText>}
     </section>
   );

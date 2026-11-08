@@ -33,6 +33,8 @@ import {
   setPaused,
   setReady,
   timeLeft,
+  FA_OFFERS_ONLY,
+  FA_ROUNDS,
   type AlertItem,
   type Readiness,
   type RoundTrouble,
@@ -50,20 +52,32 @@ const NOTE = 'text-[0.875rem] text-stampa-600 italic dark:text-stampa-300';
 const ALERT_LINK: Record<string, { to: string; label: string }> = {
   trade_offer: { to: 'mercato?tab=scambi', label: 'Vai agli scambi' },
   draft_pick: { to: 'draft-annuale', label: 'Vai al draft' },
+  team_options: { to: 'mercato?tab=opzioni', label: 'Vai alle opzioni' },
   renewals: { to: 'mercato?tab=rinnovi', label: 'Vai ai rinnovi' },
   free_agency: { to: 'mercato?tab=svincolati', label: 'Vai agli svincolati' },
+  offer_sheet: { to: 'mercato?tab=svincolati', label: 'Vai ai tuoi RFA' },
   preparation: { to: 'squadra', label: 'Vai alla squadra' },
 };
 
-const STAGE_HINT: Record<string, string> = {
-  draft: 'Ordina i tuoi preferiti nella pagina del draft: alla chiusura del turno si fanno le 60 scelte.',
-  renewals: 'Decidi chi rinnovare tra i giocatori in scadenza: gli altri diventano svincolati.',
-  fa1: 'Free agency: offerte a busta chiusa agli svincolati.',
-  fa2: 'Free agency: le richieste degli svincolati sono scese.',
-  fa3: 'Free agency: le richieste degli svincolati sono scese ancora.',
-  fa4: 'Ultimo turno di free agency.',
-  preparation: 'Sistema rosa, quintetto e tattiche: poi riparte la regular season.',
-};
+/** Che cosa si fa in ogni turno dell'offseason. */
+function stageHint(stage: string | null): string {
+  if (stage === 'draft')
+    return 'Draft dal vivo: un turno per ogni scelta di un manager, i bot scelgono nel frattempo. Chi è di turno sceglie nella pagina del draft e preme Pronto.';
+  if (stage === 'options')
+    return 'Opzioni della squadra sulla prossima stagione: esercitale o declinale nel mercato. Senza risposta decadono.';
+  if (stage === 'renewals')
+    return 'Rinnovi: tratta con i giocatori in scadenza e fai l’offerta di qualifica agli RFA. Chi non rinnovi diventa svincolato.';
+  if (stage === 'preparation')
+    return 'Preparazione: rosa a 13-15 contratti standard (il Pronto aspetta che sia a posto), quintetto e tattiche. Poi riparte la regular season.';
+  const fa = /^fa(\d+)$/.exec(stage ?? '');
+  if (!fa) return '';
+  const n = Number(fa[1]);
+  if (n <= FA_OFFERS_ONLY)
+    return `Free agency, turno ${n} di ${FA_ROUNDS}: si fanno solo offerte, nessuno firma fino al ${FA_OFFERS_ONLY + 1}° turno.`;
+  return n === FA_ROUNDS
+    ? 'Ultimo turno di free agency: le offerte che non firmano si chiudono, gli RFA senza contratto firmano la qualifica.'
+    : `Free agency, turno ${n} di ${FA_ROUNDS}: si firma, e le richieste scendono di turno in turno.`;
+}
 
 export function TurnCard({
   league,
@@ -206,7 +220,7 @@ export function TurnCard({
         <div>
           <p className="text-[0.95rem] leading-snug">
             {champion ? `Stagione finita: campioni i ${champion.fullName}. ` : ''}
-            {STAGE_HINT[league.roundStage ?? ''] ?? ''}
+            {stageHint(league.roundStage)}
           </p>
           {/* Risultati, classifica e mercato stanno nel menu; il draft annuale no: il suo link resta qui */}
           <Link to={`/lega/${league.id}/draft-annuale`} className={ROW_LINK}>
@@ -228,7 +242,11 @@ export function TurnCard({
       {note && open && !status.paused && !draftPending && <p className={NOTE}>{note}</p>}
 
       {mine && playing && myState === 'out' && (
-        <p className={NOTE}>La tua squadra non gioca in questo turno: non devi fare nulla.</p>
+        <p className={NOTE}>
+          {round.kind === 'offseason'
+            ? 'In questo turno del draft non tocca a te: non devi fare nulla (puoi sistemare la tua lista).'
+            : 'La tua squadra non gioca in questo turno: non devi fare nulla.'}
+        </p>
       )}
       {mine && playing && resting && (
         <p className={NOTE}>

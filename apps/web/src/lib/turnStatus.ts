@@ -18,7 +18,7 @@ export interface RoundInfo {
   number: number;
   kind: 'regular' | 'play-in' | 'playoffs' | 'offseason';
   state: 'open' | 'closing' | 'done';
-  /** Turno di offseason: draft, renewals, fa1-fa4, preparation. */
+  /** Turno di offseason: draft, options, renewals, fa1-fa15, preparation. */
   stage: string | null;
   deadline: string | null;
   createdAt: string;

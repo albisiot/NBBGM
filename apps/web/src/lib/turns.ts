@@ -381,37 +381,91 @@ export function alertText(a: Pick<AlertItem, 'kind' | 'payload'>): {
         action: 'Ok',
       };
     case 'draft_pick': {
+      // Draft dal vivo: la chiamata del turno (prima: la lista delle scelte)
+      if (p.pick !== undefined)
+        return {
+          title: `Draft ${String(p.draft_year ?? '')}: tocca a te`,
+          body: `Hai la scelta n. ${String(p.pick)} (${String(p.round)}° giro, n. ${String(p.number)}). Scegli il giocatore nella pagina del draft e premi Pronto: senza scelta prende il primo disponibile della tua lista, senza lista il migliore per i ruoli scoperti.`,
+          action: 'Ho scelto',
+        };
       const picks = Array.isArray(p.picks) ? (p.picks as number[]) : [];
       return {
         title: `Draft ${String(p.draft_year ?? '')}`,
-        body: `Hai ${picks.length === 1 ? 'la scelta' : 'le scelte'} n. ${picks.join(', ')}. Ordina i tuoi preferiti nella pagina del draft: alla chiusura del turno sceglie il server, il primo disponibile della tua lista (senza lista, il migliore per i ruoli scoperti).`,
+        body: `Hai ${picks.length === 1 ? 'la scelta' : 'le scelte'} n. ${picks.join(', ')}. Ordina i tuoi preferiti nella pagina del draft.`,
         action: 'Lista pronta',
       };
     }
-    case 'renewals':
+    case 'team_options':
       return {
-        title: 'Rinnovi',
-        body: `Hai ${String(p.players)} ${p.players === 1 ? 'giocatore' : 'giocatori'} in scadenza: rinnova chi vuoi tenere nella pagina del mercato. Chi non rinnovi diventa svincolato alla chiusura del turno.`,
+        title: 'Opzioni della squadra',
+        body: `Hai ${p.players === 1 ? 'un’opzione' : `${String(p.players)} opzioni`} della squadra sulla prossima stagione: esercitala o declinala nel mercato. Senza risposta decade e il giocatore va in scadenza (si può ancora rinnovare nel turno dopo).`,
         action: 'Ho deciso',
       };
-    case 'free_agency':
+    case 'renewals': {
+      const rfa = Number(p.restricted ?? 0);
       return {
-        title: `Free agency, turno ${String(p.round)} di 4`,
-        body: 'Fai le tue offerte agli svincolati nella pagina del mercato: alla chiusura del turno ognuno sceglie l’offerta migliore. Le richieste scendono di turno in turno.',
+        title: 'Rinnovi',
+        body: `Hai ${String(p.players)} ${p.players === 1 ? 'giocatore' : 'giocatori'} in scadenza: tratta i rinnovi nel mercato (stipendio, anni, opzione).${rfa ? ` ${rfa === 1 ? 'Uno è un RFA' : `${rfa} sono RFA`}: con l’offerta di qualifica resta legato a te in free agency e puoi pareggiare le offerte delle altre squadre.` : ''} Chi non rinnovi diventa svincolato alla chiusura del turno.`,
+        action: 'Ho deciso',
+      };
+    }
+    case 'free_agency':
+      // Informativo: all'inizio (solo offerte) e quando si comincia a firmare
+      if (p.rounds !== undefined)
+        return Number(p.round) === 1
+          ? {
+              title: 'Free agency',
+              body: `Comincia la free agency: ${String(p.rounds)} turni. Nei primi ${Number(p.signing_from) - 1} si fanno solo offerte, e a ogni chiusura il giocatore ti dice come sta la tua; dal ${String(p.signing_from)}° si firma. Le offerte restano sul tavolo finché non le ritiri: una sotto la richiesta firma quando la richiesta scende.`,
+              action: 'Ok',
+            }
+          : {
+              title: 'Free agency: si firma',
+              body: 'Da questo turno gli svincolati firmano: alla chiusura ognuno sceglie l’offerta migliore tra quelle sopra la sua richiesta, che da qui scende di turno in turno.',
+              action: 'Ok',
+            };
+      return {
+        title: `Free agency, turno ${String(p.round)}`,
+        body: 'Fai le tue offerte agli svincolati nella pagina del mercato.',
         action: 'Ho finito',
       };
+    case 'offer_sheet': {
+      const salaries = Array.isArray(p.salaries) ? (p.salaries as number[]) : [];
+      const first = ((salaries[0] ?? 0) / 1e6).toFixed(1).replace('.', ',');
+      return {
+        title: 'Offerta da pareggiare',
+        body: `${String(p.player)}, il tuo RFA, ha scelto l’offerta di ${String(p.team)}: ${salaries.length} ${salaries.length === 1 ? 'anno' : 'anni'}, ${first} mln il primo. Se la pareggi resta con te alle stesse cifre; senza risposta va a ${String(p.team)}.`,
+        action: 'Ho deciso',
+      };
+    }
     case 'league_paused':
       return {
         title: 'Lega in pausa',
         body: `La lega si è fermata da sola: ${String(p.rounds ?? 3)} turni di fila si sono chiusi per scadenza senza che nessun manager facesse niente. Riprendila dalla pagina della lega quando volete ricominciare; la riprende anche il primo manager che preme Pronto.`,
         action: 'Ok',
       };
-    case 'preparation':
+    case 'preparation': {
+      const cut = Number(p.cut ?? 0);
+      const sign = Number(p.sign ?? 0);
+      const cutTwoWay = Number(p.cut_two_way ?? 0);
+      const need = [
+        ...(cut
+          ? [`devi tagliare ${cut === 1 ? 'un giocatore' : `${cut} giocatori`} per stare dentro ai 15`]
+          : []),
+        ...(cutTwoWay
+          ? [`devi tagliare ${cutTwoWay === 1 ? 'un two-way' : `${cutTwoWay} two-way`}: al massimo 3`]
+          : []),
+        ...(sign
+          ? [`devi firmare ${sign === 1 ? 'un giocatore' : `${sign} giocatori`} per averne almeno 13`]
+          : []),
+      ];
       return {
         title: 'Preparazione della stagione',
-        body: 'Ultimo turno dell’offseason: sistema rosa (13-15 contratti standard, al massimo 3 two-way), quintetto e tattiche. Alla chiusura il server taglia gli esuberi con l’overall più basso e firma al minimo chi manca.',
-        action: 'Squadra pronta',
+        body: need.length
+          ? `La rosa è fuori dai limiti: ${need.join('; ')}. Il Pronto aspetta che sia a posto; se il turno si chiude lo stesso, il server taglia gli overall più bassi e firma al minimo chi manca.`
+          : 'Ultimo turno dell’offseason: sistema rosa (13-15 contratti standard, al massimo 3 two-way), quintetto e tattiche.',
+        action: 'Rosa a posto',
       };
+    }
     default:
       return { title: 'Avviso', body: '', action: 'Ok' };
   }
@@ -421,7 +475,9 @@ export function alertText(a: Pick<AlertItem, 'kind' | 'payload'>): {
 // scambio è rifiutata, il giocatore in scadenza se ne va), poi le altre; i tipi nuovi in fondo
 const DECISION_ORDER = [
   'trade_offer',
+  'offer_sheet',
   'renewals',
+  'team_options',
   'roster_minimum',
   'draft_pick',
   'free_agency',
@@ -462,11 +518,18 @@ export function readyWarnings(
   const trades = count('trade_offer');
   if (trades === 1) out.push('La proposta di scambio che hai ricevuto, senza risposta, viene rifiutata.');
   else if (trades > 1) out.push(`Le ${trades} proposte di scambio senza risposta vengono rifiutate.`);
+  if (count('offer_sheet')) out.push('Se non pareggi l’offerta, il tuo RFA va all’altra squadra.');
+  if (count('team_options'))
+    out.push(
+      opts.coach
+        ? 'Le opzioni che non hai deciso le decide l’allenatore, con la logica del bot.'
+        : 'Le opzioni della squadra che non hai esercitato decadono: i giocatori vanno in scadenza.',
+    );
   if (count('renewals'))
     out.push(
       opts.coach
         ? 'I rinnovi che non hai fatto li decide l’allenatore, con la logica del bot.'
-        : 'I giocatori in scadenza che non hai rinnovato diventano svincolati: li perdi.',
+        : 'I giocatori in scadenza che non hai rinnovato diventano svincolati: li perdi (gli RFA con la qualifica restano legati a te).',
     );
   if (count('roster_minimum'))
     out.push(
@@ -474,13 +537,24 @@ export function readyWarnings(
     );
   if (count('draft_pick'))
     out.push(
-      'Al draft sceglie il server: il primo disponibile della tua lista, senza lista il migliore per i ruoli scoperti.',
+      'Se non hai scelto, sceglie il server: il primo disponibile della tua lista, senza lista il migliore per i ruoli scoperti.',
     );
   if (count('free_agency'))
     out.push('In free agency valgono solo le offerte già fatte: l’allenatore non ne fa.');
   if (count('preparation'))
-    out.push('Il server taglia gli esuberi con l’overall più basso e firma al minimo chi manca.');
-  const known = ['trade_offer', 'renewals', 'roster_minimum', 'draft_pick', 'free_agency', 'preparation'];
+    out.push(
+      'Se la rosa non è nei limiti il Pronto non si può dare; se il turno si chiude lo stesso, il server taglia gli overall più bassi e firma al minimo chi manca.',
+    );
+  const known = [
+    'trade_offer',
+    'offer_sheet',
+    'team_options',
+    'renewals',
+    'roster_minimum',
+    'draft_pick',
+    'free_agency',
+    'preparation',
+  ];
   if (decisions.some((d) => !known.includes(d.kind)))
     out.push('Gli altri avvisi senza risposta si chiudono come scaduti.');
   return out;
@@ -497,13 +571,20 @@ export function timeLeft(deadline: string, now = Date.now()): string {
   return m % 60 ? `tra ${h} h ${m % 60} min` : `tra ${h} h`;
 }
 
+/** Turni di free agency dell'offseason, e quanti all'inizio sono di sole offerte (come FREE_AGENCY_ROUNDS nel motore). */
+export const FA_ROUNDS = 15;
+export const FA_OFFERS_ONLY = 5;
+
 export const STAGE_LABEL: Record<string, string> = {
   draft: 'Draft',
+  options: 'Opzioni della squadra',
   renewals: 'Rinnovi',
-  fa1: 'Free agency, turno 1 di 4',
-  fa2: 'Free agency, turno 2 di 4',
-  fa3: 'Free agency, turno 3 di 4',
-  fa4: 'Free agency, turno 4 di 4',
+  ...Object.fromEntries(
+    Array.from({ length: FA_ROUNDS }, (_, i) => [
+      `fa${i + 1}`,
+      `Free agency, turno ${i + 1} di ${FA_ROUNDS}${i < FA_OFFERS_ONLY ? ' (solo offerte)' : ''}`,
+    ]),
+  ),
   preparation: 'Preparazione della stagione',
 };
 
@@ -705,7 +786,8 @@ export function barView(s: BarStatus, now = Date.now()): BarView | null {
     coach: { label: 'Allenatore', tone: 'sky' as const },
     blocked: { label: 'Da decidere', tone: 'amber' as const },
     waiting: { label: phase === 'paused' ? 'Lega in pausa' : 'Non pronto', tone: 'slate' as const },
-    out: { label: 'Non gioca', tone: 'slate' as const },
+    // Nel draft dal vivo il turno è di chi sceglie
+    out: { label: s.round.stage === 'draft' ? 'Non tocca a te' : 'Non gioca', tone: 'slate' as const },
   }[state];
   return { title, badge, action, actionLabel, decisions };
 }

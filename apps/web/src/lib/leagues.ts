@@ -48,7 +48,7 @@ export interface LeagueDetail {
   /** Giorno del turno corrente (giorni dall'apertura della stagione; null in offseason). */
   roundDay: number | null;
   roundState: string | null;
-  /** Turno di offseason: draft, renewals, fa1-fa4, preparation. */
+  /** Turno di offseason: draft, options, renewals, fa1-fa15, preparation. */
   roundStage: string | null;
   draftState: 'waiting' | 'running' | 'done' | null;
   draftMode: 'list' | 'live';

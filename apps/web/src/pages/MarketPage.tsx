@@ -1,5 +1,5 @@
 // Mercato della propria squadra, nello stile Edicola: sezioni a filetto (svincolati, scambi, giocatori sul mercato,
-// rinnovi nel loro turno, allenatori, bilancio). Svincolati con offerte a busta chiusa, scambi (proposte ricevute e inviate, nuova
+// opzioni e rinnovi nei loro turni dell'offseason, allenatori, bilancio). Svincolati con offerte a busta chiusa, scambi (proposte ricevute e inviate, nuova
 // proposta con giocatori, scelte protette, swap e l'anteprima prima → dopo), giocatori sul mercato e bilancio. Tutto
 // si esegue alla chiusura del turno.
 import { coachAsk, MAX_PROTECTION, overall, type SeasonConfig } from '@nbbgm/engine';
@@ -20,6 +20,7 @@ import {
   type ToastMessage,
 } from '../components/ui.tsx';
 import { CoachCard, CoachLine } from '../components/CoachCard.tsx';
+import { RenewalTalk } from '../components/RenewalTalk.tsx';
 import { useUserId } from '../lib/auth.tsx';
 import {
   coachContractText,
@@ -60,6 +61,13 @@ import {
   missingPlayerIds,
   picksByIds,
   myBids,
+  lastSalaries,
+  marketActionWithReply,
+  pendingOption,
+  qualifyingOffer,
+  renewalTalks,
+  restrictedState,
+  rfaEligible,
   offerInput,
   offerSalary,
   projectedTax,
@@ -75,9 +83,14 @@ import {
   type FreeAgentQuery,
   type FreeAgentSort,
   type MarketAction,
+  type OfferSheetInfo,
   type PickInfo,
+  type RenewalAnswer,
+  type RenewalTalkInfo,
+  type RestrictedInfo,
   type TradeOffer,
 } from '../lib/market.ts';
+import { FA_OFFERS_ONLY, FA_ROUNDS } from '../lib/turns.ts';
 import { bidTone, mln1, pickName, sameQuery, selectedSalary } from '../lib/marketView.ts';
 import {
   freeAgentPlayers,
@@ -113,13 +126,14 @@ import { SKILL_LABEL, skillOf, type SkillKey } from '../lib/skills.ts';
 import { useAsync } from '../lib/useAsync.ts';
 import { useRoundChange } from '../lib/useRoundChange.ts';
 
-type Tab = 'svincolati' | 'scambi' | 'sul-mercato' | 'rinnovi' | 'allenatori' | 'bilancio';
+type Tab = 'svincolati' | 'scambi' | 'sul-mercato' | 'opzioni' | 'rinnovi' | 'allenatori' | 'bilancio';
 
 /** Nome delle sezioni: nel menu a filetto e come titolo della pagina. */
 const TAB_LABEL: Record<Tab, string> = {
   svincolati: 'Svincolati',
   scambi: 'Scambi',
   'sul-mercato': 'Sul mercato',
+  opzioni: 'Opzioni',
   rinnovi: 'Rinnovi',
   allenatori: 'Allenatori',
   bilancio: 'Bilancio',
@@ -134,8 +148,13 @@ interface MarketBase {
   roster: RosterPlayer[];
   freeAgents: FreeAgent[];
   picks: PickInfo[];
-  /** Turno di free agency dell'offseason (0-3), o null. */
+  /** Turno di free agency dell'offseason (0-14), o null. */
   faRound: number | null;
+  /** RFA della lega (diritti e qualifica) e offerte in attesa di pareggio. */
+  rights: Map<string, RestrictedInfo>;
+  sheets: Map<string, OfferSheetInfo>;
+  /** Turno dei rinnovi: ultimo stipendio dei propri giocatori in scadenza (per la qualifica). */
+  lastSalary: Map<string, number>;
   /** Allenatori della lega, in panchina e liberi (nessuno nelle leghe create prima). */
   coaches: CoachInfo[];
   /** Esonerati che la propria squadra paga ancora. */
@@ -152,6 +171,8 @@ interface MarketLive {
   offerPicks: Map<string, PickInfo>;
   /** Cambio di allenatore chiesto nel turno. */
   coachRequest: CoachRequest | null;
+  /** Trattative dei rinnovi della stagione. */
+  talks: Map<string, RenewalTalkInfo>;
 }
 
 type MarketData = MarketBase & MarketLive;
@@ -167,11 +188,12 @@ async function loadLive(
   known: ReadonlyMap<string, PlayerLite>,
   knownPicks: ReadonlyMap<string, PickInfo>,
 ): Promise<MarketLive> {
-  const [bids, offers, requests, coachRequest] = await Promise.all([
+  const [bids, offers, requests, coachRequest, talks] = await Promise.all([
     myBids(me.id),
     tradeOffers(league.id),
     myRequests(me.id),
     myCoachRequest(me.id),
+    league.seasonId ? renewalTalks(me.id, league.seasonId) : new Map<string, RenewalTalkInfo>(),
   ]);
   const players = new Map(known);
   const missing = missingPlayerIds(offers, bids, known);
@@ -183,7 +205,7 @@ async function loadLive(
   ]);
   for (const [pid, p] of lite) players.set(pid, p);
   for (const k of picks) offerPicks.set(k.id, k);
-  return { bids, offers, requests, players, offerPicks, coachRequest };
+  return { bids, offers, requests, players, offerPicks, coachRequest, talks };
 }
 
 export function MarketPage() {
@@ -199,7 +221,7 @@ export function MarketPage() {
     const league = await leagueDetail(id);
     const me = league?.teams.find((t) => t.ownerId === userId);
     if (!league || !me || !league.seasonId) return null;
-    const [config, finance, roster, freeAgents, picks, coaches, staff] = await Promise.all([
+    const [config, finance, roster, freeAgents, picks, coaches, staff, restricted] = await Promise.all([
       seasonConfig(league.seasonId).then((c) => effectiveConfig(c, league.roundKind, league.roundStage)),
       teamFinance(me.id),
       teamRoster(me.id),
@@ -208,7 +230,14 @@ export function MarketPage() {
       leaguePicks(league.id, me.id),
       leagueCoaches(league.id),
       teamStaff(me.id),
+      restrictedState(league.id),
     ]);
+    const lastSalary =
+      league.roundStage === 'renewals'
+        ? await lastSalaries(
+            roster.filter((p) => p.contractType !== 'two-way' && p.salaries.length === 0).map((p) => p.id),
+          )
+        : new Map<string, number>();
     const known = new Map([...roster, ...freeAgents].map((p) => [p.id, liteOf(p)]));
     const live = await loadLive(league, me, known, new Map(picks.map((k) => [k.id, k])));
     const faRound = league.roundKind === 'offseason' ? faRoundOf(league.roundStage) : null;
@@ -221,6 +250,9 @@ export function MarketPage() {
       freeAgents,
       picks,
       faRound,
+      rights: restricted.rights,
+      sheets: restricted.sheets,
+      lastSalary,
       coaches,
       buyouts: staff.buyouts,
       ...live,
@@ -265,17 +297,43 @@ export function MarketPage() {
     return true;
   }
 
+  /** Un'offerta di rinnovo: come run, ma restituisce la risposta del giocatore. */
+  async function offerRenewal(action: MarketAction): Promise<RenewalAnswer | null> {
+    setBusy(true);
+    setMessage(null);
+    let reply: RenewalAnswer | null;
+    try {
+      reply = (await marketActionWithReply(id, action)).reply ?? null;
+    } catch (e) {
+      setMessage({ ok: false, text: friendlyError(e) });
+      setBusy(false);
+      return null;
+    }
+    if (loaded && data) {
+      try {
+        setLive({ of: loaded, value: await loadLive(data.league, data.me, data.players, data.offerPicks) });
+      } catch {
+        reload();
+      }
+    }
+    setBusy(false);
+    return reply;
+  }
+
   if (loading && !data) return <Spinner />;
   if (error) return <ErrorText>{error}</ErrorText>;
   if (!data) return <ErrorText>Non hai una squadra in questa lega.</ErrorText>;
   const regular = data.league.roundKind === 'regular';
   const offseason = data.league.roundKind === 'offseason';
   const renewals = offseason && data.league.roundStage === 'renewals';
-  const signing = regular || data.faRound !== null;
+  const options = offseason && data.league.roundStage === 'options';
+  const preparation = offseason && data.league.roundStage === 'preparation';
+  const signing = regular || data.faRound !== null || preparation;
   const tabs: Tab[] = [
     'svincolati',
     'scambi',
     'sul-mercato',
+    ...(options ? ['opzioni' as Tab] : []),
     ...(renewals ? ['rinnovi' as Tab] : []),
     ...(data.coaches.length ? ['allenatori' as Tab] : []),
     'bilancio',
@@ -291,7 +349,7 @@ export function MarketPage() {
         <Kicker>Il mercato</Kicker>
         <h1 className="text-3xl leading-tight font-bold">{TAB_LABEL[tab]}</h1>
         <p className="mt-1 text-sm text-stampa-600 italic dark:text-stampa-300">
-          Offerte, scambi, tagli e rinnovi si eseguono alla chiusura del turno.
+          Offerte, scambi, tagli, opzioni e rinnovi si eseguono alla chiusura del turno.
         </p>
       </header>
       <MarketTabs leagueId={data.league.id} tabs={tabs} current={tab} toDecide={toDecide} />
@@ -304,17 +362,30 @@ export function MarketPage() {
       )}
       {tab === 'svincolati' && !signing && (
         <p className="text-sm text-stampa-600 italic dark:text-stampa-300">
-          Gli svincolati si firmano in regular season e nei quattro turni di free agency dell’offseason.
+          Gli svincolati si firmano in regular season, nei {FA_ROUNDS} turni di free agency dell’offseason e
+          in preparazione.
         </p>
       )}
-      {data.faRound !== null && (
+      {data.faRound !== null && tab === 'svincolati' && (
         <p className="text-sm text-stampa-600 italic dark:text-stampa-300">
-          Free agency, turno {data.faRound + 1} di 4: anche i bot fanno le loro offerte, e le richieste
-          scendono di turno in turno. Fino a 21 giocatori in rosa nell’offseason; contratti e cap sono già
-          quelli della prossima stagione.
+          Free agency, turno {data.faRound + 1} di {FA_ROUNDS}:{' '}
+          {data.faRound < FA_OFFERS_ONLY
+            ? `nei primi ${FA_OFFERS_ONLY} turni si fanno solo offerte e nessuno firma; a ogni chiusura il giocatore ti dice come sta la tua. Le richieste restano piene fino al ${FA_OFFERS_ONLY + 1}° turno.`
+            : 'alla chiusura ogni svincolato sceglie l’offerta migliore tra quelle sopra la sua richiesta, che scende di turno in turno fino all’ultimo.'}{' '}
+          Le offerte restano sul tavolo finché non le ritiri: una sotto la richiesta firma quando la richiesta
+          scende, se nessuno offre di più. Anche i bot fanno le loro offerte. Fino a 21 giocatori in rosa
+          nell’offseason; contratti e cap sono già quelli della prossima stagione.
         </p>
       )}
-      {tab === 'rinnovi' && <Renewals data={data} busy={busy} run={run} />}
+      {preparation && tab === 'svincolati' && (
+        <p className="text-sm text-stampa-600 italic dark:text-stampa-300">
+          Preparazione: la rosa va portata a 13-15 contratti standard e al massimo 3 two-way. Puoi tagliare e
+          fare offerte agli svincolati (alla loro richiesta, valgono per questo turno): il Pronto aspetta che
+          la rosa sia a posto.
+        </p>
+      )}
+      {tab === 'opzioni' && <Options data={data} busy={busy} run={run} />}
+      {tab === 'rinnovi' && <Renewals data={data} busy={busy} run={run} offer={offerRenewal} />}
       {tab === 'svincolati' && <FreeAgents data={data} busy={busy} run={run} />}
       {tab === 'scambi' && <Trades data={data} busy={busy} run={run} />}
       {tab === 'sul-mercato' && <OnTheBlock data={data} notify={setMessage} />}
@@ -384,7 +455,7 @@ function FinanceSummary({ data }: { data: MarketData }) {
             label: 'Spazio sotto il cap',
             value:
               finance.payroll < config.salaryCap ? millions(config.salaryCap - finance.payroll) : 'nessuno',
-            note: finance.payroll < config.salaryCap ? undefined : 'firmi solo al minimo',
+            note: finance.payroll < config.salaryCap ? undefined : 'si firma fino alla tassa',
           },
           {
             label: tax > 0 ? 'Luxury tax stimata' : 'Margine dalla tassa',
@@ -430,7 +501,9 @@ function FreeAgents({ data, busy, run }: { data: MarketData; busy: boolean; run:
       })),
     [freeAgents, config, faRound],
   );
-  const space = Math.max(0, config.salaryCap - finance.payroll);
+  // Si firma finché il monte stipendi resta sotto la soglia della tassa
+  const space = Math.max(0, config.luxuryTax - finance.payroll);
+  const code = (teamId: string) => data.league.teams.find((t) => t.id === teamId)?.code ?? '?';
   const filtered = useMemo(() => filterFreeAgents(rows, query, space), [rows, query, space]);
   const list = filtered.slice(0, shown);
   const change = (q: Partial<FreeAgentQuery>) => {
@@ -494,6 +567,8 @@ function FreeAgents({ data, busy, run }: { data: MarketData; busy: boolean; run:
           </ul>
         </section>
       )}
+
+      <MyRestricted data={data} busy={busy} run={run} />
 
       <TeamNeedsCard
         leagueId={data.league.id}
@@ -582,8 +657,9 @@ function FreeAgents({ data, busy, run }: { data: MarketData; busy: boolean; run:
         </SectionTitle>
         <p className={NOTE}>
           Offerte a busta chiusa: alla chiusura del turno ogni svincolato sceglie, tra le offerte sopra la sua
-          richiesta, quella con il punteggio migliore (soldi, minuti attesi, forza della squadra). Sopra il
-          cap si firma solo al minimo.
+          richiesta, quella con il punteggio migliore (soldi, minuti attesi, forza della squadra). Si firma
+          finché il monte stipendi resta sotto la soglia della tassa; oltre, solo al minimo. Gli RFA hanno i
+          diritti di una squadra: se scelgono un’altra offerta, la loro squadra può pareggiarla.
         </p>
         {list.length === 0 && (
           <p className="py-2 text-sm">
@@ -591,65 +667,81 @@ function FreeAgents({ data, busy, run }: { data: MarketData; busy: boolean; run:
           </p>
         )}
         <ul>
-          {list.map(({ p, ovr, ask }) => (
-            <li key={p.id} className={`py-2 ${RULE}`}>
-              <div className="flex items-center gap-3">
-                <OvrBox value={ovr} />
-                <div className="min-w-0 flex-1">
-                  <Link
-                    to={`/lega/${data.league.id}/giocatore/${p.id}`}
-                    className="block truncate text-base font-bold hover:underline"
-                  >
-                    {p.firstName} {p.lastName}
-                  </Link>
-                  <p className={META}>
-                    {p.role}
-                    {p.secondaryRole ? `/${p.secondaryRole}` : ''} · {p.age} anni · pot. {p.scoutedPotential}
-                    {skill &&
-                      ` · ${SKILL_LABEL[skill].toLowerCase()} ${Math.round(skillOf(p.ratings, skill))}`}
-                  </p>
-                  <p className={META}>
-                    chiede {millions(ask)}
-                    {offered.has(p.id) && (
-                      <span className="ml-2 not-italic">
-                        <Tag tone="outline">Offerta fatta</Tag>
-                      </span>
+          {list.map(({ p, ovr, ask }) => {
+            const rights = data.rights.get(p.id);
+            const sheet = data.sheets.get(p.id);
+            return (
+              <li key={p.id} className={`py-2 ${RULE}`}>
+                <div className="flex items-center gap-3">
+                  <OvrBox value={ovr} />
+                  <div className="min-w-0 flex-1">
+                    <Link
+                      to={`/lega/${data.league.id}/giocatore/${p.id}`}
+                      className="block truncate text-base font-bold hover:underline"
+                    >
+                      {p.firstName} {p.lastName}
+                    </Link>
+                    <p className={META}>
+                      {p.role}
+                      {p.secondaryRole ? `/${p.secondaryRole}` : ''} · {p.age} anni · pot.{' '}
+                      {p.scoutedPotential}
+                      {skill &&
+                        ` · ${SKILL_LABEL[skill].toLowerCase()} ${Math.round(skillOf(p.ratings, skill))}`}
+                    </p>
+                    <p className={META}>
+                      chiede {millions(ask)}
+                      {offered.has(p.id) && (
+                        <span className="ml-2 not-italic">
+                          <Tag tone="outline">Offerta fatta</Tag>
+                        </span>
+                      )}
+                    </p>
+                    {rights && (
+                      <p className={META}>
+                        <span className="not-italic">
+                          <Tag tone="outline">RFA · {code(rights.teamId)}</Tag>
+                        </span>{' '}
+                        {sheet
+                          ? `ha scelto l’offerta di ${code(sheet.teamId)}: ${code(rights.teamId)} decide se pareggiarla`
+                          : `qualifica di ${millions(rights.qualifyingOffer)}: ${code(rights.teamId)} può pareggiare le offerte`}
+                      </p>
                     )}
-                  </p>
+                  </div>
+                  <div className="flex shrink-0 items-center gap-1">
+                    <Link
+                      to={compareWith(data.league.id, p.id)}
+                      className={GHOST_LINK}
+                      aria-label={`Confronta ${p.firstName} ${p.lastName}`}
+                    >
+                      Confronta
+                    </Link>
+                    <Button
+                      variant="secondary"
+                      className="px-3"
+                      disabled={busy || sheet !== undefined}
+                      aria-expanded={open === p.id}
+                      onClick={() => setOpen(open === p.id ? null : p.id)}
+                    >
+                      {open === p.id ? 'Chiudi' : offered.has(p.id) ? 'Rilancia' : 'Offri'}
+                    </Button>
+                  </div>
                 </div>
-                <div className="flex shrink-0 items-center gap-1">
-                  <Link
-                    to={compareWith(data.league.id, p.id)}
-                    className={GHOST_LINK}
-                    aria-label={`Confronta ${p.firstName} ${p.lastName}`}
-                  >
-                    Confronta
-                  </Link>
-                  <Button
-                    variant="secondary"
-                    className="px-3"
-                    disabled={busy}
-                    aria-expanded={open === p.id}
-                    onClick={() => setOpen(open === p.id ? null : p.id)}
-                  >
-                    {open === p.id ? 'Chiudi' : offered.has(p.id) ? 'Cambia' : 'Offri'}
-                  </Button>
-                </div>
-              </div>
-              {open === p.id && (
-                <OfferForm
-                  ask={ask}
-                  busy={busy}
-                  onSubmit={(salary, years) =>
-                    run(
-                      { kind: 'bid', player_id: p.id, salary, years },
-                      `Offerta per ${p.firstName} ${p.lastName} registrata: si decide alla chiusura del turno.`,
-                    ).then((ok) => ok && setOpen(null))
-                  }
-                />
-              )}
-            </li>
-          ))}
+                {open === p.id && (
+                  <OfferForm
+                    ask={ask}
+                    belowAsk={faRound !== null}
+                    busy={busy}
+                    onSubmit={(salary, years) =>
+                      run(
+                        { kind: 'bid', player_id: p.id, salary, years },
+                        `Offerta per ${p.firstName} ${p.lastName} registrata: si decide alla chiusura del turno.`,
+                      ).then((ok) => ok && setOpen(null))
+                    }
+                  />
+                )}
+              </li>
+            );
+          })}
         </ul>
         {filtered.length > shown && (
           <Button variant="ghost" className="w-full" onClick={() => setShown((n) => n + FA_PAGE)}>
@@ -663,10 +755,13 @@ function FreeAgents({ data, busy, run }: { data: MarketData; busy: boolean; run:
 
 function OfferForm({
   ask,
+  belowAsk,
   busy,
   onSubmit,
 }: {
   ask: number;
+  /** Free agency dell'offseason: un'offerta sotto la richiesta resta sul tavolo. */
+  belowAsk: boolean;
   busy: boolean;
   onSubmit: (salary: number, years: number) => void;
 }) {
@@ -708,7 +803,15 @@ function OfferForm({
       <p
         className={`min-w-40 flex-1 text-[0.8125rem] italic ${run.length ? 'text-stampa-600 dark:text-stampa-300' : BAD}`}
       >
-        {run.length ? `Totale ${millions(run.reduce((a, b) => a + b, 0))}, +5% l'anno.` : 'Cifra non valida.'}
+        {run.length
+          ? `Totale ${millions(run.reduce((a, b) => a + b, 0))}, +5% l'anno.${
+              first !== null && first < ask
+                ? belowAsk
+                  ? ' Sotto la richiesta: resta sul tavolo e firma quando la richiesta scende, se nessuno offre di più.'
+                  : ' Sotto la richiesta: la rifiuta.'
+                : ''
+            }`
+          : 'Cifra non valida.'}
       </p>
       <Button type="submit" disabled={busy || !run.length}>
         Fai l’offerta
@@ -1596,22 +1699,109 @@ function FreeCoach({
 // ---------------------------------------------------------------- rinnovi dell'offseason
 
 /** Turno dei rinnovi: i giocatori in scadenza con la loro richiesta; chi non rinnovi diventa svincolato. */
-function Renewals({ data, busy, run }: { data: MarketData; busy: boolean; run: Run }) {
-  const expiring = data.roster.filter((p) => p.contractType !== 'two-way' && p.salaries.length === 0);
+// ---------------------------------------------------------------- offseason: RFA, opzioni, rinnovi
+
+/**
+ * I propri RFA in free agency: con la qualifica aperta; quando uno sceglie l'offerta di un'altra squadra, qui si
+ * decide se pareggiarla (alla chiusura del turno; senza risposta va all'altra squadra).
+ */
+function MyRestricted({ data, busy, run }: { data: MarketData; busy: boolean; run: Run }) {
+  const mine = [...data.rights.values()].filter((r) => r.teamId === data.me.id);
+  if (mine.length === 0) return null;
+  const code = (teamId: string) => data.league.teams.find((t) => t.id === teamId)?.code ?? '?';
+  const name = (pid: string) => {
+    const p = data.freeAgents.find((x) => x.id === pid);
+    return p ? `${p.firstName} ${p.lastName}` : (data.players.get(pid)?.name ?? 'Giocatore');
+  };
   return (
     <section className="space-y-1">
-      <SectionTitle aside={expiring.length ? `${expiring.length} in scadenza` : undefined}>
-        Giocatori in scadenza
+      <SectionTitle aside={`${mine.length}`}>I tuoi RFA</SectionTitle>
+      <p className={NOTE}>
+        Hanno la tua offerta di qualifica: se nessuno li prende, a fine free agency la firmano (un anno). Se
+        uno sceglie l’offerta di un’altra squadra, puoi pareggiarla e tenerlo alle stesse cifre.
+      </p>
+      <ul>
+        {mine.map((r) => {
+          const sheet = data.sheets.get(r.playerId);
+          const decision = data.requests.find((q) => q.kind === 'match' && q.playerId === r.playerId);
+          return (
+            <li key={r.playerId} className={`space-y-1.5 py-2 ${RULE}`}>
+              <p>
+                <Link
+                  to={`/lega/${data.league.id}/giocatore/${r.playerId}`}
+                  className="font-bold hover:underline"
+                >
+                  {name(r.playerId)}
+                </Link>{' '}
+                <span className={META}>· qualifica {millions(r.qualifyingOffer)}</span>
+              </p>
+              {sheet ? (
+                <>
+                  <p className={`text-[0.8125rem] italic ${BAD}`}>
+                    Ha scelto l’offerta di {code(sheet.teamId)}: {sheet.salaries.length}{' '}
+                    {sheet.salaries.length === 1 ? 'anno' : 'anni'}, {millions(sheet.salaries[0] ?? 0)} il
+                    primo.
+                    {decision
+                      ? decision.match
+                        ? ' Hai deciso di pareggiarla.'
+                        : ' Hai deciso di lasciarlo andare.'
+                      : ' Senza risposta va a loro.'}
+                  </p>
+                  <div className="flex flex-wrap gap-2">
+                    <Button
+                      disabled={busy || decision?.match === true}
+                      onClick={() =>
+                        void run(
+                          { kind: 'match', player_id: r.playerId, match: true },
+                          `Pareggi l’offerta per ${name(r.playerId)}: resta con te alla chiusura del turno.`,
+                        )
+                      }
+                    >
+                      Pareggia
+                    </Button>
+                    <Button
+                      variant="secondary"
+                      disabled={busy || decision?.match === false}
+                      onClick={() =>
+                        void run(
+                          { kind: 'match', player_id: r.playerId, match: false },
+                          `${name(r.playerId)} va a ${code(sheet.teamId)} alla chiusura del turno.`,
+                        )
+                      }
+                    >
+                      Lascialo andare
+                    </Button>
+                  </div>
+                </>
+              ) : (
+                <p className={META}>Nessuna offerta scelta per ora.</p>
+              )}
+            </li>
+          );
+        })}
+      </ul>
+    </section>
+  );
+}
+
+/** Turno delle opzioni: le opzioni della squadra sulla prossima stagione, da esercitare o declinare. */
+function Options({ data, busy, run }: { data: MarketData; busy: boolean; run: Run }) {
+  const pending = data.roster.filter(pendingOption);
+  return (
+    <section className="space-y-1">
+      <SectionTitle aside={pending.length ? `${pending.length} da decidere` : undefined}>
+        Opzioni della squadra
       </SectionTitle>
       <p className={NOTE}>
-        Le richieste sono ai prezzi della prossima stagione e dipendono da valore, età e morale. Con il morale
-        sotto 30 il giocatore non rinnova. Alla chiusura del turno chi non hai rinnovato diventa svincolato.
+        Sulla prossima stagione. Esercitata: il contratto resta com’è. Declinata, o senza risposta: il
+        giocatore va in scadenza e puoi provare a rinnovarlo nel turno dei rinnovi, altrimenti diventa
+        svincolato.
       </p>
-      {expiring.length === 0 && <p className="py-1 text-sm">Nessun giocatore in scadenza.</p>}
+      {pending.length === 0 && <p className="py-1 text-sm">Nessuna opzione da decidere.</p>}
       <ul>
-        {expiring.map((p) => {
-          const ask = expiringAskOf(data.config, p);
-          const request = data.requests.find((r) => r.playerId === p.id && r.kind === 'renew');
+        {pending.map((p) => {
+          const decision = data.requests.find((q) => q.kind === 'option' && q.playerId === p.id);
+          const name = `${p.firstName} ${p.lastName}`;
           return (
             <li key={p.id} className={`flex flex-wrap items-center gap-3 py-2 ${RULE}`}>
               <OvrBox value={overall(p)} />
@@ -1620,45 +1810,164 @@ function Renewals({ data, busy, run }: { data: MarketData; busy: boolean; run: R
                   to={`/lega/${data.league.id}/giocatore/${p.id}`}
                   className="block truncate text-base font-bold hover:underline"
                 >
-                  {p.firstName} {p.lastName}
+                  {name}
                 </Link>
                 <p className={META}>
-                  {p.role} · {p.age} anni · morale {Math.round(p.morale)}
+                  {p.role} · {p.age} anni · {millions(p.salaries[0] ?? 0)} nella prossima stagione
+                  {p.salaries.length > 1 ? `, poi ${p.salaries.length - 1} anni di contratto` : ''}
                 </p>
-                <p className={ask ? META : `text-[0.8125rem] italic ${BAD}`}>
-                  {ask
-                    ? `chiede ${ask.length} anni, ${millions(ask[0] ?? 0)} il primo`
-                    : 'non vuole rinnovare'}
+                <p className={META}>
+                  {decision ? (
+                    <span className="not-italic">
+                      <Tag tone={decision.exercise ? 'ink' : 'red'}>
+                        {decision.exercise ? 'Esercitata' : 'Declinata'}
+                      </Tag>
+                    </span>
+                  ) : (
+                    'Senza risposta decade.'
+                  )}
                 </p>
               </div>
-              {request ? (
-                <span className="flex items-center gap-1">
-                  <Tag tone="ink">Rinnovato</Tag>
-                  <Button
-                    variant="ghost"
-                    disabled={busy}
-                    aria-label={`Annulla il rinnovo di ${p.firstName} ${p.lastName}`}
-                    onClick={() =>
-                      void run({ kind: 'withdraw_request', request_id: request.id }, 'Rinnovo annullato.')
-                    }
+              <div className="flex gap-2">
+                <Button
+                  disabled={busy || decision?.exercise === true}
+                  onClick={() =>
+                    void run(
+                      { kind: 'option', player_id: p.id, exercise: true },
+                      `Opzione su ${name} esercitata: vale alla chiusura del turno.`,
+                    )
+                  }
+                >
+                  Esercita
+                </Button>
+                <Button
+                  variant="secondary"
+                  disabled={busy || decision?.exercise === false}
+                  onClick={() =>
+                    void run(
+                      { kind: 'option', player_id: p.id, exercise: false },
+                      `Opzione su ${name} declinata: va in scadenza alla chiusura del turno.`,
+                    )
+                  }
+                >
+                  Declina
+                </Button>
+              </div>
+            </li>
+          );
+        })}
+      </ul>
+    </section>
+  );
+}
+
+function Renewals({
+  data,
+  busy,
+  run,
+  offer,
+}: {
+  data: MarketData;
+  busy: boolean;
+  run: Run;
+  offer: (action: MarketAction) => Promise<RenewalAnswer | null>;
+}) {
+  const expiring = data.roster.filter((p) => p.contractType !== 'two-way' && p.salaries.length === 0);
+  return (
+    <section className="space-y-1">
+      <SectionTitle aside={expiring.length ? `${expiring.length} in scadenza` : undefined}>
+        Giocatori in scadenza
+      </SectionTitle>
+      <p className={NOTE}>
+        Le richieste sono ai prezzi della prossima stagione e dipendono da valore, età e morale. Tratta: offri
+        stipendio, anni e un’eventuale opzione, il giocatore risponde subito; dopo 3 rifiuti resta solo la sua
+        ultima controproposta, e un’offerta troppo bassa lo offende. Con il morale sotto 30 non rinnova. Alla
+        chiusura del turno chi non hai rinnovato diventa svincolato: gli RFA con l’offerta di qualifica
+        restano legati a te.
+      </p>
+      {expiring.length === 0 && <p className="py-1 text-sm">Nessun giocatore in scadenza.</p>}
+      <ul>
+        {expiring.map((p) => {
+          const ask = expiringAskOf(data.config, p);
+          const request = data.requests.find((r) => r.playerId === p.id && r.kind === 'renew') ?? null;
+          const rfa = rfaEligible(p);
+          const qualify = data.requests.find((r) => r.playerId === p.id && r.kind === 'qualify');
+          const qo = qualifyingOffer(data.config, p, data.lastSalary.get(p.id));
+          const name = `${p.firstName} ${p.lastName}`;
+          return (
+            <li key={p.id} className={`space-y-2 py-3 ${RULE}`}>
+              <div className="flex items-center gap-3">
+                <OvrBox value={overall(p)} />
+                <div className="min-w-0 flex-1">
+                  <Link
+                    to={`/lega/${data.league.id}/giocatore/${p.id}`}
+                    className="block truncate text-base font-bold hover:underline"
                   >
-                    Annulla
-                  </Button>
-                </span>
+                    {name}
+                  </Link>
+                  <p className={META}>
+                    {p.role} · {p.age} anni · morale {Math.round(p.morale)}
+                    {rfa && (
+                      <span className="ml-2 not-italic">
+                        <Tag tone="outline">RFA</Tag>
+                      </span>
+                    )}
+                  </p>
+                </div>
+              </div>
+              {ask ? (
+                <RenewalTalk
+                  player={p}
+                  ask={ask}
+                  talk={data.talks.get(p.id) ?? null}
+                  request={request}
+                  busy={busy}
+                  offer={offer}
+                  run={run}
+                />
               ) : (
-                ask && (
-                  <Button
-                    disabled={busy}
-                    onClick={() =>
-                      void run(
-                        { kind: 'renew', player_id: p.id },
-                        `Rinnovo di ${p.firstName} ${p.lastName} accettato: si firma alla chiusura del turno.`,
-                      )
-                    }
-                  >
-                    Rinnova
-                  </Button>
-                )
+                <p className={`text-[0.8125rem] italic ${BAD}`}>
+                  Con il morale sotto 30 non vuole rinnovare.
+                </p>
+              )}
+              {rfa && !request && (
+                <div className={`flex flex-wrap items-center justify-between gap-2 px-3 py-2 text-sm ${BOX}`}>
+                  <span className={META}>
+                    Offerta di qualifica: un anno a {millions(qo)}. Se non rinnova resta RFA: in free agency
+                    puoi pareggiare le offerte delle altre squadre, e se nessuno lo prende firma la qualifica.
+                  </span>
+                  {qualify?.qualify ? (
+                    <span className="flex items-center gap-1">
+                      <Tag tone="ink">Qualifica fatta</Tag>
+                      <Button
+                        variant="ghost"
+                        disabled={busy}
+                        aria-label={`Ritira l’offerta di qualifica a ${name}`}
+                        onClick={() =>
+                          void run(
+                            { kind: 'withdraw_request', request_id: qualify.id },
+                            'Qualifica ritirata.',
+                          )
+                        }
+                      >
+                        Ritira
+                      </Button>
+                    </span>
+                  ) : (
+                    <Button
+                      variant="secondary"
+                      disabled={busy}
+                      onClick={() =>
+                        void run(
+                          { kind: 'qualify', player_id: p.id, qualify: true },
+                          `Offerta di qualifica a ${name}: se non rinnova resta RFA.`,
+                        )
+                      }
+                    >
+                      Fai la qualifica
+                    </Button>
+                  )}
+                </div>
               )}
             </li>
           );

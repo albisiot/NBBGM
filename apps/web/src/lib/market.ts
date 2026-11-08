@@ -4,6 +4,8 @@
 import {
   askingSalaryFor,
   IN_SEASON_ASK_ROUND,
+  qualifyingOfferFor,
+  RENEWAL_ATTEMPTS,
   luxuryTax,
   minimumSalaryFor,
   nextConfig,
@@ -36,12 +38,42 @@ export type MarketAction =
   | { kind: 'withdraw_trade'; offer_id: string }
   | { kind: 'release'; player_id: string }
   | { kind: 'renew'; player_id: string }
+  | { kind: 'renew_offer'; player_id: string; salary: number; years: number; option: ContractOptionKind }
+  | { kind: 'draft_pick'; player_id: string }
+  | { kind: 'option'; player_id: string; exercise: boolean }
+  | { kind: 'qualify'; player_id: string; qualify: boolean }
+  | { kind: 'match'; player_id: string; match: boolean }
   | { kind: 'withdraw_request'; request_id: string }
   | { kind: 'hire_coach'; coach_id: string }
   | { kind: 'withdraw_coach'; request_id: string };
 
-/** Manda un'azione di mercato al server; l'errore è già un messaggio per il manager. */
-export async function marketAction(leagueId: string, action: MarketAction): Promise<string> {
+/** Opzione sull'ultimo anno di un contratto: del giocatore, della squadra o nessuna. */
+export type ContractOptionKind = 'player' | 'team' | null;
+
+/** Termini di un rinnovo: stipendio del primo anno (+5% l'anno), anni, opzione sull'ultimo anno. */
+export interface RenewalTermsView {
+  salary: number;
+  years: number;
+  option: ContractOptionKind;
+}
+
+/** Risposta del giocatore a un'offerta di rinnovo, come la manda il server. */
+export type RenewalAnswer =
+  | { kind: 'accept'; salaries: number[]; options: (string | null)[] }
+  | { kind: 'counter'; counter: RenewalTermsView; attemptsLeft: number; lowball: boolean }
+  | { kind: 'final'; counter: RenewalTermsView; lowball: boolean };
+
+/** Offerte rifiutate dopo cui il giocatore non tratta più (resta la sua ultima controproposta). */
+export const RENEWAL_TRIES = RENEWAL_ATTEMPTS;
+
+/**
+ * Manda un'azione di mercato al server; l'errore è già un messaggio per il manager. Per un'offerta di rinnovo, con la
+ * risposta del giocatore.
+ */
+export async function marketActionWithReply(
+  leagueId: string,
+  action: MarketAction,
+): Promise<{ id: string; reply?: RenewalAnswer }> {
   const { data, error } = await supabase.functions.invoke('market', {
     body: { league_id: leagueId, action },
   });
@@ -52,7 +84,12 @@ export async function marketAction(leagueId: string, action: MarketAction): Prom
     }
     throw error;
   }
-  return (data as { id: string }).id;
+  return data as { id: string; reply?: RenewalAnswer };
+}
+
+/** Manda un'azione di mercato al server; l'errore è già un messaggio per il manager. */
+export async function marketAction(leagueId: string, action: MarketAction): Promise<string> {
+  return (await marketActionWithReply(leagueId, action)).id;
 }
 
 type Num = number | string;
@@ -120,10 +157,11 @@ export function missingPlayerIds(
   return [...ids].filter((id) => !known.has(id));
 }
 
-/** Turno di free agency (0-3) dello stage di offseason, o null. */
+/** Turno di free agency (0-14) dello stage di offseason, o null. */
 export function faRoundOf(stage: string | null): number | null {
-  const m = /^fa([1-4])$/.exec(stage ?? '');
-  return m ? Number(m[1]) - 1 : null;
+  const m = /^fa(\d{1,2})$/.exec(stage ?? '');
+  const n = m ? Number(m[1]) : 0;
+  return n >= 1 && n <= 15 ? n - 1 : null;
 }
 
 /** Turno dell'offseason dopo il draft: contratti e configurazione sono già quelli della stagione che arriva. */
@@ -212,9 +250,17 @@ export async function myBids(teamId: string): Promise<Bid[]> {
 export interface RosterRequest {
   id: string;
   playerId: string;
-  kind: 'release' | 'renew';
+  kind: 'release' | 'renew' | 'draft_pick' | 'option' | 'qualify' | 'match';
   status: string;
   salaries: number[];
+  /** Rinnovo: opzioni concordate, allineate agli stipendi. */
+  options: (string | null)[];
+  /** Opzione della squadra: esercitata (true) o declinata. */
+  exercise: boolean | null;
+  /** Offerta di qualifica: fatta (true) o ritirata. */
+  qualify: boolean | null;
+  /** Offerta all'RFA: pareggiata (true) o no. */
+  match: boolean | null;
 }
 
 export async function myRequests(teamId: string): Promise<RosterRequest[]> {
@@ -228,9 +274,15 @@ export async function myRequests(teamId: string): Promise<RosterRequest[]> {
     (data ?? []) as {
       id: string;
       player_id: string;
-      kind: 'release' | 'renew';
+      kind: RosterRequest['kind'];
       status: string;
-      payload: { salaries?: Num[] };
+      payload: {
+        salaries?: Num[];
+        options?: (string | null)[];
+        exercise?: boolean;
+        qualify?: boolean;
+        match?: boolean;
+      };
     }[]
   ).map((r) => ({
     id: r.id,
@@ -238,6 +290,10 @@ export async function myRequests(teamId: string): Promise<RosterRequest[]> {
     kind: r.kind,
     status: r.status,
     salaries: (r.payload.salaries ?? []).map(Number),
+    options: r.payload.options ?? [],
+    exercise: r.payload.exercise ?? null,
+    qualify: r.payload.qualify ?? null,
+    match: r.payload.match ?? null,
   }));
 }
 
@@ -451,7 +507,7 @@ export const TRADE_STATUS: Record<string, string> = {
 };
 
 export const BID_STATUS: Record<string, string> = {
-  pending: 'In attesa della chiusura del turno',
+  pending: 'Sul tavolo: si decide alla chiusura del turno',
   won: 'Firmato',
   lost: 'Non firmato',
   invalid: 'Non valida',
@@ -476,7 +532,7 @@ export interface FreeAgentRow<P> {
 /** Ordinamento: overall, potenziale stimato, età, richiesta o un gruppo di abilità (bisogni della squadra). */
 export type FreeAgentSort = 'overall' | 'potential' | 'age' | 'ask' | `skill:${SkillKey}`;
 export type AgeBand = 'all' | 'young' | 'prime' | 'veteran';
-/** Richiesta: tutte, al minimo, fino al minimo + 2 o + 5 milioni, dentro lo spazio sotto il cap. */
+/** Richiesta: tutte, al minimo, fino al minimo + 2 o + 5 milioni, dentro il margine dalla soglia della tassa. */
 export type AskBand = 'all' | 'min' | 'min2' | 'min5' | 'space';
 
 export interface FreeAgentQuery {
@@ -507,7 +563,7 @@ export const ASK_BANDS: { value: AskBand; label: string }[] = [
   { value: 'min', label: 'Al minimo' },
   { value: 'min2', label: 'Fino al minimo + 2 mln' },
   { value: 'min5', label: 'Fino al minimo + 5 mln' },
-  { value: 'space', label: 'Dentro lo spazio sotto il cap' },
+  { value: 'space', label: 'Dentro il margine dalla tassa' },
 ];
 
 export const FA_SORTS: { value: FreeAgentSort; label: string }[] = [
@@ -539,9 +595,9 @@ export function plain(text: string): string {
 const ASK_TOLERANCE = 5_000;
 
 /**
- * Svincolati filtrati per nome, ruolo (principale o secondario), età e richiesta, e ordinati. space è lo spazio
- * sotto il cap: sopra il cap si firma solo al minimo, quindi "dentro lo spazio" comprende sempre chi chiede il
- * minimo. A parità si ordina per overall e poi per nome.
+ * Svincolati filtrati per nome, ruolo (principale o secondario), età e richiesta, e ordinati. space è il margine
+ * dalla soglia della tassa: oltre si firma solo al minimo, quindi "dentro il margine" comprende sempre chi chiede il
+ * minimo. A parità di ordinamento vince l'overall, poi il nome.
  */
 export function filterFreeAgents<
   P extends {
@@ -595,4 +651,132 @@ export function filterFreeAgents<
       return words.every((w) => full.includes(w));
     })
     .sort((a, b) => sortKey(a) - sortKey(b) || b.ovr - a.ovr || name(a).localeCompare(name(b), 'it'));
+}
+
+// ---------------------------------------------------------------- offseason: trattative, RFA, opzioni
+
+/** Com'è andata la trattativa del rinnovo con un giocatore nella stagione. */
+export interface RenewalTalkInfo {
+  playerId: string;
+  refusals: number;
+  counter: RenewalTermsView | null;
+}
+
+/**
+ * Trattative dei rinnovi della propria squadra nella stagione (le vede solo lei). Senza la tabella (app pubblicata
+ * prima della migrazione) nessuna.
+ */
+export async function renewalTalks(teamId: string, seasonId: string): Promise<Map<string, RenewalTalkInfo>> {
+  const { data, error } = await supabase
+    .from('renewal_talks')
+    .select('player_id, refusals, counter')
+    .eq('team_id', teamId)
+    .eq('season_id', seasonId);
+  if (error) return new Map();
+  return new Map(
+    ((data ?? []) as { player_id: string; refusals: number; counter: RenewalTermsView | null }[]).map((t) => [
+      t.player_id,
+      { playerId: t.player_id, refusals: t.refusals, counter: t.counter },
+    ]),
+  );
+}
+
+/** RFA della lega: la squadra con i diritti e l'offerta di qualifica. */
+export interface RestrictedInfo {
+  playerId: string;
+  teamId: string;
+  qualifyingOffer: number;
+}
+
+/** Offerta scelta da un RFA, in attesa che la sua squadra decida se pareggiarla. */
+export interface OfferSheetInfo {
+  playerId: string;
+  teamId: string;
+  rightsTeamId: string;
+  salaries: number[];
+}
+
+/** RFA e offerte da pareggiare della lega (le vedono tutti i membri); senza le tabelle, nessuno. */
+export async function restrictedState(
+  leagueId: string,
+): Promise<{ rights: Map<string, RestrictedInfo>; sheets: Map<string, OfferSheetInfo> }> {
+  const [rights, sheets] = await Promise.all([
+    supabase
+      .from('restricted_rights')
+      .select('player_id, team_id, qualifying_offer')
+      .eq('league_id', leagueId),
+    supabase
+      .from('offer_sheets')
+      .select('player_id, team_id, rights_team_id, salaries')
+      .eq('league_id', leagueId),
+  ]);
+  return {
+    rights: new Map(
+      (rights.error
+        ? []
+        : (rights.data as { player_id: string; team_id: string; qualifying_offer: Num }[])
+      ).map((r) => [
+        r.player_id,
+        { playerId: r.player_id, teamId: r.team_id, qualifyingOffer: Number(r.qualifying_offer) },
+      ]),
+    ),
+    sheets: new Map(
+      (sheets.error
+        ? []
+        : (sheets.data as { player_id: string; team_id: string; rights_team_id: string; salaries: Num[] }[])
+      ).map((x) => [
+        x.player_id,
+        {
+          playerId: x.player_id,
+          teamId: x.team_id,
+          rightsTeamId: x.rights_team_id,
+          salaries: x.salaries.map(Number),
+        },
+      ]),
+    ),
+  };
+}
+
+/** Ultimo stipendio dei contratti in scadenza (per l'offerta di qualifica); senza la colonna, nessuno. */
+export async function lastSalaries(ids: readonly string[]): Promise<Map<string, number>> {
+  if (ids.length === 0) return new Map();
+  const { data, error } = await supabase
+    .from('contracts')
+    .select('player_id, last_salary')
+    .in('player_id', ids);
+  if (error) return new Map();
+  return new Map(
+    ((data ?? []) as { player_id: string; last_salary: Num | null }[])
+      .filter((c) => c.last_salary !== null)
+      .map((c) => [c.player_id, Number(c.last_salary)]),
+  );
+}
+
+/** RFA in scadenza: chi finisce il contratto da rookie o ha al più 3 anni nella lega (come il motore). */
+export function rfaEligible(p: Pick<RosterPlayer, 'contractType' | 'yearsInLeague'>): boolean {
+  return p.contractType === 'rookie' || (p.yearsInLeague !== null && p.yearsInLeague <= 3);
+}
+
+/** Offerta di qualifica: un anno al 125% dell'ultimo stipendio, almeno il minimo (come il motore). */
+export function qualifyingOffer(
+  config: SeasonConfig,
+  p: Pick<RosterPlayer, 'yearsInLeague'>,
+  lastSalary: number | undefined,
+): number {
+  return qualifyingOfferFor(config, p, lastSalary);
+}
+
+const OPTION_TEXT: Record<'player' | 'team', string> = {
+  player: 'opzione del giocatore',
+  team: 'opzione della squadra',
+};
+
+/** "3 anni, 12,35 mln il primo, opzione del giocatore sull'ultimo" */
+export function termsText(t: RenewalTermsView): string {
+  return `${t.years} ${t.years === 1 ? 'anno' : 'anni'}, ${millions(t.salary)} il primo${t.option ? `, ${OPTION_TEXT[t.option]} sull’ultimo` : ''}`;
+}
+
+/** Opzioni della squadra sulla stagione che arriva ancora da decidere (turno delle opzioni). */
+export function pendingOption(p: Pick<RosterPlayer, 'options' | 'salaries'>): boolean {
+  return p.options[0] === 'team' && p.salaries.length > 0;
 }

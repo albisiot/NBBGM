@@ -17,6 +17,7 @@ import {
   roundPhase,
   roundStuck,
   roundTitle,
+  STAGE_LABEL,
   timeLeft,
   turnFromServer,
   type BarStatus,
@@ -192,6 +193,48 @@ describe('avviso dello spazio', () => {
     const t = alertText({ kind: 'storage', payload: { mb: 412.3, limit_mb: 500 } });
     expect(t.title).toBe('Database quasi pieno');
     expect(t.body).toContain('412.3 MB su 500');
+  });
+});
+
+describe('offseason nuova', () => {
+  it('turni e avvisi: draft dal vivo, opzioni, rinnovi con RFA, 15 turni di free agency, pareggi, preparazione', () => {
+    expect(STAGE_LABEL.options).toBe('Opzioni della squadra');
+    expect(STAGE_LABEL.fa5).toBe('Free agency, turno 5 di 15 (solo offerte)');
+    expect(STAGE_LABEL.fa6).toBe('Free agency, turno 6 di 15');
+    expect(STAGE_LABEL.fa15).toBe('Free agency, turno 15 di 15');
+    const draft = alertText({
+      kind: 'draft_pick',
+      payload: { pick: 12, round: 1, number: 12, draft_year: 2027 },
+    });
+    expect(draft.title).toBe('Draft 2027: tocca a te');
+    expect(draft.body).toContain('scelta n. 12');
+    expect(alertText({ kind: 'team_options', payload: { players: 2 } }).body).toContain('2 opzioni');
+    expect(alertText({ kind: 'renewals', payload: { players: 3, restricted: 1 } }).body).toContain(
+      'Uno è un RFA',
+    );
+    const fa1 = alertText({ kind: 'free_agency', payload: { round: 1, rounds: 15, signing_from: 6 } });
+    expect(fa1.body).toContain('Nei primi 5 si fanno solo offerte');
+    expect(alertText({ kind: 'free_agency', payload: { round: 6, rounds: 15, signing_from: 6 } }).title).toBe(
+      'Free agency: si firma',
+    );
+    const sheet = alertText({
+      kind: 'offer_sheet',
+      payload: { player: 'Mario Rossi', team: 'LAL', salaries: [12_000_000, 12_600_000] },
+    });
+    expect(sheet.body).toContain('ha scelto l’offerta di LAL: 2 anni, 12,0 mln il primo');
+    expect(alertText({ kind: 'preparation', payload: { cut: 2, sign: 0, cut_two_way: 0 } }).body).toContain(
+      'devi tagliare 2 giocatori per stare dentro ai 15',
+    );
+    expect(alertText({ kind: 'preparation', payload: { cut: 0, sign: 1, cut_two_way: 0 } }).body).toContain(
+      'devi firmare un giocatore per averne almeno 13',
+    );
+    // Le decisioni che costano di più vengono prima
+    const a = (id: string, kind: string) => ({ id, kind, blocking: true, createdAt: '2026-11-08T10:00:00Z' });
+    expect(
+      alertGroups([a('1', 'renewals'), a('2', 'offer_sheet'), a('3', 'team_options')]).todo.map(
+        (x) => x.kind,
+      ),
+    ).toEqual(['offer_sheet', 'renewals', 'team_options']);
   });
 });
 
@@ -401,7 +444,11 @@ describe('prima di segnarsi pronti (seconda analisi)', () => {
     expect(readyWarnings([{ kind: 'roster_minimum' }])[0]).toMatch(/firma al minimo/);
     expect(readyWarnings([{ kind: 'draft_pick' }])[0]).toMatch(/lista/);
     expect(readyWarnings([{ kind: 'free_agency' }])[0]).toMatch(/offerte già fatte/);
-    expect(readyWarnings([{ kind: 'preparation' }])[0]).toMatch(/esuberi/);
+    expect(readyWarnings([{ kind: 'preparation' }])[0]).toMatch(/Pronto non si può dare/);
+    // Offseason nuova: pareggio degli RFA e opzioni della squadra
+    expect(readyWarnings([{ kind: 'offer_sheet' }])[0]).toMatch(/altra squadra/);
+    expect(readyWarnings([{ kind: 'team_options' }])[0]).toMatch(/decadono/);
+    expect(readyWarnings([{ kind: 'team_options' }], { coach: true })[0]).toMatch(/allenatore/);
     expect(readyWarnings([{ kind: 'nuovo' }])[0]).toMatch(/scaduti/);
   });
 

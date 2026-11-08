@@ -8,7 +8,7 @@ const SECTIONS: { title: string; text: string[] }[] = [
   {
     title: 'I turni',
     text: [
-      'La lega avanza a turni, e un turno è un giorno del calendario, come nella NBA: da ottobre a metà aprile, ogni giorno da 2 a 15 partite, e ogni squadra gioca circa una sera su due (qualche volta due sere di fila, e si stanca). Poi play-in e playoff, sempre a giorni, e un’offseason di 7 turni (draft, rinnovi, quattro turni di free agency, preparazione).',
+      'La lega avanza a turni, e un turno è un giorno del calendario, come nella NBA: da ottobre a metà aprile, ogni giorno da 2 a 15 partite, e ogni squadra gioca circa una sera su due (qualche volta due sere di fila, e si stanca). Poi play-in e playoff, sempre a giorni, e un’offseason di una ventina di turni (draft dal vivo, opzioni, rinnovi, 15 turni di free agency, preparazione).',
       'Il turno si gioca quando tutti i manager sono pronti, oppure alla scadenza se il commissario ne ha impostata una, oppure quando il commissario lo forza.',
       'Se per 3 turni di fila la scadenza arriva senza che nessun manager faccia niente, la lega si mette in pausa da sola: la riprende il commissario, o il primo che preme Sono pronto.',
     ],
@@ -47,14 +47,14 @@ const SECTIONS: { title: string; text: string[] }[] = [
   {
     title: 'Avvisi e decisioni',
     text: [
-      'Le decisioni arrivano nel riquadro Da decidere prima del turno, nella pagina della lega: proposte di scambio ricevute, rosa sotto 13, giocatori in scadenza, draft, free agency. Prendile prima di premere Sono pronto; in cima alle altre pagine vedi quante ne hai aperte. Gli avvisi da leggere (infortuni, esiti del mercato) stanno accanto alle ultime notizie della lega.',
+      'Le decisioni arrivano nel riquadro Da decidere prima del turno, nella pagina della lega: proposte di scambio ricevute, offerte da pareggiare per i tuoi RFA, rosa sotto 13, la tua scelta al draft, opzioni della squadra, giocatori in scadenza, rosa da sistemare in preparazione. Prendile prima di premere Sono pronto; in cima alle altre pagine vedi quante ne hai aperte. Gli avvisi da leggere (infortuni, esiti del mercato) stanno accanto alle ultime notizie della lega.',
       'Se il turno si chiude senza risposta, le proposte di scambio sono rifiutate e il resto lo decide la logica del bot (o non si fa: un rinnovo non fatto lascia andare il giocatore).',
     ],
   },
   {
     title: 'Il mercato',
     text: [
-      'Agli svincolati si fanno offerte a busta chiusa: alla chiusura del turno ognuno sceglie l’offerta migliore sopra la sua richiesta. Sopra il salary cap si firma solo al minimo. Chi tagli non lo puoi rifirmare fino alla stagione dopo.',
+      'Agli svincolati si fanno offerte a busta chiusa: alla chiusura del turno ognuno sceglie l’offerta migliore sopra la sua richiesta. Si firma finché il monte stipendi resta sotto la soglia della luxury tax (il cap si può superare); oltre, solo al minimo. Chi tagli non lo puoi rifirmare fino alla stagione dopo.',
       'Gli scambi (giocatori e scelte al draft, anche protette o come swap) si propongono a una squadra: i bot decidono alla chiusura del turno, i manager rispondono entro il turno. Dopo la trade deadline (il primo giovedì di febbraio) gli scambi si fermano fino all’offseason.',
       'Il bilancio conta: ricavi uguali per tutti, a metà tra il cap e la soglia della luxury tax più una parte per lo staff, a ogni partita; stipendi, allenatore e tassa si pagano. Con il saldo negativo si firma solo fino al monte stipendi minimo, oltre solo minimi per restare a 13.',
     ],
@@ -62,14 +62,19 @@ const SECTIONS: { title: string; text: string[] }[] = [
   {
     title: 'Le pagine',
     text: [
-      'Lega: le decisioni da prendere, il turno con chi è pronto e le ultime notizie. Squadra: quintetto, minuti, tattiche e allenatore. Mercato: svincolati, scambi, rinnovi, allenatori e bilancio. Campionato: risultati, calendario della stagione (mese o settimana: tocca un giorno per vederne le partite), classifica e, da play-in in poi, il tabellone dei playoff.',
+      'Lega: le decisioni da prendere, il turno con chi è pronto e le ultime notizie. Squadra: quintetto, minuti, tattiche e allenatore. Mercato: svincolati, scambi, opzioni e rinnovi (nei loro turni), allenatori e bilancio. Campionato: risultati, calendario della stagione (mese o settimana: tocca un giorno per vederne le partite), classifica e, da play-in in poi, il tabellone dei playoff.',
       'In Altro (sul telefono) o nel menu in alto: statistiche, cronaca della lega, storico delle stagioni, confronto tra giocatori e Info lega, con il codice invito per gli amici, le squadre, le impostazioni e la gestione per il commissario.',
     ],
   },
   {
     title: 'L’offseason',
     text: [
-      'Dopo la finale: lottery e draft (ordini i tuoi preferiti, il server sceglie alla chiusura del turno), rinnovi dei giocatori in scadenza, quattro turni di free agency con richieste che scendono, poi la preparazione della stagione nuova.',
+      'Dopo la finale, lottery e draft dal vivo: un turno per ogni scelta di un manager. Quando tocca a te scegli il giocatore nella pagina del draft e premi Pronto; nel frattempo scelgono i bot. Senza scelta prende il primo disponibile della tua lista dei preferiti.',
+      'Opzioni: decidi se esercitare le opzioni della squadra sulla prossima stagione (senza risposta decadono). I giocatori con l’opzione la usano da soli: escono se valgono più del 120% dello stipendio e non si trovano bene (morale basso o pochi minuti), o se valgono più del 150%.',
+      'Rinnovi con trattativa: offri stipendio, anni e un’eventuale opzione sull’ultimo anno, il giocatore risponde subito (accetta o fa una controproposta). Dopo 3 rifiuti resta solo la sua ultima controproposta, e un’offerta troppo bassa lo offende. Si tratta anche in stagione, all’ultimo anno di contratto, dalla scheda del giocatore.',
+      'RFA e UFA come nella NBA: chi finisce il contratto da rookie o ha al più 3 anni nella lega è un RFA se gli fai l’offerta di qualifica (un anno al 125% dell’ultimo stipendio). In free agency le altre squadre gli fanno offerte: se ne sceglie una, hai un turno per pareggiarla e tenerlo. Se nessuno lo prende, firma la qualifica. Gli altri sono UFA: liberi di andare dove vogliono.',
+      'Free agency in 15 turni: nei primi 5 si fanno solo offerte e il giocatore ti dice come sta la tua (la migliore, ce n’è una migliore, sotto la richiesta); dal 6° si firma e le richieste scendono di turno in turno. Le offerte restano sul tavolo finché non le ritiri: una sotto la richiesta firma quando la richiesta scende.',
+      'Preparazione: rosa a 13-15 contratti standard e al massimo 3 two-way, che sistemi tu (tagli e offerte): il Pronto aspetta che sia a posto. Se il turno si chiude lo stesso, il server taglia e firma al minimo quello che manca. Poi riparte la stagione.',
     ],
   },
   {

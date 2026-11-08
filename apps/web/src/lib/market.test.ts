@@ -11,8 +11,12 @@ import {
   missingPlayerIds,
   offerInput,
   offerSalary,
+  pendingOption,
   projectedTax,
+  qualifyingOffer,
+  rfaEligible,
   salaryRunOf,
+  termsText,
   type FreeAgentQuery,
 } from './market.ts';
 
@@ -55,10 +59,37 @@ describe('mercato nell’app', () => {
 
 describe('offseason nell’app', () => {
   it('turno di free agency e configurazione della stagione che arriva', () => {
-    expect(['fa1', 'fa4', 'draft', null].map(faRoundOf)).toEqual([0, 3, null, null]);
+    expect(['fa1', 'fa4', 'fa15', 'fa16', 'options', 'draft', null].map(faRoundOf)).toEqual([
+      0,
+      3,
+      14,
+      null,
+      null,
+      null,
+      null,
+    ]);
     expect(effectiveConfig(CONFIG_2026_27, 'offseason', 'draft')).toBe(CONFIG_2026_27);
     expect(effectiveConfig(CONFIG_2026_27, 'offseason', 'fa2')).toEqual(nextConfig(CONFIG_2026_27));
     expect(effectiveConfig(CONFIG_2026_27, 'regular', null)).toBe(CONFIG_2026_27);
+    expect(effectiveConfig(CONFIG_2026_27, 'offseason', 'options')).toEqual(nextConfig(CONFIG_2026_27));
+  });
+
+  it('RFA, offerta di qualifica, opzioni da decidere e termini di un rinnovo', () => {
+    expect(rfaEligible({ contractType: 'rookie', yearsInLeague: 6 })).toBe(true);
+    expect(rfaEligible({ contractType: 'standard', yearsInLeague: 3 })).toBe(true);
+    expect(rfaEligible({ contractType: 'standard', yearsInLeague: 4 })).toBe(false);
+    expect(rfaEligible({ contractType: 'standard', yearsInLeague: null })).toBe(false);
+    // 125% dell'ultimo stipendio, almeno il minimo
+    expect(qualifyingOffer(CONFIG_2026_27, { yearsInLeague: 3 }, 8_000_000)).toBe(10_000_000);
+    expect(qualifyingOffer(CONFIG_2026_27, { yearsInLeague: 3 }, 1_000_000)).toBe(
+      minimumOf(CONFIG_2026_27, { yearsInLeague: 3 }),
+    );
+    expect(pendingOption({ options: ['team', null], salaries: [5, 6] })).toBe(true);
+    expect(pendingOption({ options: [null, 'team'], salaries: [5, 6] })).toBe(false);
+    expect(termsText({ salary: 12_350_000, years: 3, option: 'player' })).toBe(
+      '3 anni, 12,35 mln il primo, opzione del giocatore sull’ultimo',
+    );
+    expect(termsText({ salary: 2_000_000, years: 1, option: null })).toBe('1 anno, 2,00 mln il primo');
   });
 });
 

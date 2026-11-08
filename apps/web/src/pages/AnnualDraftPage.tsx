@@ -1,7 +1,8 @@
-// Draft annuale dell'offseason: ordine delle 60 chiamate (dopo lottery, protezioni e swap), prospetti con le
-// stime, la propria lista dei preferiti (si salva a ogni modifica) e, finito il draft, chi ha scelto chi. Le
-// scelte le fa il server alla chiusura del turno: per le squadre umane il primo disponibile della lista, senza
-// lista il migliore per i ruoli scoperti.
+// Draft annuale dell'offseason, dal vivo: ordine delle 60 chiamate (dopo lottery, protezioni e swap), prospetti con
+// le stime, la propria lista dei preferiti (si salva a ogni modifica) e chi ha scelto chi. Ogni turno del draft è di
+// un manager, quello della chiamata: sceglie il giocatore qui (Scegli) e preme Pronto; alla chiusura il server fa la
+// sua scelta e quelle dei bot fino alla chiamata del manager successivo. Senza scelta prende il primo disponibile
+// della lista, senza lista il migliore per i ruoli scoperti.
 import { overall } from '@nbbgm/engine';
 import { useEffect, useMemo, useState } from 'react';
 import { Link, useParams } from 'react-router';
@@ -11,6 +12,7 @@ import { annualListToSave } from '../lib/draft.ts';
 import { friendlyError } from '../lib/errors.ts';
 import { latestSaver } from '../lib/latestSaver.ts';
 import { leagueDetail } from '../lib/leagues.ts';
+import { marketAction, myRequests, type RosterRequest } from '../lib/market.ts';
 import { draftProspects, liteOf, playersLite } from '../lib/roster.ts';
 import { supabase } from '../lib/supabase.ts';
 import { INK_LINK, NOTE } from '../lib/tabellino.ts';
@@ -56,6 +58,21 @@ async function draftOrder(leagueId: string, draftYear: number): Promise<Slot[]> 
   }));
 }
 
+/** Chiamata del turno del draft dal vivo e squadra che sceglie; senza le colonne (app prima della migrazione) null. */
+async function draftTurn(roundId: string | null): Promise<{ pick: number; teamId: string } | null> {
+  if (!roundId) return null;
+  const { data, error } = await supabase
+    .from('rounds')
+    .select('draft_pick, draft_team_id')
+    .eq('id', roundId)
+    .maybeSingle();
+  if (error || !data) return null;
+  const r = data as { draft_pick: number | null; draft_team_id: string | null };
+  return r.draft_pick !== null && r.draft_team_id !== null
+    ? { pick: r.draft_pick, teamId: r.draft_team_id }
+    : null;
+}
+
 async function myDraftList(teamId: string): Promise<string[]> {
   const { data, error } = await supabase
     .from('draft_lists')
@@ -81,21 +98,27 @@ export function AnnualDraftPage() {
     if (!league?.seasonYear) return null;
     const draftYear = league.seasonYear + 1;
     const mine = league.teams.find((t) => t.ownerId === userId) ?? null;
-    const [order, prospects, list] = await Promise.all([
+    const live = league.roundKind === 'offseason' && league.roundStage === 'draft';
+    const [order, prospects, list, turn, requests] = await Promise.all([
       draftOrder(id, draftYear),
       draftProspects(id, draftYear),
       mine ? myDraftList(mine.id) : Promise.resolve([] as string[]),
+      live ? draftTurn(league.roundId) : Promise.resolve(null),
+      mine && live ? myRequests(mine.id) : Promise.resolve([] as RosterRequest[]),
     ]);
+    const choice = requests.find((r) => r.kind === 'draft_pick') ?? null;
     // Chi è già stato scelto: dai prospetti, oppure (non più prospetto) solo quei giocatori, non tutta la lega
     const players = new Map(prospects.map((p) => [p.id, liteOf(p)]));
     const picked = order.flatMap((s) => (s.playerId && !players.has(s.playerId) ? [s.playerId] : []));
     if (picked.length > 0) for (const [pid, p] of await playersLite(picked)) players.set(pid, p);
-    return { league, draftYear, mine, order, prospects, players, list };
+    return { league, draftYear, mine, order, prospects, players, list, turn, choice };
   }, [id, userId]);
   // Alla chiusura del turno del draft la lista non si cambia più e arrivano le scelte fatte: si rilegge tutto
   useRoundChange(id, reload);
   const [list, setList] = useState<string[] | null>(null);
   const [saveError, setSaveError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [pickError, setPickError] = useState<string | null>(null);
   // Un'altra lega: si riparte dalla lista salvata
   useEffect(() => {
     setList(null);
@@ -126,12 +149,28 @@ export function AnnualDraftPage() {
   if (loading && !data) return <Spinner />;
   if (error) return <ErrorText>{error}</ErrorText>;
   if (!data) return <ErrorText>Lega non trovata, oppure non ne fai parte.</ErrorText>;
-  const { league, draftYear, mine, order, players } = data;
+  const { league, draftYear, mine, order, players, turn, choice } = data;
   const team = new Map(league.teams.map((t) => [t.id, t]));
   const done = order.length > 0 && order.every((s) => s.playerId !== null);
   const editable =
     league.roundKind === 'offseason' && league.roundStage === 'draft' && league.roundState === 'open';
   const byId = new Map(prospects.map((p) => [p.id, p]));
+  const onClock = turn ? order.find((s) => s.pickNo === turn.pick) : undefined;
+  const myTurn = editable && turn !== null && turn.teamId === mine?.id;
+  const chosen = choice ? byId.get(choice.playerId) : undefined;
+
+  async function act(action: Parameters<typeof marketAction>[1]) {
+    setBusy(true);
+    setPickError(null);
+    try {
+      await marketAction(id, action);
+      reload();
+    } catch (e) {
+      setPickError(friendlyError(e));
+    } finally {
+      setBusy(false);
+    }
+  }
 
   function update(next: string[]) {
     if (!saver || !editable) return;
@@ -164,11 +203,48 @@ export function AnnualDraftPage() {
         sub={
           done
             ? 'Draft concluso: i rookie hanno firmato con chi li ha scelti.'
-            : '2 giri, 60 scelte. Alla chiusura del turno sceglie il server, dal primo disponibile della tua lista.'
+            : '2 giri, 60 scelte, dal vivo: un turno per ogni scelta di un manager, i bot scelgono nel frattempo.'
         }
       >
         Draft {draftYear}
       </PageTitle>
+
+      {!done && onClock && (
+        <section className="space-y-2" aria-live="polite">
+          <SectionTitle aside={`${onClock.round}.${String(onClock.number).padStart(2, '0')}`}>
+            {myTurn ? `Tocca a te: scelta n. ${onClock.pickNo}` : `Scelta n. ${onClock.pickNo}`}
+          </SectionTitle>
+          {myTurn ? (
+            <>
+              <p className="text-[0.95rem] leading-snug">
+                {chosen ? (
+                  <>
+                    Hai scelto <b>{`${chosen.firstName} ${chosen.lastName}`}</b>. Premi Pronto: alla chiusura
+                    del turno è tuo, poi scelgono i bot fino al prossimo manager.
+                  </>
+                ) : (
+                  'Scegli il giocatore tra i prospetti qui sotto, poi premi Pronto. Senza scelta prende il primo disponibile della tua lista, senza lista il migliore per i ruoli scoperti.'
+                )}
+              </p>
+              {choice && (
+                <Button
+                  variant="ghost"
+                  disabled={busy}
+                  onClick={() => void act({ kind: 'withdraw_request', request_id: choice.id })}
+                >
+                  Annulla la scelta
+                </Button>
+              )}
+            </>
+          ) : (
+            <p className={NOTE}>
+              Sceglie {team.get(onClock.teamId)?.code ?? '?'}: il turno è suo. Intanto puoi sistemare la tua
+              lista.
+            </p>
+          )}
+          {pickError && <ErrorText>{pickError}</ErrorText>}
+        </section>
+      )}
 
       {!done && mine && (
         <section className="space-y-2">
@@ -177,8 +253,8 @@ export function AnnualDraftPage() {
           </SectionTitle>
           {current.length === 0 && (
             <p className={NOTE}>
-              Vuota: sceglierà il server il migliore per i ruoli scoperti. Aggiungi i prospetti dall’elenco
-              qui sotto.
+              Vuota: quando tocca a te e non scegli, sceglie il server il migliore per i ruoli scoperti.
+              Aggiungi i prospetti dall’elenco qui sotto.
             </p>
           )}
           <ol className="text-sm">
@@ -304,6 +380,16 @@ export function AnnualDraftPage() {
                         {p.role} · {p.age} anni · pot. {p.scoutedPotential} · {p.archetype}
                       </i>
                     </Link>
+                    {myTurn && (
+                      <Button
+                        className="px-3"
+                        disabled={busy || choice?.playerId === p.id}
+                        aria-label={`Scegli ${p.firstName} ${p.lastName}`}
+                        onClick={() => void act({ kind: 'draft_pick', player_id: p.id })}
+                      >
+                        {choice?.playerId === p.id ? 'Scelto' : 'Scegli'}
+                      </Button>
+                    )}
                     {editable && mine && (
                       <Button
                         variant={inList ? 'ghost' : 'secondary'}
@@ -312,7 +398,7 @@ export function AnnualDraftPage() {
                           void update(inList ? current.filter((x) => x !== p.id) : [...current, p.id])
                         }
                       >
-                        {inList ? 'Togli' : 'Aggiungi'}
+                        {inList ? 'Togli' : 'In lista'}
                       </Button>
                     )}
                   </li>
