@@ -4,6 +4,7 @@
 import {
   askingSalary,
   canSign,
+  checkCoachHire,
   expiringAsk,
   freeAgencyRoundOf,
   isExpiring,
@@ -46,7 +47,10 @@ export type MarketAction =
   | { kind: 'withdraw_trade'; offer_id: string }
   | { kind: 'release'; player_id: string }
   | { kind: 'renew'; player_id: string }
-  | { kind: 'withdraw_request'; request_id: string };
+  | { kind: 'withdraw_request'; request_id: string }
+  /** Cambio di allenatore: esonera quello di adesso e prende uno libero alla sua richiesta, alla chiusura del turno. */
+  | { kind: 'hire_coach'; coach_id: string }
+  | { kind: 'withdraw_coach'; request_id: string };
 
 const millions = (x: number) => `${(x / 1e6).toFixed(2).replace('.', ',')} mln`;
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -254,6 +258,18 @@ export function checkMarketAction(
 
     case 'withdraw_request':
       return write({ kind: 'withdraw_request', request_id: rowId(action.request_id, 'Richiesta') });
+
+    case 'hire_coach': {
+      // In ogni turno, anche in post-season e in offseason: si esegue alla chiusura
+      if (!state.coaches) throw new MarketError('In questa lega non ci sono allenatori');
+      if (!isUuid(action.coach_id)) throw new MarketError('Allenatore non trovato');
+      const check = checkCoachHire(state, me, action.coach_id);
+      if (!check.ok) throw new MarketError(`Non puoi prenderlo: ${check.reason}`);
+      return write({ kind: 'hire_coach', coach_id: action.coach_id });
+    }
+
+    case 'withdraw_coach':
+      return write({ kind: 'withdraw_coach', request_id: rowId(action.request_id, 'Richiesta') });
 
     default:
       throw new MarketError('Azione non valida');

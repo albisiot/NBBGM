@@ -15,6 +15,7 @@ import {
 } from '../../../packages/engine/src/index.ts';
 import type {
   BodyPart,
+  CoachState,
   Conference,
   ContractOption,
   ContractType,
@@ -22,7 +23,9 @@ import type {
   GameRecord,
   Hidden,
   LeagueState,
+  OwnerProfile,
   PlayerState,
+  Philosophy,
   Ratings,
   Role,
   SeasonConfig,
@@ -74,6 +77,10 @@ export interface LeagueStateRows {
     balance: Num;
     strategy: string;
     tax_history: boolean[];
+    /** Proprietario e GM (null nelle leghe create prima degli allenatori). */
+    owner_profile?: OwnerProfile | null;
+    /** Vittorie attese nella stagione (il metro del proprietario). */
+    expected_wins?: number | null;
   }[];
   players: {
     id: string;
@@ -201,6 +208,28 @@ export interface LeagueStateRows {
   }[];
   /** Preferiti dei manager per il draft annuale. */
   draft_lists?: { team_id: string; player_ids: string[] }[];
+  /** Allenatori della lega, in panchina e liberi (nessuno nelle leghe create prima). */
+  coaches?: CoachRow[];
+  /** Allenatori esonerati ancora da pagare. */
+  coach_buyouts?: { id?: string; team_id: string; coach_id: string; coach_name: string; salaries: Num[] }[];
+  /** Cambi di allenatore chiesti nel turno, in attesa. */
+  coach_requests?: { id: string; team_id: string; coach_id: string }[];
+}
+
+export interface CoachRow {
+  id: string;
+  team_id: string | null;
+  first_name: string;
+  last_name: string;
+  nationality: string;
+  age: number;
+  philosophy: string;
+  traits: CoachState['traits'];
+  ratings: CoachState['ratings'];
+  salaries: Num[];
+  since: number | null;
+  pressure: Num;
+  idle_seasons: number;
 }
 
 export interface TradeOfferRow {
@@ -242,6 +271,13 @@ export function leagueStateFromRows(rows: LeagueStateRows): { state: LeagueState
     ),
     draft_picks: [...rows.draft_picks].sort((a, b) => byText(a.id, b.id)),
     draft_swaps: [...rows.draft_swaps].sort((a, b) => byText(a.id, b.id)),
+    coaches: [...(rows.coaches ?? [])].sort((a, b) => byText(a.id, b.id)),
+    coach_buyouts: [...(rows.coach_buyouts ?? [])].sort(
+      (a, b) =>
+        byText(a.team_id, b.team_id) ||
+        byText(a.coach_id, b.coach_id) ||
+        byText(a.salaries.join(','), b.salaries.join(',')),
+    ),
   };
   const code = new Map(r.teams.map((t) => [t.id, t.code]));
   const team = new Map(r.teams.map((t) => [t.code, t.id]));
@@ -359,6 +395,10 @@ export function leagueStateFromRows(rows: LeagueStateRows): { state: LeagueState
         settings:
           t.owner_id !== null && saved ? { starters: saved.starters, minutes: saved.minutes, tactics } : null,
         coach: t.owner_id !== null && coach.has(t.id),
+        ...(t.owner_profile ? { owner: t.owner_profile } : {}),
+        ...(t.expected_wins === null || t.expected_wins === undefined
+          ? {}
+          : { expectedWins: t.expected_wins }),
       };
     }),
     players,
@@ -400,6 +440,32 @@ export function leagueStateFromRows(rows: LeagueStateRows): { state: LeagueState
     talentReference: num(r.league.talent_reference),
     // Gli spareggi in classifica usano l'id della lega, che l'app conosce: il seed della lega resta segreto
     publicSeed: r.league.id,
+    // Allenatori: nelle leghe create prima non ce ne sono, e il motore gioca come allora
+    ...(r.coaches?.length
+      ? {
+          coaches: r.coaches.map((c): CoachState => ({
+            id: c.id,
+            firstName: c.first_name,
+            lastName: c.last_name,
+            nationality: c.nationality,
+            age: c.age,
+            philosophy: c.philosophy as Philosophy,
+            traits: c.traits,
+            ratings: c.ratings,
+            teamId: c.team_id === null ? null : codeOf(c.team_id),
+            salaries: c.salaries.map(num),
+            since: c.since,
+            pressure: num(c.pressure),
+            idleSeasons: c.idle_seasons,
+          })),
+          coachBuyouts: (r.coach_buyouts ?? []).map((b) => ({
+            teamId: codeOf(b.team_id),
+            coachId: b.coach_id,
+            coachName: b.coach_name,
+            salaries: b.salaries.map(num),
+          })),
+        }
+      : {}),
     releases: (r.releases ?? []).map((x) => ({ playerId: x.player_id, teamId: codeOf(x.team_id) })),
     offseason: r.draft_order?.length
       ? {

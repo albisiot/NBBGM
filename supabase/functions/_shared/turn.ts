@@ -10,6 +10,7 @@
 // serie aggiornate e mette in calendario le partite del turno successivo, così tutti vedono chi gioca.
 import {
   BODY_PART_LABEL,
+  coachCost,
   fillRosterAtMinimum,
   shortDayLabel,
   MIN_STANDARD,
@@ -191,6 +192,12 @@ export function serverTurn(
         playerId: b.player_id,
         salaries: b.salaries.map(Number),
       })),
+      // Cambi di allenatore: in ogni turno, anche in post-season e in offseason
+      coaches: (rows.coach_requests ?? []).map((q) => ({
+        id: q.id,
+        teamId: code(q.team_id),
+        coachId: q.coach_id,
+      })),
     },
     offseason ? null : turn,
     faRound === null ? {} : { askRound: faRound, extraOffers: () => botFreeAgencyOffers(state, faRound) },
@@ -214,7 +221,7 @@ export function serverTurn(
 
   // ------------------------------------------------ partite
   // Ricavi e stipendi di una partita per chi gioca oggi, con le rose che vanno in campo, come li conta il motore
-  // (chargeGames); chi riposa e la post-season non hanno movimenti
+  // (chargeGames), allenatore ed esonerati compresi; chi riposa e la post-season non hanno movimenti
   const today = regular ? state.schedule.filter((g) => g.turn === turn) : [];
   const day = today[0]?.day ?? state.day;
   const opponent = new Map(
@@ -230,8 +237,9 @@ export function serverTurn(
             twoWay: Math.round(
               (twoWayRoster(state, t.id).length * twoWaySalary(state.config)) / GAMES_PER_SEASON,
             ),
+            coach: Math.round(coachCost(state, t.id) / GAMES_PER_SEASON),
           }
-        : { revenue: 0, salary: 0, twoWay: 0 },
+        : { revenue: 0, salary: 0, twoWay: 0, coach: 0 },
     ]),
   );
   const games: { result: GameResult; seed: string }[] = [];
@@ -419,7 +427,7 @@ export function serverTurn(
   const ledger: Row[] = [];
   const date = shortDayLabel(before.config.year, day);
   const teams = state.teams.map((t) => {
-    const c = charge.get(t.id) as { revenue: number; salary: number; twoWay: number };
+    const c = charge.get(t.id) as { revenue: number; salary: number; twoWay: number; coach: number };
     const s = settlement.get(t.id);
     const tax = Math.round(s?.tax ?? 0);
     const shortfall = Math.round(s?.shortfall ?? 0);
@@ -431,6 +439,7 @@ export function serverTurn(
       ledger.push({ team_id: id, kind: 'salary', amount: -c.salary, note });
     }
     if (c.twoWay > 0) ledger.push({ team_id: id, kind: 'two-way', amount: -c.twoWay, note });
+    if (c.coach > 0) ledger.push({ team_id: id, kind: 'coach', amount: -c.coach, note });
     if (tax > 0) ledger.push({ team_id: id, kind: 'tax', amount: -tax, note: 'Luxury tax' });
     if (shortfall > 0)
       ledger.push({
@@ -442,7 +451,7 @@ export function serverTurn(
     const old = before.teams.find((x) => x.id === t.id) as LeagueState['teams'][number];
     return {
       id,
-      balance: Math.round(old.balance) + c.revenue - c.salary - c.twoWay - tax - shortfall,
+      balance: Math.round(old.balance) + c.revenue - c.salary - c.twoWay - c.coach - tax - shortfall,
       strategy: t.strategy,
       tax_history: t.taxHistory,
     };
@@ -569,6 +578,49 @@ export function serverTurn(
       other_team_id: uuid(w.otherId),
       result: null,
     }));
+
+  // ------------------------------------------------ allenatori
+  // Gli allenatori nuovi del motore (arrivati in offseason) non hanno ancora un uuid
+  const coachIds = new Map<string, string>();
+  const coachUuid = (id: string): string => {
+    if (UUID.test(id)) return id;
+    let u = coachIds.get(id);
+    if (!u) {
+      u = opts.newId();
+      coachIds.set(id, u);
+    }
+    return u;
+  };
+  const beforeCoach = new Map((before.coaches ?? []).map((k) => [k.id, JSON.stringify(k)]));
+  const coachRows: Row[] = (state.coaches ?? [])
+    .filter((k) => beforeCoach.get(k.id) !== JSON.stringify(k))
+    .map((k) => ({
+      id: coachUuid(k.id),
+      team_id: k.teamId === null ? null : uuid(k.teamId),
+      first_name: k.firstName,
+      last_name: k.lastName,
+      nationality: k.nationality,
+      age: k.age,
+      philosophy: k.philosophy,
+      traits: k.traits,
+      ratings: k.ratings,
+      salaries: k.salaries.map(Math.round),
+      since: k.since,
+      pressure: k.pressure,
+      idle_seasons: k.idleSeasons,
+    }));
+  const coachesKept = new Set((state.coaches ?? []).map((k) => k.id));
+  const coachesRemoved = (before.coaches ?? []).map((k) => k.id).filter((id) => !coachesKept.has(id));
+  const buyoutsChanged =
+    JSON.stringify(before.coachBuyouts ?? []) !== JSON.stringify(state.coachBuyouts ?? []);
+  const expectations = state.teams
+    .filter(
+      (t) =>
+        t.expectedWins !== undefined &&
+        t.expectedWins !== before.teams.find((x) => x.id === t.id)?.expectedWins,
+    )
+    .map((t) => ({ id: uuid(t.id), expected_wins: t.expectedWins }));
+  const coachRequestIds = new Set((rows.coach_requests ?? []).map((q) => q.id));
 
   // ------------------------------------------------ serie di playoff
   // Una serie è la stessa da un turno all'altro: stesso giro, stessa conference, stesse squadre
@@ -779,8 +831,20 @@ export function serverTurn(
   if (seriesRows.length) payload.playoff_series = seriesRows;
   if (market.trades.length) payload.trades = market.trades;
   if (market.bids.length) payload.bids = market.bids;
-  if (market.requests.length || renewalResults.length)
-    payload.requests = [...market.requests, ...renewalResults];
+  const rosterRequests = [...market.requests, ...renewalResults].filter((r) => !coachRequestIds.has(r.id));
+  if (rosterRequests.length) payload.requests = rosterRequests;
+  const coachRequests = market.requests.filter((r) => coachRequestIds.has(r.id));
+  if (coachRequests.length) payload.coach_requests = coachRequests;
+  if (coachesRemoved.length) payload.coaches_removed = coachesRemoved;
+  if (coachRows.length) payload.coaches = coachRows;
+  if (buyoutsChanged)
+    payload.coach_buyouts = (state.coachBuyouts ?? []).map((b) => ({
+      team_id: uuid(b.teamId),
+      coach_id: coachUuid(b.coachId),
+      coach_name: b.coachName,
+      salaries: b.salaries.map(Math.round),
+    }));
+  if (expectations.length) payload.team_expectations = expectations;
   if (newTrades.length) payload.new_trades = newTrades;
   // La stagione nuova nasce già in regular season; quella vecchia resta in offseason
   if (next.kind !== round.kind && !newSeason) payload.season_phase = next.kind;

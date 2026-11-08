@@ -5,6 +5,7 @@ import {
   CONFIG_2026_27,
   playRegularTurn,
   simulateGame,
+  STAFF_REVENUE,
   STARTING_BALANCE_SHARE,
   type GameResult,
   type LeagueState,
@@ -286,6 +287,12 @@ describe('la propria squadra e basta', () => {
   });
 
   it('non tocca e non vede le impostazioni di un altro', async () => {
+    // Le impostazioni iniziali sono quelle dell'allenatore di LAL: devono restare quelle
+    const saved = await one<{ tactics: { pace: string } }>(
+      db,
+      'select tactics from public.team_settings where team_id = $1',
+      [LAL],
+    );
     await asUser(db, ANNA, async (tx) => {
       expect(
         await changed(tx, `update public.team_settings set tactics = '{"pace":"slow"}' where team_id = $1`, [
@@ -301,7 +308,7 @@ describe('la propria squadra e basta', () => {
       'select tactics from public.team_settings where team_id = $1',
       [LAL],
     );
-    expect(lal.tactics.pace).toBe('normal');
+    expect(lal.tactics).toEqual(saved.tactics);
   });
 
   it('non crea impostazioni per una squadra del bot', async () => {
@@ -736,8 +743,9 @@ describe('apply_turn', () => {
          having sum(s.pts) <> g.home_score + g.away_score`,
       ),
     ).toBe(0);
-    // Saldo = saldo di partenza (lo stesso per tutte, STARTING_BALANCE_SHARE dei ricavi) + somma dei movimenti
-    const start = Math.round(CONFIG_2026_27.revenue * STARTING_BALANCE_SHARE);
+    // Saldo = saldo di partenza (lo stesso per tutte, STARTING_BALANCE_SHARE dei ricavi, che con gli allenatori
+    // coprono anche lo staff) + somma dei movimenti
+    const start = Math.round((CONFIG_2026_27.revenue + STAFF_REVENUE) * STARTING_BALANCE_SHARE);
     expect(
       await count(
         db,
@@ -747,6 +755,8 @@ describe('apply_turn', () => {
       ),
     ).toBe(0);
     // Il manager vede i risultati e il proprio bilancio, non quello degli altri (il commissario li vede tutti)
+    // Il risultato scritto a mano: ricavi e stipendi (allenatore compreso) per le due squadre di ogni partita; il
+    // movimento dell'allenatore del turno vero è in coaches.test.ts
     const ledger = payload.ledger as { team_id: string }[];
     expect(ledger).toHaveLength(games * 4);
     await asUser(db, ANNA, async (tx) => {

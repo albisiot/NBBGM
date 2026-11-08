@@ -394,6 +394,23 @@ describe('rinnovi, free agency e preparazione', () => {
       [LEAGUE],
     );
     for (const t of ledger) expect(Number(t.balance)).toBe((initialBalance.get(t.id) ?? 0) + Number(t.total));
+    // Allenatori: dopo esoneri, rinnovi, ritiri e allenatori nuovi, uno per squadra con il contratto, e 12 liberi;
+    // le vittorie attese sono quelle della stagione nuova
+    const coaches = await q<{ team_id: string | null; salaries: string[]; age: number }>(
+      'select team_id, salaries, age from public.coaches where league_id = $1',
+      [LEAGUE],
+    );
+    for (const t of rosters) {
+      const mine = coaches.filter((c) => c.team_id === t.team_id);
+      expect(mine, t.team_id).toHaveLength(1);
+      expect(mine[0]!.salaries.length, t.team_id).toBeGreaterThan(0);
+    }
+    expect(coaches.filter((c) => c.team_id === null).length).toBeGreaterThanOrEqual(12);
+    const expected = await q<{ n: number }>(
+      'select count(*)::int as n from public.teams where league_id = $1 and expected_wins is null',
+      [LEAGUE],
+    );
+    expect(expected[0]!.n).toBe(0);
   });
 
   it('la prima giornata della stagione nuova si gioca', async () => {

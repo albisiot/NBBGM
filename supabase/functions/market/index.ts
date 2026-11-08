@@ -1,5 +1,5 @@
 // Edge Function market: le azioni di mercato del manager (offerte agli svincolati, proposte e risposte agli
-// scambi, tagli e rinnovi). Controlla l'utente, legge lo stato della lega (market_state: solo quello che serve ai
+// scambi, tagli e rinnovi, cambi di allenatore). Controlla l'utente, legge lo stato della lega (market_state: solo quello che serve ai
 // controlli, circa un quinto di league_state), controlla l'azione con il motore (checkMarketAction) e la scrive con
 // market_write, che la accetta solo a turno aperto. Si esegue tutto alla chiusura del turno.
 //
@@ -30,7 +30,7 @@ function serverKey(): string {
 
 // Errori del database che il manager deve leggere così come sono
 const USER_ERRORS =
-  /turno è già in chiusura|non trovata|già decisa|già chiusa|Niente da cambiare|Squadra non|proposte a questa squadra/;
+  /turno è già in chiusura|non trovata|già decisa|già chiusa|Niente da cambiare|Squadra non|proposte a questa squadra|Allenatore non/;
 
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: CORS });

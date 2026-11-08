@@ -100,11 +100,9 @@ Deno.serve(async (req) => {
     // Con il draft iniziale le rose partono vuote e i contratti del file passano a chi sceglie i giocatori
     const leagueData = leagueFromBaseRows(rows);
     const draft = settings.roster_mode === 'draft';
-    // Allenatori e proprietari dei bot non sono ancora nel database (arrivano con la fase 2): la lega nasce senza
     const state = createLeagueState(leagueData, crypto.randomUUID(), {
       humanTeams: [team],
       emptyRosters: draft,
-      staff: false,
     });
     const { pick_seconds: pickSeconds, ...leagueSettings } = settings;
     const payload = leaguePayload(state, {

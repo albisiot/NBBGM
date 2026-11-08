@@ -3,6 +3,8 @@
 // Nessuna dipendenza oltre al pacchetto engine; gli import usano l'estensione .ts come vuole Deno.
 import {
   autoSetup,
+  coachOf,
+  coachSetup,
   INITIAL_DRAFT_ROUNDS,
   minimumSalaryFor,
   overall,
@@ -356,6 +358,30 @@ export function leaguePayload(state: LeagueState, o: LeaguePayloadOptions): Reco
       balance: Math.round(t.balance),
       strategy: t.strategy,
       tax_history: t.taxHistory,
+      owner_profile: t.owner ?? null,
+      expected_wins: t.expectedWins ?? null,
+    })),
+    // Allenatori, in panchina e liberi, e gli esonerati da pagare (alla creazione nessuno)
+    coaches: (state.coaches ?? []).map((k) => ({
+      id: o.id(`coach:${k.id}`),
+      team_id: k.teamId === null ? null : team(k.teamId),
+      first_name: k.firstName,
+      last_name: k.lastName,
+      nationality: k.nationality,
+      age: k.age,
+      philosophy: k.philosophy,
+      traits: k.traits,
+      ratings: k.ratings,
+      salaries: k.salaries,
+      since: k.since,
+      pressure: k.pressure,
+      idle_seasons: k.idleSeasons,
+    })),
+    coach_buyouts: (state.coachBuyouts ?? []).map((b) => ({
+      team_id: team(b.teamId),
+      coach_id: o.id(`coach:${b.coachId}`),
+      coach_name: b.coachName,
+      salaries: b.salaries,
     })),
     players: state.players.map((p) => ({
       id: player(p.id),
@@ -428,8 +454,12 @@ export function leaguePayload(state: LeagueState, o: LeaguePayloadOptions): Reco
     })),
     team_settings: o.withTeamSettings
       ? Object.keys(o.owners).map((code) => {
+          // Le scelte del pulsante Auto: quelle dell'allenatore della squadra, se la lega li ha
           const t = state.teams.find((x) => x.id === code);
-          const setup = autoSetup(code, roster(state, code), t?.tactics);
+          const coach = coachOf(state, code);
+          const setup = coach
+            ? coachSetup(code, roster(state, code), coach)
+            : autoSetup(code, roster(state, code), t?.tactics);
           return {
             team_id: team(code),
             starters: setup.starters.map(player),

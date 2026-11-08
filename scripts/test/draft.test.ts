@@ -46,7 +46,6 @@ async function createDraftLeague(mode: 'list' | 'live', name: string) {
     humanTeams: ['BOS'],
     potentialOnOverallScale: true,
     emptyRosters: true,
-    staff: false,
   });
   const payload = leaguePayload(state, {
     id: keyedIds(() => randomUUID()),
