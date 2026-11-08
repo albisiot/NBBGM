@@ -25,6 +25,11 @@ export interface TeamSetup {
   /** Minuti obiettivo per id; la somma deve fare 240. */
   minutes: Record<string, number>;
   tactics: Tactics;
+  /**
+   * Effetto della qualità dell'allenatore (voce Tattica): moltiplica le abilità di tutti i giocatori della squadra
+   * per 1 + coaching, come il morale. Assente o 0: nessun effetto (stesse partite di prima, bit per bit).
+   */
+  coaching?: number;
 }
 
 export interface PlayerLine {

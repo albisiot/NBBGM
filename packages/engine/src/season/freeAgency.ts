@@ -15,6 +15,7 @@ import {
   standardRoster,
   typicalYears,
 } from './finance.ts';
+import { ownerStyle } from './owners.ts';
 import type { LeagueState, PlayerState, Strategy } from './state.ts';
 
 export interface Offer {
@@ -194,7 +195,9 @@ export const BOT_OFFERS_PER_ROUND = 3;
  * fino al monte stipendi minimo, come vuole canSign). Chi chiede il minimo si firma sempre, per riempire la rosa.
  * Sotto il monte stipendi minimo la differenza si paga comunque a fine regular season: in offseason, dove la rosa
  * arriva a 21, il bot prende un giocatore anche con 15 contratti standard (alla preparazione si taglia il peggiore,
- * e il residuo resta nel monte) e alza l'offerta fino a raggiungere il minimo.
+ * e il residuo resta nel monte) e alza l'offerta fino a raggiungere il minimo. Il proprietario cambia quanto spazio
+ * spende (chi risparmia tre quarti dello spazio sotto il cap, chi costruisce con pazienza il 90%), quanto rilancia sopra la richiesta (chi
+ * vuole fare colpo fino al 15%) e se preferisce i giovani o i veterani (OWNER_STYLE).
  */
 export function botOffers(state: LeagueState, round: number, rng: Rng, opts: { fillTo: number }): Offer[] {
   const c = state.config;
@@ -217,11 +220,15 @@ export function botOffers(state: LeagueState, round: number, rng: Rng, opts: { f
     const standard = [...counts.values()].reduce((a, b) => a + b, 0);
     const open = Math.min(Math.max(opts.fillTo - standard, shortfall > 0 ? 1 : 0), BOT_OFFERS_PER_ROUND);
     if (open <= 0) continue;
+    const style = ownerStyle(team, c.revenue);
     let space = (team.balance >= 0 ? c.salaryCap : c.minimumTeamSalary) - pay;
+    // Chi spende meno si ferma prima, ma il monte stipendi minimo lo raggiunge comunque
+    if (style.spendShare < 1 && space > 0) space = Math.max(shortfall, space * style.spendShare);
     const talent = talentFor(team.strategy);
+    const ageF = (age: number) => (age <= 25 ? style.youngFA : age >= 29 ? style.veteranFA : 1);
     const scored = free.map((x, i) => ({
       ...x,
-      value: (talent[i] as number) * roleNeedOf(counts, x.p.role),
+      value: (talent[i] as number) * roleNeedOf(counts, x.p.role) * ageF(x.p.age),
     }));
     const replacement = Math.max(0, ...scored.filter((x) => x.ask <= x.minimum).map((x) => x.value));
     scored.sort((a, b) => b.value - a.value || (a.p.id < b.p.id ? -1 : 1));
@@ -232,7 +239,7 @@ export function botOffers(state: LeagueState, round: number, rng: Rng, opts: { f
       let first = ask;
       if (ask > minimum) {
         if (value <= replacement || ask > space) continue;
-        first = Math.min(space, Math.round((ask * (1 + rng.next() * 0.08)) / 10_000) * 10_000);
+        first = Math.min(space, Math.round((ask * (1 + rng.next() * style.overAsk)) / 10_000) * 10_000);
       }
       if (shortfall > 0)
         first = Math.max(first, Math.min(shortfall, space, maxSalaryFor(c, p.yearsInLeague)));

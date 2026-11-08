@@ -244,7 +244,8 @@ class GameSim {
         sizeF: ((p.heightCm + 0.5 * (p.wingspanCm - p.heightCm)) / 203) ** 4,
         slot,
         fits: SLOT_ROLES.map((role) => roleFit(p, role)),
-        moraleF: 1 + (0.06 * (p.morale - 50)) / 100,
+        // L'allenatore conta come il morale: moltiplica tutte le abilità (senza allenatore per 1, numeri identici)
+        moraleF: (1 + (0.06 * (p.morale - 50)) / 100) * (1 + (setup.coaching ?? 0)),
         formOffF: 1 + formOff,
         formDefF: 1 + formDef,
         staminaF: 1.25 - p.ratings.stamina / 200,

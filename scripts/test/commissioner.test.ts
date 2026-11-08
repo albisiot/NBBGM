@@ -47,7 +47,10 @@ beforeAll(async () => {
 
 /** Come la Edge Function create-league, con insert_league come server. */
 async function createLeague(name: string, commissioner: string, team: string) {
-  const state = createLeagueState(leagueFromBaseRows(base), randomUUID(), { humanTeams: [team] });
+  const state = createLeagueState(leagueFromBaseRows(base), randomUUID(), {
+    humanTeams: [team],
+    staff: false,
+  });
   const payload = leaguePayload(state, {
     id: keyedIds(() => randomUUID()),
     name,

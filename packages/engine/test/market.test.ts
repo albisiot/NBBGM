@@ -24,7 +24,12 @@ import { validateTrade, type Trade } from '../src/season/trades.ts';
 
 function league(): LeagueState {
   const data = generateLeague(new Rng('mercato'), ARCHETYPE_PROFILES);
-  return createLeagueState(data, 'mercato', { humanTeams: ['BOS', 'LAL'], potentialOnOverallScale: true });
+  // Il mercato di base, senza proprietari (come "Equilibrio"): quelli in owners.test.ts
+  return createLeagueState(data, 'mercato', {
+    humanTeams: ['BOS', 'LAL'],
+    potentialOnOverallScale: true,
+    staff: false,
+  });
 }
 
 const empty = (): MarketRequests => ({ trades: [], releases: [], renewals: [], bids: [] });

@@ -1,7 +1,9 @@
 import type { SavedSettings } from '../game/setup.ts';
 import type { Tactics } from '../game/types.ts';
 import type { Contract, DeadMoney, Player, Team } from '../types.ts';
+import type { CoachBuyout, CoachState } from './coaches.ts';
 import type { SeasonConfig } from './config.ts';
+import type { OwnerProfile } from './owners.ts';
 import type { PostseasonState } from './postseason.ts';
 import type { ScheduledGame } from './schedule.ts';
 
@@ -48,8 +50,18 @@ export interface TeamState extends Team {
   taxHistory: boolean[];
   /** Impostazioni salvate dal manager (solo squadre umane): le legge la simulazione al posto del bot. */
   settings?: SavedSettings | null;
-  /** Allenatore delegato attivo in questo turno: quintetto e minuti come il pulsante Auto, con le tattiche del manager. */
+  /**
+   * Allenatore delegato attivo in questo turno: quintetto, minuti e tattiche li decide il capo allenatore della
+   * squadra (con la sua idea di gioco; senza allenatori nella lega, come il pulsante Auto con le tattiche del manager).
+   */
   coach?: boolean;
+  /**
+   * Proprietario e GM: obiettivo e carattere con cui decide il bot (owners.ts). Assente nelle leghe create prima: il
+   * bot si comporta come "Equilibrio", come prima.
+   */
+  owner?: OwnerProfile;
+  /** Vittorie attese nella regular season in corso (owners.ts, setExpectations): il metro del proprietario. */
+  expectedWins?: number;
 }
 
 export interface DraftPick {
@@ -104,7 +116,7 @@ export interface GameRecord {
 export interface Transaction {
   year: number;
   turn: number | null;
-  type: 'signing' | 'renewal' | 'trade' | 'release' | 'retirement' | 'draft' | 'option' | 'injury';
+  type: 'signing' | 'renewal' | 'trade' | 'release' | 'retirement' | 'draft' | 'option' | 'injury' | 'coach';
   text: string;
 }
 
@@ -164,6 +176,13 @@ export interface LeagueState {
    * eseguite nei turni della stagione.
    */
   releases?: { playerId: string; teamId: string }[];
+  /**
+   * Allenatori della lega, in panchina e liberi (coaches.ts). Assenti nelle leghe create prima: allora i bot giocano
+   * con il pulsante Auto e nessun allenatore cambia partite, crescita, morale o bilancio.
+   */
+  coaches?: CoachState[];
+  /** Allenatori esonerati ancora da pagare (fuori dal cap, sul bilancio). */
+  coachBuyouts?: CoachBuyout[];
   /** Luxury tax e monte stipendi minimo pagati all'ultima fine di regular season (per il bilancio del server). */
   lastSettlement?: { teamId: string; payroll: number; tax: number; shortfall: number }[];
 }

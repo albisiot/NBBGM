@@ -5,6 +5,7 @@ import { overall } from '../overall.ts';
 import { Rng } from '../rng.ts';
 import type { Conference, LeagueData, Player } from '../types.ts';
 import { botBotTrade, botSalaryDump, updateStrategies } from './bots.ts';
+import { coachGameEffect, coachOf, coachSetup, initialCoaches } from './coaches.ts';
 import { CONFIG_2026_27, type SeasonConfig } from './config.ts';
 import { calibratePotential, talentLevel } from './development.ts';
 import { PLAY_IN_GAP } from './calendar.ts';
@@ -21,6 +22,7 @@ import {
   twoWayRoster,
 } from './finance.ts';
 import { fillMinimumRosters } from './freeAgency.ts';
+import { generateOwners, midseasonCoachMoves, setExpectations } from './owners.ts';
 import { initialPicks } from './picks.ts';
 import {
   applyPostseasonResult,
@@ -49,6 +51,11 @@ export const BOT_TRADE_CHANCE = 0.16;
 export const SALARY_DUMP_CHANCE = 0.13;
 /** Giorno della stagione (circa il 37%, a fine dicembre) in cui i bot rivedono la strategia. */
 export const STRATEGY_REFRESH_DAY = 64;
+/**
+ * Giorni in cui i proprietari dei bot guardano i risultati e possono esonerare l'allenatore a stagione in corso: con
+ * la revisione delle strategie e a inizio febbraio, prima della trade deadline.
+ */
+export const COACH_REVIEW_DAYS: readonly number[] = [STRATEGY_REFRESH_DAY, 100];
 
 function scout(seed: string, p: Player): number {
   const noise = new Rng(`${seed}:scouting:${p.id}`).normal(0, 2.5);
@@ -83,9 +90,16 @@ export function createLeagueState(
     potentialShrink?: number;
     /** Rose vuote per il draft iniziale: tutti svincolati, nessun contratto né stipendio residuo. */
     emptyRosters?: boolean;
+    /**
+     * Allenatori e proprietari dei bot (di default sì). Senza, la lega gioca come prima che ci fossero: Auto per i
+     * bot, nessun effetto degli allenatori.
+     */
+    staff?: boolean;
   } = {},
 ): LeagueState {
   const config = structuredCopy(opts.config ?? CONFIG_2026_27);
+  // Con gli allenatori i ricavi coprono anche lo staff (crescono con gli altri ricavi, del 7% l'anno)
+  if (opts.staff !== false) config.revenue += STAFF_REVENUE;
   const players = structuredCopy(data.players).map((p) => (opts.emptyRosters ? { ...p, teamId: null } : p));
   if (!opts.potentialOnOverallScale) calibratePotential(players, opts.potentialShrink ?? POTENTIAL_SHRINK);
   const state: LeagueState = {
@@ -127,7 +141,19 @@ export function createLeagueState(
   // I tagli contano dalla prima giornata (sul server quelli della creazione non sono salvati)
   state.releases = [];
   state.talentReference = talentLevel(state.players);
+  // Proprietari e allenatori: da un seed a parte, così il resto della lega nasce uguale con o senza
+  if (opts.staff !== false) {
+    const rng = new Rng(`${seed}:staff`);
+    const owners = generateOwners(
+      state.teams.map((t) => t.id),
+      rng.fork('proprietari'),
+    );
+    for (const t of state.teams) t.owner = owners.get(t.id);
+    state.coaches = initialCoaches(state, rng.fork('allenatori'));
+    state.coachBuyouts = [];
+  }
   updateStrategies(state);
+  if (state.coaches) setExpectations(state);
   return state;
 }
 
@@ -138,6 +164,13 @@ export function createLeagueState(
  * la mediana regge i primi anni, mentre chi paga la tassa va in rosso lo stesso.
  */
 export const STARTING_BALANCE_SHARE = 0.2;
+
+/**
+ * Ricavi in più nel 2026-27 per lo staff, nelle leghe con gli allenatori: lo stipendio dell'allenatore più quello che
+ * resta degli esonerati costa in media circa 10 milioni a squadra (pnpm sim:seasons). Senza, le squadre in rosso
+ * salivano da circa 15 a quasi 19 in media; i ricavi restano così a metà tra cap e tassa per i giocatori.
+ */
+export const STAFF_REVENUE = 10_000_000;
 
 /** Quota del margine tra overall e potenziale del file che resta come tetto di crescita (calibrata con pnpm sim:seasons). */
 export const POTENTIAL_SHRINK = 1;
@@ -181,14 +214,24 @@ export function gamePlayers(state: LeagueState, teamId: string, regular: boolean
   return [...players, ...extra.slice(0, MIN_PLAYERS - players.length).map((p) => ({ ...p, injury: null }))];
 }
 
+/**
+ * Impostazioni di una squadra per la partita. L'allenatore della squadra mette in campo i bot, chi ha affidato la
+ * squadra all'allenatore e chi non ha mai salvato, con la sua idea di gioco e le sue tattiche; le squadre umane
+ * giocano con le impostazioni salvate, dove il bot corregge solo gli slot che non valgono più. La Tattica
+ * dell'allenatore vale per tutti (coaching). Senza allenatori nella lega: il pulsante Auto, con le tattiche del
+ * manager per l'allenatore delegato.
+ */
 function setupFor(state: LeagueState, teamId: string, regular: boolean): TeamSetup {
   const team = state.teams.find((t) => t.id === teamId);
   const players = gamePlayers(state, teamId, regular);
-  // L'allenatore delegato fa quintetto e minuti come il pulsante Auto, con le tattiche scelte dal manager
-  if (team?.human && team.coach) return autoSetup(teamId, players, team.tactics);
-  // Le squadre umane giocano con le impostazioni salvate; il bot corregge solo gli slot che non valgono più
-  if (team?.human && team.settings) return setupFromSettings(teamId, players, team.settings);
-  return autoSetup(teamId, players, team?.tactics);
+  const coach = coachOf(state, teamId);
+  let setup: TeamSetup;
+  if (team?.human && team.coach)
+    setup = coach ? coachSetup(teamId, players, coach) : autoSetup(teamId, players, team.tactics);
+  else if (team?.human && team.settings) setup = setupFromSettings(teamId, players, team.settings);
+  else setup = coach ? coachSetup(teamId, players, coach) : autoSetup(teamId, players, team?.tactics);
+  if (coach) setup.coaching = coachGameEffect(coach);
+  return setup;
 }
 
 function record(
@@ -257,6 +300,9 @@ export function playRegularTurn(state: LeagueState, playGame: PlayGame = simulat
   if (!traded && rng.chance(SALARY_DUMP_CHANCE)) botSalaryDump(state, rng, turn);
   const prevDay = turn > 0 ? (turnDay(state.schedule, turn - 1) ?? -1) : -1;
   if (day >= STRATEGY_REFRESH_DAY && prevDay < STRATEGY_REFRESH_DAY) updateStrategies(state);
+  // Esoneri a stagione in corso: con un generatore a parte, il mercato dei bot resta quello di prima
+  if (state.coaches && COACH_REVIEW_DAYS.some((d) => day >= d && prevDay < d))
+    midseasonCoachMoves(state, new Rng(`${state.seed}:${state.config.year}:allenatori:${turn}`), turn);
   fillMinimumRosters(state, turn);
   state.turn++;
   state.day = nextDay;

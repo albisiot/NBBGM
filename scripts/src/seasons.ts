@@ -1,7 +1,9 @@
-// pnpm sim:seasons [stagioni] [--veloce] [--tetto=0.7] [--ricavi=180] [--seme=stagioni]
+// pnpm sim:seasons [stagioni] [--veloce] [--tetto=0.7] [--ricavi=180] [--seme=stagioni] [--senza-staff]
 // --veloce usa la partita finta dei test (per provare crescita ed economia in pochi secondi: energia e
 // infortuni non sono significativi); --tetto prova un altro valore di POTENTIAL_SHRINK; --ricavi prova altri ricavi
-// stagionali 2026-27 in milioni; --seme gioca con un altro seed (per vedere quanto le metriche dipendono dal caso).
+// stagionali 2026-27 in milioni (prima dei 10 milioni per lo staff, STAFF_REVENUE); --seme gioca con un altro seed
+// (per vedere quanto le metriche dipendono dal caso); --senza-staff gioca senza allenatori e proprietari dei bot, come
+// le leghe create prima.
 // Gioca N stagioni complete (calendario, playoff, offseason, bot) partendo dalla lega importata e controlla
 // le metriche di lungo periodo del documento: overall stabili, nessuna dinastia, bilanci, energia, infortuni.
 import {
@@ -10,7 +12,11 @@ import {
   MIN_STANDARD,
   autoSetup,
   backToBacks,
+  coachOf,
+  coachCost,
   createLeagueState,
+  OWNER_GOAL_LABEL,
+  OWNER_GOALS,
   overall,
   playPostseasonTurn,
   playRegularTurn,
@@ -36,6 +42,7 @@ const FAST = args.includes('--veloce');
 const SHRINK = args.find((a) => a.startsWith('--tetto='))?.split('=')[1];
 const REVENUE = args.find((a) => a.startsWith('--ricavi='))?.split('=')[1];
 const SEED = args.find((a) => a.startsWith('--seme='))?.split('=')[1] ?? 'stagioni';
+const STAFF = !args.includes('--senza-staff');
 const pct = (x: number) => `${(x * 100).toFixed(0)}%`;
 /** Il monte stipendi mediano può stare fino al 2% sotto il cap. */
 const PAYROLL_CAP_TOLERANCE = 0.98;
@@ -185,6 +192,7 @@ function main() {
     potentialOnOverallScale: source !== 'giocatori reali',
     ...(SHRINK ? { potentialShrink: Number(SHRINK) } : {}),
     ...(REVENUE ? { config: { ...CONFIG_2026_27, revenue: Number(REVENUE) * 1e6 } } : {}),
+    staff: STAFF,
   });
   const initial = leagueSnapshot(state);
   const pot80 = state.players.filter((p) => p.hidden.potential >= 80).length;
@@ -193,9 +201,22 @@ function main() {
   );
 
   const metrics: SeasonMetrics[] = [];
+  // Una riga per squadra e stagione: proprietario, allenatore, attese e risultati
+  const rows: {
+    goal: string;
+    tactics: number;
+    expected: number;
+    wins: number;
+    tax: boolean;
+    red: boolean;
+    champion: boolean;
+    coachCost: number;
+  }[] = [];
+  let coachChanges = 0;
   for (let s = 0; s < SEASONS; s++) {
     const start = performance.now();
     const year = state.config.year;
+    const expected = new Map(state.teams.map((t) => [t.id, t.expectedWins ?? 41]));
     const problems = checkState(state);
     const perDay = new Map<number, number>();
     for (const g of state.schedule) perDay.set(g.day, (perDay.get(g.day) ?? 0) + 1);
@@ -233,8 +254,27 @@ function main() {
     const payrollMedian = (payrolls[14]! + payrolls[15]!) / 2;
     const underMinimum = settlement.filter((x) => x.shortfall > 0).length;
     const { salaryCap: cap, luxuryTax: taxLine } = state.config;
+    const atSeasonEnd = state.teams.map((t) => ({
+      id: t.id,
+      goal: t.owner?.goal ?? 'balanced',
+      tactics: coachOf(state, t.id)?.ratings.tactics ?? 50,
+      tax: t.taxHistory.at(-1) ?? false,
+      red: t.balance < 0,
+      coachCost: coachCost(state, t.id),
+    }));
     while (state.phase === 'postseason') playPostseasonTurn(state, play);
+    const txBefore = state.transactions.length;
     const summary = runOffseason(state);
+    coachChanges += state.transactions
+      .slice(txBefore)
+      .filter((t) => t.type === 'coach' && /esonera|non rinnova/.test(t.text)).length;
+    for (const r of atSeasonEnd)
+      rows.push({
+        ...r,
+        expected: expected.get(r.id) ?? 41,
+        wins: summary.records[r.id]?.w ?? 0,
+        champion: summary.championId === r.id,
+      });
     const snap = leagueSnapshot(state);
     const starters = [...energyStarts.values()].filter(
       (x) => x.g >= 40 && x.min / x.g >= 33 && x.min / x.g <= 36,
@@ -396,6 +436,41 @@ function main() {
     `Età media delle rotazioni: da ${num(metrics[0]!.rotationAge)} a ${num(last.rotationAge)}; saldi: da ${mln(Math.min(...state.teams.map((t) => t.balance)))} a ${mln(Math.max(...state.teams.map((t) => t.balance)))}`,
   );
   console.log(`Campioni: ${metrics.map((m) => m.champion).join(', ')}`);
+  if (state.coaches) {
+    const midseason = state.transactions.filter(
+      (t) => t.type === 'coach' && t.turn !== null && /esonera/.test(t.text),
+    ).length;
+    console.log(
+      `
+Allenatori: ${num(coachChanges / SEASONS)} cambi a fine stagione e ${num(midseason / SEASONS)} esoneri in stagione all'anno; stipendio medio ${mln(rows.reduce((a, r) => a + r.coachCost, 0) / rows.length)} (allenatore più esonerati)`,
+    );
+    // Vittorie sopra le attese per fascia di Tattica
+    for (const [lo, hi] of [
+      [0, 40],
+      [40, 55],
+      [55, 70],
+      [70, 101],
+    ] as const) {
+      const band = rows.filter((r) => r.tactics >= lo && r.tactics < hi);
+      if (!band.length) continue;
+      console.log(
+        `  Tattica ${lo}-${hi - 1}: ${band.length} stagioni, vittorie sopra le attese ${num(band.reduce((a, r) => a + r.wins - r.expected, 0) / band.length)}`,
+      );
+    }
+    console.log(
+      'Proprietari (obiettivo: squadre, vittorie medie, titoli, stagioni sopra la tassa e in rosso, saldo finale)',
+    );
+    for (const goal of OWNER_GOALS) {
+      const g = rows.filter((r) => r.goal === goal);
+      const teams = state.teams.filter((t) => (t.owner?.goal ?? 'balanced') === goal);
+      if (!g.length) continue;
+      console.log(
+        `  ${OWNER_GOAL_LABEL[goal].padEnd(24)} ${teams.length}, ${num(g.reduce((a, r) => a + r.wins, 0) / g.length)} vittorie, ${g.filter((r) => r.champion).length} titoli, ` +
+          `${pct(g.filter((r) => r.tax).length / g.length)} sopra la tassa, ${pct(g.filter((r) => r.red).length / g.length)} in rosso, ` +
+          `saldo ${mln(teams.reduce((a, t) => a + t.balance, 0) / Math.max(1, teams.length))} (da ${mln(Math.min(...teams.map((t) => t.balance)))} a ${mln(Math.max(...teams.map((t) => t.balance)))})`,
+      );
+    }
+  }
   console.log(`Squadre sopra la tassa per stagione: ${metrics.map((m) => m.overTax).join(', ')}`);
   const fuori = checks.filter((c) => !c[2]).length;
   console.log(fuori ? `\n${fuori} metriche fuori obiettivo.` : '\nTutte le metriche sono negli obiettivi.');

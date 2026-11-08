@@ -41,7 +41,8 @@ const FILE = path.join(DATA_DIR, 'league-2026-27.json');
 const real = existsSync(FILE) ? (JSON.parse(readFileSync(FILE, 'utf8')) as LeagueData) : null;
 
 function fresh(turn: number): LeagueState {
-  const s = createLeagueState(real as LeagueData, 'prova-analisi', { humanTeams: ['BOS'] });
+  // I casi dell'analisi con le regole di base (proprietario "Equilibrio"); i proprietari in owners.test.ts
+  const s = createLeagueState(real as LeagueData, 'prova-analisi', { humanTeams: ['BOS'], staff: false });
   s.turn = turn;
   return s;
 }
@@ -132,7 +133,7 @@ describe.skipIf(!real)('casi della seconda analisi con i giocatori reali', () =>
   });
 
   it('Milwaukee non taglia Herro per rifirmarlo a meno del rinnovo', () => {
-    const s = createLeagueState(real as LeagueData, 'prova-analisi', { humanTeams: ['MIL'] });
+    const s = createLeagueState(real as LeagueData, 'prova-analisi', { humanTeams: ['MIL'], staff: false });
     s.turn = 20;
     const herro = player(s, 'tyler-herro');
     herro.morale = 60;

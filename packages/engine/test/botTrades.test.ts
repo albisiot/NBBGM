@@ -29,9 +29,11 @@ import { quickGame } from './helpers.ts';
 
 function league(): LeagueState {
   const data = generateLeague(new Rng('scambi-furbi'), ARCHETYPE_PROFILES);
+  // Le regole di base della valutazione, senza proprietari (come "Equilibrio"): quelle dei proprietari in owners.test.ts
   const s = createLeagueState(data, 'scambi-furbi', {
     humanTeams: ['BOS'],
     potentialOnOverallScale: true,
+    staff: false,
   });
   // Un posto libero in ogni rosa (le squadre generate hanno 15 contratti standard), così si può regalare
   for (const t of s.teams) {

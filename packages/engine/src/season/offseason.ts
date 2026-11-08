@@ -12,6 +12,7 @@ import { overall } from '../overall.ts';
 import { Rng } from '../rng.ts';
 import type { Player } from '../types.ts';
 import { botDraftChoice, botSalaryDump, botWantsRenewal, updateStrategies } from './bots.ts';
+import { coachOf, developmentFactor, scaleCoachContracts } from './coaches.ts';
 import { minimumSalaryFor, nextConfig } from './config.ts';
 import { normalizeTalent, retirementChance, developPlayer } from './development.ts';
 import {
@@ -33,6 +34,7 @@ import {
   resolveOffers,
   type Offer,
 } from './freeAgency.ts';
+import { offseasonCoachMoves, setExpectations } from './owners.ts';
 import { drawLottery, newPick, PICK_YEARS, resolveDraft } from './picks.ts';
 import { generateSchedule, turnDay } from './schedule.ts';
 import {
@@ -125,9 +127,13 @@ export function startOffseason(
     retirements: 0,
   };
 
-  // 1. Fine stagione: crescita e calo, un anno in più, ritiri
+  // 1. Fine stagione: crescita e calo (con lo Sviluppo dell'allenatore della squadra), un anno in più, ritiri
   for (const p of state.players) {
-    developPlayer(p, rng.fork(`crescita:${p.id}`));
+    developPlayer(
+      p,
+      rng.fork(`crescita:${p.id}`),
+      p.teamId === null ? 0 : developmentFactor(coachOf(state, p.teamId)),
+    );
     p.age++;
     if (p.yearsInLeague !== null) p.yearsInLeague++;
     p.scoutedPotential = Math.max(overall(p), Math.min(99, p.scoutedPotential));
@@ -172,6 +178,15 @@ export function startOffseason(
   for (const p of draftClass)
     state.players.push({ ...toPlayerState(state.seed, { ...p, teamId: null }), prospect: draftYear });
   state.history.push(summary);
+
+  // Allenatori: i proprietari giudicano la stagione, esonerano o rinnovano; poi tutti invecchiano e chi è rimasto
+  // senza panchina ne trova una (con un generatore a parte: il resto dell'offseason resta quello di prima)
+  if (state.coaches) {
+    const seriesWon = new Map<string, number>();
+    for (const s of state.postseason.series)
+      if (s.winnerId) seriesWon.set(s.winnerId, (seriesWon.get(s.winnerId) ?? 0) + 1);
+    offseasonCoachMoves(state, new Rng(`${state.seed}:allenatori:${year}`), worstFirst, seriesWon);
+  }
   return { summary, retired };
 }
 
@@ -295,6 +310,7 @@ export function scaleContracts(state: LeagueState): void {
   }
   for (const d of state.deadMoney) d.salaries.shift();
   state.deadMoney = state.deadMoney.filter((d) => d.salaries.length > 0);
+  scaleCoachContracts(state);
 
   // Da qui si lavora sulla stagione successiva
   state.config = next;
@@ -406,6 +422,7 @@ export function startNewSeason(state: LeagueState): void {
   // Stagione nuova: chi è stato tagliato si può rifirmare
   state.releases = [];
   updateStrategies(state);
+  if (state.coaches) setExpectations(state);
 }
 
 /**

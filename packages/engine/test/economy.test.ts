@@ -26,7 +26,8 @@ import { quickGame } from './helpers.ts';
 
 function league(seed = 'economia'): LeagueState {
   const data = generateLeague(new Rng(seed), ARCHETYPE_PROFILES);
-  return createLeagueState(data, seed, { potentialOnOverallScale: true });
+  // L'economia di base, senza proprietari (come "Equilibrio"): quelli in owners.test.ts
+  return createLeagueState(data, seed, { potentialOnOverallScale: true, staff: false });
 }
 
 const win = (homeId: string, awayId: string, turn: number): GameRecord => ({

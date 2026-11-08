@@ -4,6 +4,14 @@ import type { Rng } from '../rng.ts';
 import type { Contract, Role } from '../types.ts';
 import { luxuryTax, minimumSalaryFor, nextConfig, type SeasonConfig } from './config.ts';
 import { contractOf, isRepeater, marketValue, payroll, roster, standardRoster } from './finance.ts';
+import {
+  draftPotentialWeight,
+  ownerOf,
+  ownerStyle,
+  renewalRatio,
+  tradeActivity,
+  tradeMargin,
+} from './owners.ts';
 import { lotteryPositionOdds, MAX_DEFERRALS, pickInSwap, swapLive } from './picks.ts';
 import { REGULAR_SEASON_GAMES, regularTurns, type ScheduledGame } from './schedule.ts';
 import type { DraftPick, DraftSwap, LeagueState, PlayerState, Strategy } from './state.ts';
@@ -34,21 +42,26 @@ export function strengthRanking(state: LeagueState): string[] {
 /**
  * Strategia dei bot, dalla classifica attesa (vittorie fatte più quelle attese dalla forza nelle partite che
  * restano: draftRanking; in offseason la forza per la stagione che arriva), dall'età della rotazione e dal monte
- * stipendi. In corsa le prime 10, in ricostruzione le ultime 10 o chi ha una rotazione vecchia fuori dalle prime 15,
- * le altre a metà strada. Chi è sopra la tassa con il saldo in rosso deve liberarsi di stipendi: è in corsa solo tra
- * le prime 6, e fuori dalle prime 12 è in ricostruzione.
+ * stipendi. Con il proprietario "Equilibrio": in corsa le prime 10, in ricostruzione le ultime 10 o chi ha una
+ * rotazione vecchia fuori dalle prime 15, le altre a metà strada; chi è sopra la tassa con il saldo in rosso deve
+ * liberarsi di stipendi: è in corsa solo tra le prime 6, e fuori dalle prime 12 è in ricostruzione. Gli altri
+ * proprietari spostano le soglie (OWNER_STYLE): chi vuole vincere subito è in corsa fino al 14° posto, chi costruisce
+ * con pazienza solo tra le prime 6, chi risparmia si sente stretto appena supera la tassa.
  */
 export function updateStrategies(state: LeagueState): void {
   const ranking = draftRanking(state);
   for (const team of state.teams) {
+    const style = ownerStyle(team, state.config.revenue);
     const rank = ranking.indexOf(team.id);
     const top8 = [...roster(state, team.id)].sort((a, b) => overall(b) - overall(a)).slice(0, 8);
     const age = top8.reduce((a, p) => a + p.age, 0) / Math.max(1, top8.length);
-    const squeezed = team.balance < 0 && payroll(state, team.id) > state.config.luxuryTax;
+    const squeezed = (team.balance < 0 || style.hatesTax) && payroll(state, team.id) > state.config.luxuryTax;
     team.strategy =
-      rank < (squeezed ? 6 : 10)
+      rank < (squeezed ? style.squeezedContendRank : style.contendRank)
         ? 'contend'
-        : rank >= 20 || (age >= 30 && rank >= 15) || (squeezed && rank >= 12)
+        : rank >= style.rebuildRank ||
+            (age >= 30 && rank >= style.oldRebuildRank) ||
+            (squeezed && rank >= style.squeezedRebuildRank)
           ? 'rebuild'
           : 'middle';
   }
@@ -318,7 +331,8 @@ export const CONTEND_TAX_SAVING_SHARE = 0.25;
 
 /**
  * Valore di uno scambio per una squadra: ciò che riceve (giocatori, scelte con le protezioni messe nello scambio,
- * diritti di swap) e ciò che cede, con la tassa in più tra i costi (o il risparmio tra i guadagni).
+ * diritti di swap) e ciò che cede, con la tassa in più tra i costi (o il risparmio tra i guadagni). Il proprietario
+ * pesa scelte e tassa a modo suo (OWNER_STYLE: chi costruisce con pazienza vuole scelte, chi risparmia odia la tassa).
  */
 export function tradeBalance(
   state: LeagueState,
@@ -328,6 +342,7 @@ export function tradeBalance(
 ): { get: number; give: number } {
   const team = state.teams.find((x) => x.id === teamId);
   const strategy = team?.strategy ?? 'middle';
+  const style = ownerStyle(team, state.config.revenue);
   const val = (players: string[], picks: string[]) =>
     players.reduce((a, id) => {
       const p = state.players.find((x) => x.id === id) as PlayerState;
@@ -335,14 +350,17 @@ export function tradeBalance(
     }, 0) +
     picks.reduce((a, id) => {
       const pick = state.picks.find((x) => x.id === id) as DraftPick;
-      return a + pickValue(state, pick, strategy, ranking, t.protections?.[id] ?? pick.protection);
+      return (
+        a +
+        pickValue(state, pick, strategy, ranking, t.protections?.[id] ?? pick.protection) * style.pickWeight
+      );
     }, 0);
   const swaps = (holder: boolean) =>
     (t.swaps ?? [])
       .filter((s) => (holder ? s.holderId : s.otherId) === teamId)
       .reduce((a, s) => a + swapValue(state, s, strategy, ranking), 0);
   const mine = teamId === t.teamA;
-  const tax = taxCost(state, t, teamId);
+  const tax = taxCost(state, t, teamId) * style.taxWeight;
   let saving = Math.max(0, -tax);
   if (strategy === 'contend') {
     const talentOut = (mine ? t.playersA : t.playersB).reduce((a, id) => {
@@ -371,9 +389,11 @@ export function tradeGainOk(get: number, give: number, margin = BOT_TRADE_MARGIN
   return get - give >= Math.max(MIN_TRADE_GAIN, (margin - 1) * Math.abs(give)) - 1e-9;
 }
 
+/** Il bot accetta se ci guadagna almeno il suo margine (il 10%, meno per un GM che cerca scambi, di più per chi no). */
 export function botAccepts(state: LeagueState, t: Trade, teamId: string): boolean {
   const { get, give } = tradeBalance(state, t, teamId);
-  return tradeGainOk(get, give) && validateTrade(state, t).length === 0;
+  const team = state.teams.find((x) => x.id === teamId);
+  return tradeGainOk(get, give, tradeMargin(team)) && validateTrade(state, t).length === 0;
 }
 
 /**
@@ -458,12 +478,13 @@ function buildVeteranTrade(
     picksA: [],
     picksB: pkg.filter((a) => a.kind === 'pick').map((a) => a.id),
   };
-  // Il bot deve volere lo scambio come se gli arrivasse da fuori (tassa compresa)
+  // Il bot deve volere lo scambio come se gli arrivasse da fuori (tassa compresa); per un umano (margine sotto 1)
+  // basta che l'offerta sia credibile
   for (const [team, margin] of [
     [sellerId, check.seller],
     [buyerId, check.buyer],
   ] as const) {
-    if (margin < BOT_TRADE_MARGIN) continue;
+    if (margin < 1) continue;
     const { get, give } = tradeBalance(state, trade, team, ranking);
     if (!tradeGainOk(get, give, margin)) return null;
   }
@@ -480,10 +501,17 @@ export function botBotTrade(state: LeagueState, rng: Rng, turn: number | null): 
   const sellers = bots.filter((t) => t.strategy === 'rebuild');
   const buyers = bots.filter((t) => t.strategy === 'contend' && !top.has(t.id));
   if (!sellers.length || !buyers.length) return null;
+  // Con i proprietari, chi cerca scambi ci prova più spesso (tradeActivity); senza, a caso come prima
+  const choose = (list: typeof bots): (typeof bots)[number] =>
+    list.some((t) => t.owner)
+      ? (list[rng.weightedIndex(list.map(tradeActivity))] as (typeof bots)[number])
+      : rng.pick(list);
   for (let attempt = 0; attempt < 4; attempt++) {
-    const trade = buildVeteranTrade(state, rng, ranking, rng.pick(sellers).id, rng.pick(buyers).id, {
-      seller: BOT_TRADE_MARGIN,
-      buyer: BOT_TRADE_MARGIN,
+    const seller = choose(sellers);
+    const buyer = choose(buyers);
+    const trade = buildVeteranTrade(state, rng, ranking, seller.id, buyer.id, {
+      seller: tradeMargin(seller),
+      buyer: tradeMargin(buyer),
     });
     if (!trade) continue;
     executeTrade(state, trade, turn);
@@ -502,14 +530,16 @@ export function botProposeTrade(state: LeagueState, botId: string, humanId: stri
   const bot = state.teams.find((t) => t.id === botId);
   if (!bot || bot.human || bot.strategy === 'middle') return null;
   const ranking = draftRanking(state);
+  const margin = tradeMargin(bot);
   if (bot.strategy === 'contend')
-    return buildVeteranTrade(state, rng, ranking, humanId, botId, { seller: 0.95, buyer: BOT_TRADE_MARGIN });
-  return buildVeteranTrade(state, rng, ranking, botId, humanId, { seller: BOT_TRADE_MARGIN, buyer: 0.9 });
+    return buildVeteranTrade(state, rng, ranking, humanId, botId, { seller: 0.95, buyer: margin });
+  return buildVeteranTrade(state, rng, ranking, botId, humanId, { seller: margin, buyer: 0.9 });
 }
 
 /**
  * Cessione di un contratto pesante: un bot in rosso e sopra la tassa cede un giocatore a una squadra con
- * spazio sotto il cap e saldo positivo, aggiungendo se serve una scelta perché il valore torni.
+ * spazio sotto il cap e saldo positivo, aggiungendo se serve una scelta perché il valore torni. Chi risparmia lo fa
+ * appena è sopra la tassa, chi vuole vincere subito solo quando è molto in rosso (OWNER_STYLE.dumpBelow).
  */
 export function botSalaryDump(state: LeagueState, rng: Rng, turn: number | null): Trade | null {
   if (!tradeWindowOpen(state)) return null;
@@ -518,7 +548,11 @@ export function botSalaryDump(state: LeagueState, rng: Rng, turn: number | null)
     state.contracts
       .filter((x) => x.teamId === id && x.type !== 'two-way')
       .reduce((a, x) => a + (x.salaries[0] ?? 0), 0);
-  const sellers = state.teams.filter((t) => !t.human && t.balance < 0 && pay(t.id) > c.luxuryTax);
+  const sellers = state.teams.filter((t) => {
+    if (t.human || pay(t.id) <= c.luxuryTax) return false;
+    const style = ownerStyle(t, c.revenue);
+    return style.hatesTax || t.balance < style.dumpBelow * c.revenue;
+  });
   if (!sellers.length) return null;
   const seller = rng.pick(sellers);
   const ranking = draftRanking(state);
@@ -590,19 +624,26 @@ export function botDraftChoice(
 ): PlayerState {
   const roles = new Map<Role, number>();
   for (const p of roster(state, teamId)) roles.set(p.role, (roles.get(p.role) ?? 0) + 1);
+  // Potenziale contro overall di adesso: 0,6 e 0,4, più o meno secondo il GM
+  const w = draftPotentialWeight(state.teams.find((t) => t.id === teamId));
   // Un punteggio per prospetto, con la sua parte casuale estratta una volta sola
   const scored = prospects.map((p) => ({
     p,
     score:
-      0.6 * p.scoutedPotential +
-      0.4 * overall(p) +
+      w * p.scoutedPotential +
+      (1 - w) * overall(p) +
       ((roles.get(p.role) ?? 0) < 2 ? 2 : 0) +
       rng.normal(0, 1.5),
   }));
   return scored.reduce((best, x) => (x.score > best.score ? x : best)).p;
 }
 
-/** Il bot rinnova un suo giocatore in scadenza se gli serve e il prezzo è giusto. */
+/**
+ * Il bot rinnova un suo giocatore in scadenza se gli serve e il prezzo è giusto: fino al 15% sopra il suo valore,
+ * di più per chi vuole vincere subito o è fedele ai suoi giocatori, di meno per chi risparmia (renewalRatio). Chi
+ * risparmia non rinnova chi lo porterebbe sopra la tassa, salvo i suoi due migliori; chi costruisce con pazienza
+ * lascia andare i trentenni fuori dai primi 5.
+ */
 export function botWantsRenewal(state: LeagueState, teamId: string, p: PlayerState, ask: number): boolean {
   const team = state.teams.find((t) => t.id === teamId);
   if (!team) return false;
@@ -611,7 +652,15 @@ export function botWantsRenewal(state: LeagueState, teamId: string, p: PlayerSta
     .sort((a, b) => overall(b) - overall(a));
   const rank = ranked.indexOf(p);
   const fair = marketValue(state.config, p);
-  if (ask > fair * 1.15) return false;
+  if (ask > fair * renewalRatio(team, state.config.revenue)) return false;
+  const owner = ownerOf(team);
+  if (
+    ownerStyle(team, state.config.revenue).hatesTax &&
+    rank > 1 &&
+    payroll(state, teamId) + ask > state.config.luxuryTax
+  )
+    return false;
+  if (owner.goal === 'patient' && p.age >= 30 && rank > 4) return false;
   // In rosso rinnova caro solo i migliori 4, o se resta comunque sotto il monte stipendi minimo
   if (
     team.balance < 0 &&
@@ -621,5 +670,6 @@ export function botWantsRenewal(state: LeagueState, teamId: string, p: PlayerSta
   )
     return false;
   if (team.strategy === 'rebuild' && p.age >= 30 && rank > 2) return false;
+  if (owner.loyalty === 'high') return rank < 11 && p.age <= 35;
   return rank < 10 && p.age <= 34;
 }

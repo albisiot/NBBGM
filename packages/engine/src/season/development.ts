@@ -60,20 +60,28 @@ export function calibratePotential(players: Player[], shrink = 1): { a: number; 
   return { a, b };
 }
 
+/** Punti di overall in più in un anno di crescita con il miglior Sviluppo dell'allenatore (fino a 25 anni). */
+export const COACH_GROWTH = 0.6;
+/** Quota del calo risparmiata con il miglior Sviluppo dell'allenatore. */
+export const COACH_DECLINE_SHARE = 0.12;
+
 /**
  * Un anno di crescita o di calo. Fino a 27 anni si cresce (più in fretta da giovani e con Etica del lavoro
- * alta, senza superare il potenziale), dopo i 30 si cala, di più negli attributi fisici. Restituisce
- * l'overall prima e dopo.
+ * alta, senza superare il potenziale), dopo i 30 si cala, di più negli attributi fisici. coach è lo Sviluppo
+ * dell'allenatore della squadra, da -1 a +1 (developmentFactor): fa crescere più in fretta, a metà dopo i 25 anni, e
+ * rallenta il calo. Restituisce l'overall prima e dopo.
  */
-export function developPlayer(p: Player, rng: Rng): { before: number; after: number } {
+export function developPlayer(p: Player, rng: Rng, coach = 0): { before: number; after: number } {
   const before = overall(p);
   const ethic = (p.hidden.workEthic - 75) / 25;
   let target = ageCurve(p.age) + rng.normal(0, 1.8);
   if (target > 0) {
     target += ethic * 1.2;
+    if (coach) target += coach * COACH_GROWTH * (p.age <= 25 ? 1 : 0.5);
     target = Math.min(target, Math.max(0, p.hidden.potential - before + rng.normal(0, 1)));
   } else {
     target *= 1 - 0.3 * ethic;
+    if (coach) target *= 1 - COACH_DECLINE_SHARE * coach;
   }
   if (Math.abs(target) < 0.05) return { before, after: before };
   const growing = target > 0;

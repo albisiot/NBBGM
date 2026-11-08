@@ -64,7 +64,10 @@ async function createLeague(name: string, commissioner: string, team: string) {
         )
       ).rows,
     };
-    const state = createLeagueState(leagueFromBaseRows(rows), randomUUID(), { humanTeams: [team] });
+    const state = createLeagueState(leagueFromBaseRows(rows), randomUUID(), {
+      humanTeams: [team],
+      staff: false,
+    });
     const payload = leaguePayload(state, {
       id: keyedIds(() => randomUUID()),
       name,

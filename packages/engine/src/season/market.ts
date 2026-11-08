@@ -4,9 +4,11 @@
 import { overall } from '../overall.ts';
 import type { Rng } from '../rng.ts';
 import { botAccepts, botProposeTrade } from './bots.ts';
+import { checkCoachHire, coachName, replaceCoach } from './coaches.ts';
 import { maxSalaryFor, nextConfig, type SeasonConfig } from './config.ts';
 import { canSign, contractOf, releasePlayer, salaryRun, typicalYears } from './finance.ts';
-import { askingSalaryFor, FREE_AGENCY_ROUNDS, resolveOffers, type Offer } from './freeAgency.ts';
+import { askingSalaryFor, FREE_AGENCY_ROUNDS, resolveOffers, teamAppeal, type Offer } from './freeAgency.ts';
+import { ownerOf } from './owners.ts';
 import { standingsSeed } from './season.ts';
 import { leagueStandings } from './standings.ts';
 import type { LeagueState, PlayerState } from './state.ts';
@@ -112,6 +114,8 @@ export interface MarketRequests {
   releases: { id: string; teamId: string; playerId: string }[];
   renewals: { id: string; teamId: string; playerId: string; salaries: number[] }[];
   bids: { id: string; teamId: string; playerId: string; salaries: number[] }[];
+  /** Cambi di allenatore: la squadra esonera il suo e assume uno libero alla sua richiesta. */
+  coaches?: { id: string; teamId: string; coachId: string }[];
 }
 
 /** Messaggio per una squadra, da mostrare come avviso informativo. */
@@ -175,7 +179,45 @@ export function runMarket(
     for (const team of [t.teamA, t.teamB]) note(team, `${text}.`);
   }
 
-  // 2. Tagli: lo stipendio residuo resta a carico della squadra fino alla scadenza
+  // 2. Cambi di allenatore, uno per squadra. Se più squadre vogliono lo stesso allenatore sceglie lui: la squadra
+  // più forte (rotazione e classifica, come gli svincolati), a parità la peggiore in classifica
+  if (req.coaches?.length) {
+    const seen = new Set<string>();
+    const wanted = new Map<string, number>();
+    for (const r of req.coaches) wanted.set(r.coachId, (wanted.get(r.coachId) ?? 0) + 1);
+    const appeal = [...wanted.values()].some((n) => n > 1) ? teamAppeal(state) : null;
+    const standing = leagueStandings(
+      state.teams,
+      state.games.filter((g) => g.phase === 'regular'),
+      standingsSeed(state.publicSeed ?? state.seed, state.config.year),
+    );
+    const rank = (teamId: string) => -standing.indexOf(teamId);
+    const ordered = [...req.coaches].sort(
+      (a, b) =>
+        (appeal ? (appeal.get(b.teamId) ?? 0) - (appeal.get(a.teamId) ?? 0) : 0) ||
+        rank(a.teamId) - rank(b.teamId),
+    );
+    for (const r of ordered) {
+      const coach = state.coaches?.find((c) => c.id === r.coachId);
+      const name = coach ? coachName(coach) : "l'allenatore";
+      if (seen.has(r.teamId)) {
+        out.requests.push({ id: r.id, status: 'invalid' });
+        note(r.teamId, `Un solo cambio di allenatore per turno: ${name} non arriva.`);
+        continue;
+      }
+      const check = checkCoachHire(state, r.teamId, r.coachId);
+      if (!check.ok || !replaceCoach(state, r.teamId, r.coachId, turn)) {
+        out.requests.push({ id: r.id, status: 'invalid' });
+        note(r.teamId, `${name} non arriva: ${check.reason ?? 'non è più libero'}.`);
+        continue;
+      }
+      seen.add(r.teamId);
+      out.requests.push({ id: r.id, status: 'done' });
+      note(r.teamId, `${name} è il tuo nuovo allenatore.`);
+    }
+  }
+
+  // 3. Tagli: lo stipendio residuo resta a carico della squadra fino alla scadenza
   for (const r of req.releases) {
     const p = state.players.find((x) => x.id === r.playerId);
     const c = contractOf(state, r.playerId);
@@ -194,7 +236,7 @@ export function runMarket(
     );
   }
 
-  // 3. Rinnovi
+  // 4. Rinnovi
   for (const r of req.renewals) {
     const p = state.players.find((x) => x.id === r.playerId);
     const ok = p !== undefined && p.teamId === r.teamId && applyRenewal(state, r.playerId, r.salaries, turn);
@@ -208,7 +250,7 @@ export function runMarket(
       );
   }
 
-  // 4. Offerte agli svincolati, a busta chiusa
+  // 5. Offerte agli svincolati, a busta chiusa
   const valid: typeof req.bids = [];
   for (const b of req.bids) {
     const p = state.players.find((x) => x.id === b.playerId);
@@ -286,7 +328,12 @@ export function botProposals(
     const last = lastProposal.get(human.id);
     if (last !== undefined && turn - last < BOT_PROPOSAL_COOLDOWN) continue;
     if (!rng.chance(BOT_PROPOSAL_CHANCE)) continue;
-    for (const bot of rng.shuffle([...bots]).slice(0, 3)) {
+    // Un GM che cerca pochi scambi propone una volta su due, uno che li cerca sempre passa davanti
+    const candidates = rng
+      .shuffle([...bots])
+      .filter((b) => !b.owner || ownerOf(b).trades !== 'low' || rng.chance(0.5))
+      .sort((a, b) => Number(ownerOf(b).trades === 'high') - Number(ownerOf(a).trades === 'high'));
+    for (const bot of candidates.slice(0, 3)) {
       const trade = botProposeTrade(state, bot.id, human.id, rng);
       if (!trade) continue;
       out.push({ fromId: bot.id, toId: human.id, trade });

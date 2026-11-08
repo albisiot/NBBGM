@@ -1,4 +1,5 @@
 import type { GameResult } from '../game/types.ts';
+import { coachOf, motivationFactor } from './coaches.ts';
 import type { LeagueState, PlayerState } from './state.ts';
 
 /** Energia recuperata almeno in una notte (a Resistenza 50), da calibrare con pnpm sim:seasons. */
@@ -83,6 +84,8 @@ export function endTurn(
   nights: number,
 ): void {
   const justInjured = new Set([...played.values()].flatMap((x) => x.result.injuries.map((i) => i.playerId)));
+  // Gestione del gruppo dell'allenatore di ogni squadra che ha giocato
+  const motivation = new Map([...played.keys()].map((id) => [id, motivationFactor(coachOf(state, id))]));
   // Gli svincolati non giocano, ma guariscono al ritmo di una squadra: una partita ogni 2 giorni
   const freeHealing = played.size > 0 ? Math.floor((day + nights) / 2) - Math.floor(day / 2) : 0;
   for (const p of state.players) {
@@ -98,11 +101,22 @@ export function endTurn(
       p.injury.gamesRemaining--;
       if (p.injury.gamesRemaining <= 0) p.injury = null;
     }
-    updateMorale(state, p, game.won, game.result);
+    updateMorale(state, p, game.won, game.result, motivation.get(p.teamId as string) ?? 0);
   }
 }
 
-function updateMorale(state: LeagueState, p: PlayerState, won: boolean, result: GameResult): void {
+/** Quota in più (o in meno) delle variazioni del morale con la migliore (peggiore) Gestione del gruppo. */
+export const COACH_MORALE_SHARE = 0.3;
+/** Punti in più (o in meno) del livello a cui il morale torna con la migliore (peggiore) Gestione del gruppo. */
+export const COACH_MORALE_REST = 5;
+
+function updateMorale(
+  state: LeagueState,
+  p: PlayerState,
+  won: boolean,
+  result: GameResult,
+  motivation: number,
+): void {
   const line = [...result.home.box, ...result.away.box].find((l) => l.playerId === p.id);
   const minutes = line ? line.seconds / 60 : 0;
   // Minuti attesi in base al posto nella squadra
@@ -117,5 +131,9 @@ function updateMorale(state: LeagueState, p: PlayerState, won: boolean, result: 
   const leader = Math.max(0, ...mates.filter((x) => x !== p).map((x) => x.ratings.leadership));
   if (delta < 0) delta *= 1 - Math.max(0, leader - 60) / 100;
   delta *= 1.4 - p.hidden.character / 100;
-  p.morale = Math.max(0, Math.min(100, p.morale + delta + (60 - p.morale) * 0.02));
+  // Un buon allenatore fa salire di più il morale e lo fa scendere di meno, uno scarso il contrario
+  if (motivation)
+    delta *= delta > 0 ? 1 + COACH_MORALE_SHARE * motivation : 1 - COACH_MORALE_SHARE * motivation;
+  const rest = 60 + COACH_MORALE_REST * motivation;
+  p.morale = Math.max(0, Math.min(100, p.morale + delta + (rest - p.morale) * 0.02));
 }

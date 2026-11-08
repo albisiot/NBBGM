@@ -22,22 +22,46 @@ export function roleFit(player: Pick<Player, 'role' | 'secondaryRole'>, slot: Ro
 }
 
 // Minuti tipici per i primi 10 della rotazione (somma 240).
-const ROTATION_MINUTES = [35, 34, 33, 32, 31, 22, 18, 15, 12, 8];
+export const ROTATION_MINUTES: readonly number[] = [35, 34, 33, 32, 31, 22, 18, 15, 12, 8];
+
+/**
+ * Come un allenatore mette in campo la squadra (season/coaches.ts): chi preferisce, quanti giocatori ruota, quanto
+ * fa riposare gli stanchi. Senza, il pulsante Auto di sempre.
+ */
+export interface LineupStyle {
+  /** Punti di overall in più (o in meno) che l'allenatore dà a un giocatore, per la sua idea di gioco e la fiducia. */
+  bonus: (p: Player) => number;
+  /** Minuti dei primi della rotazione, dal migliore (somma 240). */
+  rotation: readonly number[];
+  /** Peso dell'energia nella scelta di chi gioca (0,2 per il pulsante Auto). */
+  energyWeight: number;
+  /** Sotto questa energia toglie minuti ai titolari e li dà alla panchina (0: mai). */
+  restBelow: number;
+}
+
+/** Minuti che un titolare stanco perde per punto di energia sotto la soglia del riposo, e il minimo che gli restano. */
+const REST_CUT_PER_POINT = 0.4;
+const REST_FLOOR_MINUTES = 18;
 
 /**
  * Impostazioni automatiche (bot, pulsante Auto, allenatore): i 13 migliori sani a referto, il quintetto che
- * massimizza overall per adattamento al ruolo, minuti decrescenti con la somma a 240.
+ * massimizza overall per adattamento al ruolo, minuti decrescenti con la somma a 240. Con lo stile di un allenatore
+ * il "migliore" è quello che vede lui (overall più le sue preferenze), i minuti seguono la sua rotazione e chi è
+ * stanco gioca meno se l'allenatore fa riposare; senza, le scelte di sempre, numero per numero.
  */
 export function autoSetup(
   teamId: string,
   roster: readonly Player[],
   tactics: Tactics = DEFAULT_TACTICS,
+  style?: LineupStyle,
 ): TeamSetup {
   const healthy = roster.filter((p) => p.injury === null);
   if (healthy.length < 5) throw new Error(`${teamId}: meno di 5 giocatori disponibili`);
-  const ovr = new Map(healthy.map((p) => [p, overall(p)]));
+  const ovr = new Map(healthy.map((p) => [p, style ? overall(p) + style.bonus(p) : overall(p)]));
+  const energyF = (p: Player) =>
+    style ? 1 - style.energyWeight + style.energyWeight * (p.energy / 100) : 0.8 + 0.2 * (p.energy / 100);
   const ranked = [...healthy]
-    .map((p) => ({ p, o: (ovr.get(p) as number) * (0.8 + 0.2 * (p.energy / 100)) }))
+    .map((p) => ({ p, o: (ovr.get(p) as number) * energyF(p) }))
     .sort((a, b) => b.o - a.o)
     .map((x) => x.p);
   const active = ranked.slice(0, 13);
@@ -79,15 +103,17 @@ export function autoSetup(
   const bench = active.filter((p) => !starters.includes(p));
   const order = [...starters].sort((a, b) => (ovr.get(b) as number) - (ovr.get(a) as number)).concat(bench);
   const minutes: Record<string, number> = {};
+  const table = style?.rotation ?? ROTATION_MINUTES;
   order.forEach((p, i) => {
-    minutes[p.id] = ROTATION_MINUTES[i] ?? 0;
+    minutes[p.id] = table[i] ?? 0;
   });
-  // Con meno di 10 giocatori i minuti mancanti vanno ai titolari
+  // Con meno giocatori della rotazione i minuti mancanti vanno ai titolari
   let missing = 240 - Object.values(minutes).reduce((a, b) => a + b, 0);
   for (let i = 0; missing > 0; i = (i + 1) % starters.length, missing--) {
     const id = (order[i] as Player).id;
     minutes[id] = (minutes[id] ?? 0) + 1;
   }
+  if (style && style.restBelow > 0) restTired(order, minutes, style.restBelow);
 
   return {
     teamId,
@@ -96,6 +122,35 @@ export function autoSetup(
     minutes,
     tactics,
   };
+}
+
+/**
+ * Riposo: chi è sotto la soglia di energia perde minuti (0,4 per punto, fino a restarne con 18), che vanno uno alla
+ * volta ai riposati della rotazione con meno minuti, fino a 30 a testa; se non ne resta nessuno tornano agli stanchi.
+ * La somma resta 240.
+ */
+function restTired(order: readonly Player[], minutes: Record<string, number>, restBelow: number): void {
+  let pool = 0;
+  for (const p of order) {
+    const m = minutes[p.id] ?? 0;
+    if (p.energy >= restBelow || m <= REST_FLOOR_MINUTES) continue;
+    const cut = Math.min(m - REST_FLOOR_MINUTES, Math.round((restBelow - p.energy) * REST_CUT_PER_POINT));
+    minutes[p.id] = m - cut;
+    pool += cut;
+  }
+  const fresh = order.filter((p) => p.energy >= restBelow);
+  const receivers = fresh.length ? fresh : [...order];
+  const cap = fresh.length ? 30 : MAX_MINUTES;
+  for (let guard = 0; pool > 0 && guard < 240 * 13; guard++) {
+    // Prima chi è già in rotazione, poi gli altri
+    const inRotation = receivers.filter((p) => (minutes[p.id] ?? 0) > 0 && (minutes[p.id] ?? 0) < cap);
+    const open = inRotation.length ? inRotation : receivers.filter((p) => (minutes[p.id] ?? 0) < cap);
+    const target = (open.length ? open : receivers).reduce((a, b) =>
+      (minutes[b.id] ?? 0) < (minutes[a.id] ?? 0) ? b : a,
+    );
+    minutes[target.id] = (minutes[target.id] ?? 0) + 1;
+    pool--;
+  }
 }
 
 /** Impostazioni salvate dal manager (tabella team_settings). */

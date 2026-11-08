@@ -50,9 +50,11 @@ export function seedIds(leagueKey = 'prova'): SeedIds {
 /** Stato engine della lega di prova: sempre lo stesso a parità di seed. */
 export function seedLeagueState(seed = 'nbbgm-seed'): LeagueState {
   const data = generateLeague(new Rng(seed), ARCHETYPE_PROFILES);
+  // Allenatori e proprietari dei bot non sono ancora nel database (arrivano con la fase 2): la lega nasce senza
   return createLeagueState(data, seed, {
     humanTeams: SEED_USERS.map((u) => u.team),
     potentialOnOverallScale: true,
+    staff: false,
   });
 }
 

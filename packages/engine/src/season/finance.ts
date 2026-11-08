@@ -1,5 +1,6 @@
 import { overall } from '../overall.ts';
 import type { Contract, Player } from '../types.ts';
+import { coachCost } from './coaches.ts';
 import { luxuryTax, maxSalaryFor, minimumSalaryFor, twoWaySalary, type SeasonConfig } from './config.ts';
 import type { LeagueState, PlayerState } from './state.ts';
 
@@ -102,7 +103,8 @@ export function canSign(
 
 /**
  * Ricavi e stipendi di una partita di regular season (1/82 della stagione), per le squadre che giocano nel turno:
- * con il calendario a giorni non tutte giocano ogni giorno, e ognuna conta 82 movimenti a stagione.
+ * con il calendario a giorni non tutte giocano ogni giorno, e ognuna conta 82 movimenti a stagione. Anche gli
+ * allenatori, quello in panchina e gli esonerati ancora da pagare, si pagano partita per partita.
  */
 export function chargeGames(state: LeagueState, teamIds: Iterable<string>): void {
   const c = state.config;
@@ -111,6 +113,8 @@ export function chargeGames(state: LeagueState, teamIds: Iterable<string>): void
     if (!ids.has(team.id)) continue;
     const twoWays = twoWayRoster(state, team.id).length * twoWaySalary(c);
     team.balance += (c.revenue - payroll(state, team.id) - twoWays) / 82;
+    const staff = coachCost(state, team.id);
+    if (staff) team.balance -= staff / 82;
   }
 }
 

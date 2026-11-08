@@ -144,6 +144,11 @@ const EXPECTED = {
   // campo draft l'impronta è quella di prima (c233ef3918019d69)
   season: 'da8a2f580f8fc0e0',
 };
+// Senza allenatori e proprietari (leghe create prima): le impronte di sempre
+const EXPECTED_BASE = { bots: EXPECTED.bots, turns: EXPECTED.turns, season: EXPECTED.season };
+// Con allenatori e proprietari dei bot: i bot giocano con l'idea del loro allenatore e decidono con l'obiettivo del
+// proprietario; partite e impostazioni automatiche senza allenatore restano identiche
+const EXPECTED_STAFF = { bots: '6b312eed7e8451ae', turns: '65061d4f7594276d', season: 'cd1aacfe392350cc' };
 
 describe('golden: il motore gioca sempre le stesse partite', () => {
   it('partite complete', () => {
@@ -177,12 +182,17 @@ describe('golden: il motore gioca sempre le stesse partite', () => {
   });
 });
 
-describe('golden: stagione e bot', () => {
+describe.each([
+  ['senza allenatori e proprietari', false],
+  ['con allenatori e proprietari', true],
+] as const)('golden: stagione e bot, %s', (_, staff) => {
   const fresh = (): LeagueState =>
     createLeagueState({ ...league, players }, 'golden-lega', {
       potentialOnOverallScale: true,
       humanTeams: ['BOS', 'LAL'],
+      staff,
     });
+  const EXPECTED = staff ? EXPECTED_STAFF : EXPECTED_BASE;
 
   it('forza delle squadre, valutazioni e scambi dei bot', () => {
     const state = fresh();
