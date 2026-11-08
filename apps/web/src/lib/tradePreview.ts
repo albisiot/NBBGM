@@ -88,6 +88,8 @@ export interface PreviewInput {
   /** Turno corrente: tipo (regular, play-in, playoffs, offseason) e numero. */
   roundKind: string | null;
   roundNumber: number | null;
+  /** Giorno della stagione del turno (giorni dall'apertura), per la trade deadline. */
+  roundDay?: number | null;
   me: PreviewTeam;
   partner: PreviewTeam;
   /** Scelte future della lega (per la regola Stepien servono tutte quelle delle due squadre). */
@@ -145,6 +147,8 @@ function miniState(input: PreviewInput): LeagueState {
     config: input.config,
     phase: phaseOf(input.roundKind),
     turn: input.roundKind === 'regular' ? (input.roundNumber ?? 0) : 0,
+    // Giorno del turno: decide la trade deadline (tradeWindowOpen)
+    day: input.roundDay ?? 0,
     teams: [
       { id: me.code, balance: me.balance ?? 0, taxHistory: [] },
       { id: partner.code, balance: partner.balance ?? 0, taxHistory: [] },

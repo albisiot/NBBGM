@@ -5,7 +5,7 @@ import type { Contract, Role } from '../types.ts';
 import { luxuryTax, minimumSalaryFor, nextConfig, type SeasonConfig } from './config.ts';
 import { contractOf, isRepeater, marketValue, payroll, roster, standardRoster } from './finance.ts';
 import { lotteryPositionOdds, MAX_DEFERRALS, pickInSwap, swapLive } from './picks.ts';
-import { REGULAR_SEASON_TURNS } from './schedule.ts';
+import { REGULAR_SEASON_GAMES, regularTurns, type ScheduledGame } from './schedule.ts';
 import type { DraftPick, DraftSwap, LeagueState, PlayerState, Strategy } from './state.ts';
 import { executeTrade, payrollChange, tradeWindowOpen, validateTrade, type Trade } from './trades.ts';
 import { gamesAfterOffseason } from './turn.ts';
@@ -54,9 +54,36 @@ export function updateStrategies(state: LeagueState): void {
   }
 }
 
-/** Momento della stagione (fase e turno della lega): serve a contare le partite che salta un infortunato. */
-export type SeasonMoment = Pick<LeagueState, 'phase' | 'turn'>;
-const SEASON_START: SeasonMoment = { phase: 'regular', turn: 0 };
+/**
+ * Momento della stagione (fase, turno e calendario della lega): serve a contare le partite che salta un
+ * infortunato. Senza calendario vale come l'inizio della stagione.
+ */
+export type SeasonMoment = Pick<LeagueState, 'phase' | 'turn' | 'schedule'>;
+const SEASON_START: SeasonMoment = { phase: 'regular', turn: 0, schedule: [] };
+
+// Partite del calendario dal turno t in poi, per calendario (si calcola una volta: i bot valutano migliaia di
+// giocatori a turno)
+const fromTurn = new WeakMap<readonly ScheduledGame[], number[]>();
+
+/**
+ * Partite di regular season che restano a una squadra, in media: 82 per la quota del calendario ancora da giocare
+ * (le squadre ne hanno al più una o due di differenza). Fuori dalla regular season nessuna.
+ */
+export function regularGamesLeft(when: SeasonMoment): number {
+  if (when.phase !== 'regular') return 0;
+  const schedule = when.schedule;
+  if (schedule.length === 0) return REGULAR_SEASON_GAMES;
+  let counts = fromTurn.get(schedule);
+  if (!counts) {
+    const turns = regularTurns(schedule);
+    counts = new Array<number>(turns + 1).fill(0);
+    for (const g of schedule) counts[g.turn] = (counts[g.turn] as number) + 1;
+    for (let t = turns - 1; t >= 0; t--) counts[t] = (counts[t] as number) + (counts[t + 1] as number);
+    fromTurn.set(schedule, counts);
+  }
+  const left = counts[Math.min(Math.max(0, when.turn), counts.length - 1)] as number;
+  return (REGULAR_SEASON_GAMES * left) / schedule.length;
+}
 
 /** Stagioni che il talento di un giocatore riassume, come il contratto nel valore (al massimo 3 anni). */
 export const VALUE_YEARS = 3;
@@ -69,11 +96,11 @@ export const VALUE_YEARS = 3;
  */
 export function injurySeasons(gamesRemaining: number, when: SeasonMoment): number {
   if (gamesRemaining <= 0) return 0;
-  if (when.phase === 'offseason') return Math.min(1, gamesRemaining / REGULAR_SEASON_TURNS);
-  const left = when.phase === 'regular' ? Math.max(0, REGULAR_SEASON_TURNS - when.turn) : 0;
+  if (when.phase === 'offseason') return Math.min(1, gamesRemaining / REGULAR_SEASON_GAMES);
+  const left = regularGamesLeft(when);
   const now = Math.min(gamesRemaining, left);
-  const next = Math.min(REGULAR_SEASON_TURNS, gamesAfterOffseason(gamesRemaining - now));
-  return (left > 0 ? now / left : 0) + next / REGULAR_SEASON_TURNS;
+  const next = Math.min(REGULAR_SEASON_GAMES, gamesAfterOffseason(gamesRemaining - now));
+  return (left > 0 ? now / left : 0) + next / REGULAR_SEASON_GAMES;
 }
 
 /**
@@ -128,22 +155,25 @@ const WIN_SCALE = 6.8;
  */
 export function draftRanking(state: LeagueState): string[] {
   const offseason = state.phase === 'offseason';
-  const left =
-    state.phase === 'regular'
-      ? Math.max(0, REGULAR_SEASON_TURNS - state.turn)
-      : offseason
-        ? REGULAR_SEASON_TURNS
-        : 0;
+  // Partite che restano a ogni squadra: dal calendario in regular season, una stagione intera in offseason
+  const leftOf = new Map(state.teams.map((t) => [t.id, offseason ? REGULAR_SEASON_GAMES : 0]));
+  if (state.phase === 'regular')
+    for (const g of state.schedule)
+      if (g.turn >= state.turn)
+        for (const id of [g.homeId, g.awayId]) leftOf.set(id, (leftOf.get(id) ?? 0) + 1);
   const strength = new Map(
-    state.teams.map((t) => [
-      t.id,
-      rotationStrength(
+    state.teams.map((t) => {
+      const left = leftOf.get(t.id) as number;
+      return [
         t.id,
-        roster(state, t.id).map((p) =>
-          p.injury && p.injury.gamesRemaining * 2 < Math.max(1, left) ? { ...p, injury: null } : p,
+        rotationStrength(
+          t.id,
+          roster(state, t.id).map((p) =>
+            p.injury && p.injury.gamesRemaining * 2 < Math.max(1, left) ? { ...p, injury: null } : p,
+          ),
         ),
-      ),
-    ]),
+      ];
+    }),
   );
   const average = [...strength.values()].reduce((a, b) => a + b, 0) / Math.max(1, strength.size);
   const wins = new Map(state.teams.map((t) => [t.id, 0]));
@@ -157,7 +187,7 @@ export function draftRanking(state: LeagueState): string[] {
     state.teams.map((t) => {
       const s = strength.get(t.id) as number;
       const p = 1 / (1 + Math.exp(-(s - average) / WIN_SCALE));
-      return [t.id, (wins.get(t.id) as number) + left * p];
+      return [t.id, (wins.get(t.id) as number) + (leftOf.get(t.id) as number) * p];
     }),
   );
   return state.teams

@@ -231,18 +231,27 @@ describe('infortunati: si toglie solo la stagione che saltano (seconda analisi)'
   it('stagioni saltate: le partite che restano, poi la guarigione in offseason', () => {
     expect(gamesAfterOffseason(30)).toBe(0);
     expect(gamesAfterOffseason(31)).toBe(11);
-    // A inizio stagione: 60 partite su 82
-    expect(injurySeasons(60, { phase: 'regular', turn: 0 })).toBeCloseTo(60 / 82);
-    // Alla giornata 51 ne restano 32: le salta tutte, le altre 28 le recupera in offseason
-    expect(injurySeasons(60, { phase: 'regular', turn: 50 })).toBeCloseTo(1);
+    // Calendario di prova: 164 giorni con 7 o 8 partite (1.230 in tutto)
+    const schedule = Array.from({ length: 1230 }, (_, i) => ({
+      turn: Math.floor(i / 7.5),
+      day: Math.floor(i / 7.5),
+      homeId: 'A',
+      awayId: 'B',
+    }));
+    const at = (turn: number) => ({ phase: 'regular' as const, turn, schedule });
+    // A inizio stagione: 60 partite su 82 (anche senza calendario)
+    expect(injurySeasons(60, { phase: 'regular', turn: 0, schedule: [] })).toBeCloseTo(60 / 82);
+    expect(injurySeasons(60, at(0))).toBeCloseTo(60 / 82);
+    // Al turno 100 su 164 ne restano 32: le salta tutte, le altre 28 le recupera in offseason
+    expect(injurySeasons(60, at(100))).toBeCloseTo(1);
     // Con 70 ne restano 38 dopo la regular season: in offseason ne recupera 20, ne salta 18 della prossima
-    expect(injurySeasons(70, { phase: 'regular', turn: 50 })).toBeCloseTo(1 + 18 / 82);
-    expect(injurySeasons(3, { phase: 'regular', turn: 50 })).toBeCloseTo(3 / 32);
+    expect(injurySeasons(70, at(100))).toBeCloseTo(1 + 18 / 82);
+    expect(injurySeasons(3, at(100))).toBeCloseTo(3 / 32);
     // Dopo la regular season conta solo la prossima, dopo la guarigione; in offseason la guarigione c'è già stata
-    expect(injurySeasons(25, { phase: 'postseason', turn: 82 })).toBe(0);
-    expect(injurySeasons(40, { phase: 'postseason', turn: 82 })).toBeCloseTo(20 / 82);
-    expect(injurySeasons(10, { phase: 'offseason', turn: 82 })).toBeCloseTo(10 / 82);
-    expect(injurySeasons(0, { phase: 'regular', turn: 0 })).toBe(0);
+    expect(injurySeasons(25, { phase: 'postseason', turn: 164, schedule })).toBe(0);
+    expect(injurySeasons(40, { phase: 'postseason', turn: 164, schedule })).toBeCloseTo(20 / 82);
+    expect(injurySeasons(10, { phase: 'offseason', turn: 164, schedule })).toBeCloseTo(10 / 82);
+    expect(injurySeasons(0, at(0))).toBe(0);
   });
 
   it('una stella ferma fino a fine stagione non si cede per un giocatore qualsiasi', () => {
@@ -257,7 +266,7 @@ describe('infortunati: si toglie solo la stagione che saltano (seconda analisi)'
       const star = best(s, bot)[0]!;
       const talent = playerTalent(star, 'middle', s);
       star.injury = { bodyPart: 'knees', severity: 'severe', gamesRemaining: 60 };
-      // Salta le 32 partite che restano, il resto lo recupera in offseason: perde un anno di valore su tre
+      // Salta le partite che restano, il resto lo recupera in offseason: perde un anno di valore su tre
       expect(playerTalent(star, 'middle', s)).toBeCloseTo((talent * 2) / 3);
       const t: Trade = {
         teamA: 'BOS',

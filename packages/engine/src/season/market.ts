@@ -16,10 +16,13 @@ import { executeTrade, tradeWindowOpen, validateTrade, type Trade } from './trad
 export const IN_SEASON_ASK_ROUND = FREE_AGENCY_ROUNDS - 1;
 /** Sotto questo morale il giocatore non rinnova. */
 export const MIN_RENEWAL_MORALE = 30;
-/** Probabilità per turno che un bot proponga uno scambio a una squadra umana. */
-export const BOT_PROPOSAL_CHANCE = 0.15;
-/** Turni minimi tra due proposte dei bot alla stessa squadra umana. */
-export const BOT_PROPOSAL_COOLDOWN = 5;
+/**
+ * Probabilità per turno che un bot proponga uno scambio a una squadra umana. Un turno è un giorno: fino alla
+ * deadline circa 105 giorni con partite contro 56 turni di prima (con 0,15), per le stesse proposte a stagione.
+ */
+export const BOT_PROPOSAL_CHANCE = 0.08;
+/** Turni (giorni con partite) minimi tra due proposte dei bot alla stessa squadra umana: circa 5 turni di prima. */
+export const BOT_PROPOSAL_COOLDOWN = 10;
 
 const millions = (x: number) => `${(x / 1e6).toFixed(1).replace('.', ',')} mln`;
 const fullName = (p: Pick<PlayerState, 'firstName' | 'lastName'>) => `${p.firstName} ${p.lastName}`;

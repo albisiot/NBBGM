@@ -1,3 +1,9 @@
+// Play-in e playoff a giorni, come nella NBA. Il play-in si gioca il secondo giorno dopo la fine della regular
+// season (l'Est), il terzo (l'Ovest) e il quinto (le due partite per l'ottavo posto); il primo turno di playoff parte
+// il giorno dopo. In ogni turno di playoff le serie si dividono in due gruppi che giocano a giorni alterni, e ogni
+// serie gioca una partita ogni 2 giorni; il turno dopo parte 2 giorni dopo l'ultima partita del turno prima. Un
+// turno del gioco è un giorno con partite: i giorni senza partite si saltano (ma contano come riposo).
+import { PLAY_IN_GAP } from './calendar.ts';
 import type { Conference } from '../types.ts';
 
 export interface PlayInGame {
@@ -7,6 +13,8 @@ export interface PlayInGame {
   homeId: string;
   awayId: string;
   winnerId: string | null;
+  /** Giorno della stagione (giorni dall'apertura) in cui si gioca. */
+  day: number;
 }
 
 export interface Series {
@@ -22,6 +30,8 @@ export interface Series {
   winsHigh: number;
   winsLow: number;
   winnerId: string | null;
+  /** Giorno di gara 1: le gare seguono ogni 2 giorni. */
+  firstDay: number;
 }
 
 export interface PostseasonState {
@@ -31,6 +41,8 @@ export interface PostseasonState {
   playIn: PlayInGame[];
   series: Series[];
   championId: string | null;
+  /** Giorno dell'ultima partita giocata (all'inizio, l'ultimo giorno di regular season). */
+  lastDay: number;
 }
 
 export interface PostseasonGame {
@@ -38,6 +50,7 @@ export interface PostseasonGame {
   homeId: string;
   awayId: string;
   phase: 'play-in' | 'playoffs';
+  day: number;
 }
 
 const CONFERENCES: Conference[] = ['East', 'West'];
@@ -49,11 +62,19 @@ const BRACKET: [number, number][] = [
 ];
 /** Fattore campo 2-2-1-1-1: partite 1, 2, 5 e 7 in casa della meglio classificata. */
 const HIGH_HOME = [true, true, false, false, true, false, true];
+/** Giorni tra due gare della stessa serie. */
+export const SERIES_GAP = 2;
+/** Giorni tra l'ultima partita di un turno di playoff e la prima del turno dopo. */
+export const ROUND_BREAK = 2;
 
-export function startPostseason(seeds: Record<Conference, string[]>): PostseasonState {
+export function startPostseason(
+  seeds: Record<Conference, string[]>,
+  lastRegularDay: number,
+): PostseasonState {
   const playIn: PlayInGame[] = [];
-  for (const c of CONFERENCES) {
+  CONFERENCES.forEach((c, i) => {
     const s = seeds[c];
+    const day = lastRegularDay + PLAY_IN_GAP + i;
     playIn.push({
       id: `${c}-7v8`,
       conference: c,
@@ -61,6 +82,7 @@ export function startPostseason(seeds: Record<Conference, string[]>): Postseason
       homeId: s[6] as string,
       awayId: s[7] as string,
       winnerId: null,
+      day,
     });
     playIn.push({
       id: `${c}-9v10`,
@@ -69,17 +91,21 @@ export function startPostseason(seeds: Record<Conference, string[]>): Postseason
       homeId: s[8] as string,
       awayId: s[9] as string,
       winnerId: null,
+      day,
     });
-  }
-  return { stage: 'play-in-1', seeds, playIn, series: [], championId: null };
+  });
+  return { stage: 'play-in-1', seeds, playIn, series: [], championId: null, lastDay: lastRegularDay };
 }
 
-/** Partite da giocare in questo turno di post-season. */
-export function postseasonGames(state: PostseasonState): PostseasonGame[] {
+/** Giorno della prossima gara di una serie aperta. */
+const seriesDay = (s: Series) => s.firstDay + SERIES_GAP * (s.winsHigh + s.winsLow);
+
+/** Tutte le partite ancora da giocare che il tabellone conosce, ognuna con il suo giorno. */
+function pending(state: PostseasonState): PostseasonGame[] {
   if (state.stage === 'play-in-1' || state.stage === 'play-in-2') {
     return state.playIn
       .filter((g) => g.winnerId === null)
-      .map((g) => ({ ref: g.id, homeId: g.homeId, awayId: g.awayId, phase: 'play-in' }));
+      .map((g) => ({ ref: g.id, homeId: g.homeId, awayId: g.awayId, phase: 'play-in', day: g.day }));
   }
   if (state.stage !== 'playoffs') return [];
   return state.series
@@ -91,17 +117,34 @@ export function postseasonGames(state: PostseasonState): PostseasonGame[] {
         homeId: highHome ? s.highId : s.lowId,
         awayId: highHome ? s.lowId : s.highId,
         phase: 'playoffs',
+        day: seriesDay(s),
       };
     });
 }
 
-/** Registra il risultato di una partita di post-season e fa avanzare il tabellone. */
+/** Partite del prossimo giorno di post-season (il prossimo turno), tutte con lo stesso giorno. */
+export function postseasonGames(state: PostseasonState): PostseasonGame[] {
+  const all = pending(state);
+  if (all.length === 0) return [];
+  const day = Math.min(...all.map((g) => g.day));
+  return all.filter((g) => g.day === day);
+}
+
+/** Giorno del prossimo turno di post-season, o null a post-season finita. */
+export function nextPostseasonDay(state: PostseasonState): number | null {
+  const all = pending(state);
+  return all.length ? Math.min(...all.map((g) => g.day)) : null;
+}
+
+/** Registra il risultato di una partita di post-season (giocata il giorno day) e fa avanzare il tabellone. */
 export function applyPostseasonResult(
   state: PostseasonState,
   ref: string,
   winnerId: string,
   betterRecord: (a: string, b: string) => string,
+  day: number,
 ): void {
+  state.lastDay = Math.max(state.lastDay, day);
   const pi = state.playIn.find((g) => g.id === ref);
   if (pi) {
     pi.winnerId = winnerId;
@@ -130,23 +173,26 @@ function advance(state: PostseasonState, betterRecord: (a: string, b: string) =>
         homeId: loser78,
         awayId: g910.winnerId as string,
         winnerId: null,
+        day: state.lastDay + ROUND_BREAK,
       });
     }
     state.stage = 'play-in-2';
     return;
   }
   if (state.stage === 'play-in-2' && state.playIn.every((g) => g.winnerId)) {
+    const created: Series[] = [];
     for (const c of CONFERENCES) {
       const seeds = state.seeds[c];
       const seventh = (state.playIn.find((g) => g.id === `${c}-7v8`) as PlayInGame).winnerId as string;
       const eighth = (state.playIn.find((g) => g.id === `${c}-final`) as PlayInGame).winnerId as string;
       const bySeed = [...seeds.slice(0, 6), seventh, eighth];
-      for (const [hi, lo] of BRACKET) {
-        state.series.push(
+      for (const [hi, lo] of BRACKET)
+        created.push(
           makeSeries(`${c}-R1-${hi}v${lo}`, 1, c, bySeed[hi - 1] as string, hi, bySeed[lo - 1] as string, lo),
         );
-      }
     }
+    // Il primo turno parte il giorno dopo le partite per l'ottavo posto
+    schedule(state, created, state.lastDay + 1);
     state.stage = 'playoffs';
     return;
   }
@@ -160,14 +206,16 @@ function advance(state: PostseasonState, betterRecord: (a: string, b: string) =>
     state.stage = 'done';
     return;
   }
+  const start = state.lastDay + ROUND_BREAK;
   if (round === 3) {
     const [e, w] = CONFERENCES.map((c) => done.find((s) => s.conference === c) as Series);
     const a = (e as Series).winnerId as string;
     const b = (w as Series).winnerId as string;
     const high = betterRecord(a, b);
-    state.series.push(makeSeries('Finale', 4, null, high, 0, high === a ? b : a, 0));
+    schedule(state, [makeSeries('Finale', 4, null, high, 0, high === a ? b : a, 0)], start);
     return;
   }
+  const created: Series[] = [];
   for (const c of CONFERENCES) {
     const mine = done.filter((s) => s.conference === c);
     // Tabellone fisso: le vincenti di serie vicine si incontrano (1-8 con 4-5, 3-6 con 2-7)
@@ -176,7 +224,7 @@ function advance(state: PostseasonState, betterRecord: (a: string, b: string) =>
       const y = mine[i + 1] as Series;
       const seedOf = (s: Series) => (s.winnerId === s.highId ? s.highSeed : s.lowSeed);
       const [hi, lo] = seedOf(x) < seedOf(y) ? [x, y] : [y, x];
-      state.series.push(
+      created.push(
         makeSeries(
           `${c}-R${round + 1}-${i / 2 + 1}`,
           (round + 1) as Series['round'],
@@ -189,6 +237,15 @@ function advance(state: PostseasonState, betterRecord: (a: string, b: string) =>
       );
     }
   }
+  schedule(state, created, start);
+}
+
+/** Serie nuove di un turno: a giorni alterni in due gruppi (una sì e una no, nell'ordine del tabellone). */
+function schedule(state: PostseasonState, created: Series[], start: number): void {
+  created.forEach((s, i) => {
+    s.firstDay = start + (i % 2);
+    state.series.push(s);
+  });
 }
 
 function makeSeries(
@@ -200,7 +257,19 @@ function makeSeries(
   lowId: string,
   lowSeed: number,
 ): Series {
-  return { id, round, conference, highId, lowId, highSeed, lowSeed, winsHigh: 0, winsLow: 0, winnerId: null };
+  return {
+    id,
+    round,
+    conference,
+    highId,
+    lowId,
+    highSeed,
+    lowSeed,
+    winsHigh: 0,
+    winsLow: 0,
+    winnerId: null,
+    firstDay: 0,
+  };
 }
 
 /** Squadre eliminate al play-in o fuori dalle prime 10: vanno in lottery. */

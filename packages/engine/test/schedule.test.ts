@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { generateSchedule, seriesPlan, validateSchedule } from '../src/season/schedule.ts';
+import { generateSchedule, regularTurns, seriesPlan, validateSchedule } from '../src/season/schedule.ts';
 import { TEAMS } from '../src/teams.ts';
 
 describe('calendario', () => {
@@ -41,10 +41,10 @@ describe('calendario', () => {
     expect(generateSchedule(TEAMS, 2026, 'x')).toEqual(generateSchedule(TEAMS, 2026, 'x'));
   });
 
-  it('la stessa sfida in due turni di fila è rara', () => {
+  it('la stessa sfida in due giorni di gioco di fila è rara', () => {
     const s = generateSchedule(TEAMS, 2026, 'consecutive');
     let repeats = 0;
-    for (let t = 1; t < 82; t++) {
+    for (let t = 1; t < regularTurns(s); t++) {
       const prev = new Set(
         s.filter((g) => g.turn === t - 1).map((g) => [g.homeId, g.awayId].sort().join('|')),
       );

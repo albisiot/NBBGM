@@ -6,7 +6,13 @@
 // scambio tra bot o con due swap nello stesso draft): squadre, giocatori, contratti, residui, scelte e swap si
 // mettono qui in un ordine fisso, così un turno ripreso con lo stesso seed rifà esattamente le stesse cose anche se
 // il database restituisse le righe in un altro ordine (league_state le ordina già).
-import { emptyStats, nextConfig, validTactics } from '../../../packages/engine/src/index.ts';
+import {
+  emptyStats,
+  nextConfig,
+  regularTurns,
+  turnDay,
+  validTactics,
+} from '../../../packages/engine/src/index.ts';
 import type {
   BodyPart,
   Conference,
@@ -53,6 +59,8 @@ export interface LeagueStateRows {
     close_reason?: string | null;
     /** Turno di offseason: draft, renewals, fa1-fa4, preparation. */
     stage?: string | null;
+    /** Giorno della stagione del turno (giorni dall'apertura). */
+    day?: number | null;
   } | null;
   teams: {
     id: string;
@@ -130,6 +138,8 @@ export interface LeagueStateRows {
     away_score: number | null;
     overtimes: number | null;
     series_id?: string | null;
+    /** Giorno della stagione della partita (giorni dall'apertura). */
+    day?: number | null;
   }[];
   /** Serie di playoff della stagione corrente. */
   playoff_series?: {
@@ -309,14 +319,26 @@ export function leagueStateFromRows(rows: LeagueStateRows): { state: LeagueState
       homeScore: g.home_score as number,
       awayScore: g.away_score as number,
       overtimes: g.overtimes ?? 0,
+      ...(g.day === null || g.day === undefined ? {} : { day: g.day }),
     }));
+  // Calendario di regular season: un turno è un giorno con partite
+  const schedule = r.games
+    .filter((g) => g.kind === 'regular')
+    .map((g) => ({
+      turn: g.round_number,
+      day: g.day ?? 0,
+      homeId: codeOf(g.home_team_id),
+      awayId: codeOf(g.away_team_id),
+    }));
+  const turn = r.round?.kind === 'regular' ? r.round.number : regularTurns(schedule);
 
   const state: LeagueState = {
     seed: r.league.seed,
     config,
     phase: s.phase === 'regular' ? 'regular' : s.phase === 'offseason' ? 'offseason' : 'postseason',
-    turn:
-      r.round?.kind === 'regular' ? r.round.number : games.filter((g) => g.phase === 'regular').length / 15,
+    turn,
+    // Giorno del turno: dal turno salvato, o dal calendario; in post-season lo ricalcola il tabellone (serverTurn)
+    day: r.round?.day ?? turnDay(schedule, turn) ?? 0,
     teams: r.teams.map((t) => {
       const saved = settings.get(t.id);
       const tactics = validTactics(
@@ -369,9 +391,7 @@ export function leagueStateFromRows(rows: LeagueStateRows): { state: LeagueState
       holderId: codeOf(w.holder_team_id),
       otherId: codeOf(w.other_team_id),
     })),
-    schedule: r.games
-      .filter((g) => g.kind === 'regular')
-      .map((g) => ({ turn: g.round_number, homeId: codeOf(g.home_team_id), awayId: codeOf(g.away_team_id) })),
+    schedule,
     games,
     // Play-in e playoff si ricostruiscono dalle partite giocate (replayPostseason in serverTurn)
     postseason: null,

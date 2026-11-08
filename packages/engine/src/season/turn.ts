@@ -1,24 +1,27 @@
 import type { GameResult } from '../game/types.ts';
 import type { LeagueState, PlayerState } from './state.ts';
 
-/** Energia recuperata almeno tra un turno e l'altro (a Resistenza 50), da calibrare con pnpm sim:seasons. */
-export const ENERGY_RECOVERY = 12;
+/** Energia recuperata almeno in una notte (a Resistenza 50), da calibrare con pnpm sim:seasons. */
+export const ENERGY_RECOVERY = 6;
 
 /**
- * Quota dell'energia che manca recuperata tra un turno e l'altro (a Resistenza 50), quando è più di
- * ENERGY_RECOVERY: chi è molto stanco recupera di più. Con i soli 12 punti chi giocava sempre 42 minuti crollava
- * partita dopo partita; così si stabilizza (sotto 75 a inizio gara), e un titolare da 35 minuti resta sopra 85.
+ * Quota dell'energia che manca recuperata in una notte (a Resistenza 50), quando è più di ENERGY_RECOVERY: chi è
+ * molto stanco recupera di più. Con il calendario a giorni una squadra gioca ogni 2 giorni circa: un titolare da 35
+ * minuti arriva a inizio gara a circa 91 (sopra 85), uno da 42 a circa 72 (sotto 75), e nella seconda sera di un
+ * back-to-back (una notte sola) il titolare da 35 minuti a circa 86, 5 punti in meno (pnpm sim:seasons).
  */
-export const ENERGY_RECOVERY_SHARE = 0.4;
+export const ENERGY_RECOVERY_SHARE = 0.21;
 
 /**
- * Energia dopo il recupero tra due turni: il più alto tra ENERGY_RECOVERY punti e ENERGY_RECOVERY_SHARE di quella
- * che manca, entrambi da 0,7 a 1,3 volte con la Resistenza; chi non ha giocato si riposa una volta e mezza tanto.
+ * Energia dopo nights notti di riposo: ogni notte il più alto tra ENERGY_RECOVERY punti e ENERGY_RECOVERY_SHARE di
+ * quella che manca, entrambi da 0,7 a 1,3 volte con la Resistenza.
  */
-export function recoverEnergy(energy: number, stamina: number, played: boolean): number {
-  const k = (0.7 + (0.6 * stamina) / 100) * (played ? 1 : 1.5);
-  const gain = Math.max(ENERGY_RECOVERY * k, (100 - energy) * Math.min(1, ENERGY_RECOVERY_SHARE * k));
-  return Math.min(100, energy + gain);
+export function recoverEnergy(energy: number, stamina: number, nights: number): number {
+  const k = 0.7 + (0.6 * stamina) / 100;
+  let e = energy;
+  for (let i = 0; i < nights && e < 100; i++)
+    e = Math.min(100, e + Math.max(ENERGY_RECOVERY * k, (100 - e) * Math.min(1, ENERGY_RECOVERY_SHARE * k)));
+  return e;
 }
 
 /**
@@ -69,18 +72,25 @@ export function applyGameToPlayers(state: LeagueState, result: GameResult, regul
 }
 
 /**
- * Fine turno per le squadre che hanno giocato: recupero dell'energia, una partita in meno di stop per gli
- * infortunati (non per chi si è appena fatto male), morale.
+ * Fine turno (un giorno): recupero dell'energia per le notti fino al prossimo turno (giorni senza partite compresi),
+ * una partita in meno di stop per gli infortunati delle squadre che hanno giocato (non per chi si è appena fatto
+ * male), morale di chi ha giocato. day è il giorno del turno.
  */
-export function endTurn(state: LeagueState, played: Map<string, { won: boolean; result: GameResult }>): void {
+export function endTurn(
+  state: LeagueState,
+  played: Map<string, { won: boolean; result: GameResult }>,
+  day: number,
+  nights: number,
+): void {
   const justInjured = new Set([...played.values()].flatMap((x) => x.result.injuries.map((i) => i.playerId)));
+  // Gli svincolati non giocano, ma guariscono al ritmo di una squadra: una partita ogni 2 giorni
+  const freeHealing = played.size > 0 ? Math.floor((day + nights) / 2) - Math.floor(day / 2) : 0;
   for (const p of state.players) {
-    // Recupero: chi ha giocato riparte dall'energia di fine partita, chi non ha giocato si riposa di più
+    // Recupero: chi ha giocato riparte dall'energia di fine partita
     const game = p.teamId ? played.get(p.teamId) : undefined;
-    p.energy = recoverEnergy(p.energy, p.ratings.stamina, game !== undefined);
-    // Gli svincolati non giocano, ma guariscono un turno alla volta come gli altri
-    if (p.teamId === null && p.injury && played.size > 0) {
-      p.injury.gamesRemaining--;
+    p.energy = recoverEnergy(p.energy, p.ratings.stamina, nights);
+    if (p.teamId === null && p.injury && freeHealing > 0) {
+      p.injury.gamesRemaining -= freeHealing;
       if (p.injury.gamesRemaining <= 0) p.injury = null;
     }
     if (!game) continue;

@@ -137,8 +137,10 @@ const EXPECTED = {
   // Seconda analisi, sezione 2 (economia): stipendi come quelli veri, scelte protette, recupero dell'energia tra i
   // turni, strategie e offerte dei bot. Partite e impostazioni automatiche restano identiche
   bots: 'd1c171628477964e',
-  turns: '5dcfd5be48cd469b',
-  season: 'de219f6745266491',
+  // Un turno è un giorno (calendario NBA a giorni, recupero per notti, playoff a giorni): cambiano turni e
+  // stagione; partite, impostazioni automatiche e bot restano identici
+  turns: 'cfcaea4cdfd29286',
+  season: 'c233ef3918019d69',
 };
 
 describe('golden: il motore gioca sempre le stesse partite', () => {

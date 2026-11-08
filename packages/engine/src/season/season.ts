@@ -7,11 +7,12 @@ import type { Conference, LeagueData, Player } from '../types.ts';
 import { botBotTrade, botSalaryDump, updateStrategies } from './bots.ts';
 import { CONFIG_2026_27, type SeasonConfig } from './config.ts';
 import { calibratePotential, talentLevel } from './development.ts';
+import { PLAY_IN_GAP } from './calendar.ts';
 import {
   MAX_STANDARD,
   MAX_TWO_WAY,
   TWO_WAY_GAME_LIMIT,
-  chargeTurn,
+  chargeGames,
   contractOf,
   releasePlayer,
   roster,
@@ -23,24 +24,31 @@ import { fillMinimumRosters } from './freeAgency.ts';
 import { initialPicks } from './picks.ts';
 import {
   applyPostseasonResult,
+  nextPostseasonDay,
   postseasonGames,
   startPostseason,
   type PostseasonState,
 } from './postseason.ts';
-import { REGULAR_SEASON_TURNS, generateSchedule } from './schedule.ts';
+import { generateSchedule, regularTurns, turnDay } from './schedule.ts';
 import { conferenceStandings, leagueStandings } from './standings.ts';
 import { emptyStats, type GameRecord, type LeagueState, type PlayerState } from './state.ts';
 import { applyGameToPlayers, endTurn } from './turn.ts';
 
 export type PlayGame = (home: TeamSetup, away: TeamSetup, seed: string) => GameResult;
 
-/** Probabilità che i bot tentino uno scambio tra loro in un turno prima della deadline. */
-export const BOT_TRADE_CHANCE = 0.3;
+/**
+ * Probabilità che i bot tentino uno scambio tra loro in un turno prima della deadline. Un turno è un giorno: fino
+ * alla deadline ci sono circa 105 giorni con partite, contro i 56 turni di quando un turno faceva giocare tutti
+ * (con 0,3). Le stesse occasioni a stagione: 0,3 × 56 / 105.
+ */
+export const BOT_TRADE_CHANCE = 0.16;
 /**
  * Probabilità per turno che un bot in rosso provi a cedere un contratto pesante, se nello stesso turno non c'è già
- * stato uno scambio tra bot: al massimo uno scambio tra bot per turno.
+ * stato uno scambio tra bot: al massimo uno scambio tra bot per turno. Come sopra: 0,25 × 56 / 105.
  */
-export const SALARY_DUMP_CHANCE = 0.25;
+export const SALARY_DUMP_CHANCE = 0.13;
+/** Giorno della stagione (circa il 37%, a fine dicembre) in cui i bot rivedono la strategia. */
+export const STRATEGY_REFRESH_DAY = 64;
 
 function scout(seed: string, p: Player): number {
   const noise = new Rng(`${seed}:scouting:${p.id}`).normal(0, 2.5);
@@ -85,6 +93,7 @@ export function createLeagueState(
     config,
     phase: 'regular',
     turn: 0,
+    day: 0,
     teams: data.teams.map((t) => ({
       ...t,
       human: opts.humanTeams?.includes(t.id) ?? false,
@@ -108,6 +117,7 @@ export function createLeagueState(
     history: [],
     talentReference: 0,
   };
+  state.day = turnDay(state.schedule, 0) ?? 0;
   // Prima della prima giornata le rose fuori misura si tagliano come in offseason; con il draft iniziale le
   // rose le fanno le scelte
   if (!opts.emptyRosters) {
@@ -184,11 +194,13 @@ function setupFor(state: LeagueState, teamId: string, regular: boolean): TeamSet
 function record(
   state: LeagueState,
   turn: number,
+  day: number,
   phase: GameRecord['phase'],
   result: GameResult,
 ): GameRecord {
   const g: GameRecord = {
     turn,
+    day,
     phase,
     homeId: result.home.teamId,
     awayId: result.away.teamId,
@@ -210,34 +222,45 @@ function countTwoWayGames(state: LeagueState, result: GameResult): void {
   }
 }
 
-/** Gioca un turno di regular season: 15 partite, fine turno, bilancio, mercato dei bot. */
+/**
+ * Gioca un turno di regular season, cioè un giorno del calendario: le sue partite (le squadre senza partita
+ * riposano), fine turno con il recupero fino al giorno del prossimo turno, bilancio di chi ha giocato, mercato dei
+ * bot.
+ */
 export function playRegularTurn(state: LeagueState, playGame: PlayGame = simulateGame): void {
   if (state.phase !== 'regular') throw new Error('Non siamo in regular season');
   const turn = state.turn;
+  const games = state.schedule.filter((x) => x.turn === turn);
+  const day = games[0]?.day ?? state.day;
   const played = new Map<string, { won: boolean; result: GameResult }>();
-  for (const g of state.schedule.filter((x) => x.turn === turn)) {
+  for (const g of games) {
     const result = playGame(
       setupFor(state, g.homeId, true),
       setupFor(state, g.awayId, true),
       `${state.seed}:${state.config.year}:${turn}:${g.homeId}`,
     );
-    record(state, turn, 'regular', result);
+    record(state, turn, day, 'regular', result);
     applyGameToPlayers(state, result, true);
     countTwoWayGames(state, result);
     const homeWon = result.home.score > result.away.score;
     played.set(g.homeId, { won: homeWon, result });
     played.set(g.awayId, { won: !homeWon, result });
   }
-  endTurn(state, played);
-  chargeTurn(state);
+  // Il prossimo turno: il giorno dopo del calendario o, finita la regular season, il primo del play-in
+  const last = turn + 1 >= regularTurns(state.schedule);
+  const nextDay = last ? day + PLAY_IN_GAP : (turnDay(state.schedule, turn + 1) ?? day + 1);
+  endTurn(state, played, day, nextDay - day);
+  chargeGames(state, played.keys());
   const rng = new Rng(`${state.seed}:${state.config.year}:mercato:${turn}`);
   // Al massimo uno scambio tra bot per turno: la cessione di un contratto pesante solo se non c'è stato l'altro
   const traded = rng.chance(BOT_TRADE_CHANCE) ? botBotTrade(state, rng, turn) : null;
   if (!traded && rng.chance(SALARY_DUMP_CHANCE)) botSalaryDump(state, rng, turn);
-  if (turn === 30) updateStrategies(state);
+  const prevDay = turn > 0 ? (turnDay(state.schedule, turn - 1) ?? -1) : -1;
+  if (day >= STRATEGY_REFRESH_DAY && prevDay < STRATEGY_REFRESH_DAY) updateStrategies(state);
   fillMinimumRosters(state, turn);
   state.turn++;
-  if (state.turn >= REGULAR_SEASON_TURNS) endRegularSeason(state);
+  state.day = nextDay;
+  if (last) endRegularSeason(state, day);
 }
 
 export function regularGames(state: LeagueState): GameRecord[] {
@@ -268,10 +291,16 @@ function betterRecord(state: LeagueState): (a: string, b: string) => string {
   return (a, b) => (order.indexOf(a) <= order.indexOf(b) ? a : b);
 }
 
-function endRegularSeason(state: LeagueState): void {
+function endRegularSeason(state: LeagueState, lastDay: number): void {
   state.lastSettlement = settleSeason(state);
-  state.postseason = startPostseason(postseasonSeeds(state));
+  state.postseason = startPostseason(postseasonSeeds(state), lastDay);
+  state.day = nextPostseasonDay(state.postseason) ?? lastDay;
   state.phase = 'postseason';
+}
+
+/** Ultimo giorno di regular season del calendario (da cui parte il play-in). */
+export function lastRegularDay(state: Pick<LeagueState, 'schedule'>): number {
+  return turnDay(state.schedule, regularTurns(state.schedule) - 1) ?? 0;
 }
 
 /**
@@ -279,7 +308,7 @@ function endRegularSeason(state: LeagueState): void {
  * dalle prime 10 di ogni conference, ogni turno di post-season in ordine, partita per partita.
  */
 export function replayPostseason(state: LeagueState): PostseasonState {
-  const ps = startPostseason(postseasonSeeds(state));
+  const ps = startPostseason(postseasonSeeds(state), lastRegularDay(state));
   const better = betterRecord(state);
   const played = state.games.filter((g) => g.phase !== 'regular');
   for (const turn of [...new Set(played.map((g) => g.turn))].sort((a, b) => a - b)) {
@@ -289,7 +318,13 @@ export function replayPostseason(state: LeagueState): PostseasonState {
       const match = expected.find((x) => x.homeId === g.homeId && x.awayId === g.awayId);
       if (!match)
         throw new Error(`Partita di post-season fuori tabellone: ${g.homeId}-${g.awayId} (turno ${turn})`);
-      applyPostseasonResult(ps, match.ref, g.homeScore > g.awayScore ? g.homeId : g.awayId, better);
+      applyPostseasonResult(
+        ps,
+        match.ref,
+        g.homeScore > g.awayScore ? g.homeId : g.awayId,
+        better,
+        match.day,
+      );
     }
     if (games.length !== expected.length)
       throw new Error(
@@ -299,28 +334,38 @@ export function replayPostseason(state: LeagueState): PostseasonState {
   return ps;
 }
 
-/** Gioca un turno di post-season (play-in o una partita per ogni serie aperta). */
+/** Numero del prossimo turno di post-season: dopo i turni di regular season, uno per giorno con partite. */
+export function postseasonTurn(state: Pick<LeagueState, 'schedule' | 'games'>): number {
+  return (
+    regularTurns(state.schedule) +
+    new Set(state.games.filter((g) => g.phase !== 'regular').map((g) => g.turn)).size
+  );
+}
+
+/** Gioca un turno di post-season: le partite del prossimo giorno di play-in o di playoff. */
 export function playPostseasonTurn(state: LeagueState, playGame: PlayGame = simulateGame): void {
   const ps = state.postseason;
   if (state.phase !== 'postseason' || !ps) throw new Error('Non siamo in post-season');
   const better = betterRecord(state);
   const played = new Map<string, { won: boolean; result: GameResult }>();
-  // Numero del turno: 82 + turni di post-season già giocati
-  const turn =
-    REGULAR_SEASON_TURNS + new Set(state.games.filter((g) => g.phase !== 'regular').map((g) => g.turn)).size;
-  for (const g of postseasonGames(ps)) {
+  const turn = postseasonTurn(state);
+  const games = postseasonGames(ps);
+  const day = games[0]?.day ?? state.day;
+  for (const g of games) {
     const result = playGame(
       setupFor(state, g.homeId, false),
       setupFor(state, g.awayId, false),
       `${state.seed}:${state.config.year}:${g.ref}:${turn}`,
     );
-    record(state, turn, g.phase, result);
+    record(state, turn, day, g.phase, result);
     applyGameToPlayers(state, result, false);
     const homeWon = result.home.score > result.away.score;
     played.set(g.homeId, { won: homeWon, result });
     played.set(g.awayId, { won: !homeWon, result });
-    applyPostseasonResult(ps, g.ref, homeWon ? g.homeId : g.awayId, better);
+    applyPostseasonResult(ps, g.ref, homeWon ? g.homeId : g.awayId, better, day);
   }
-  endTurn(state, played);
+  const nextDay = nextPostseasonDay(ps);
+  endTurn(state, played, day, nextDay === null ? 1 : nextDay - day);
+  state.day = nextDay ?? day;
   if (ps.stage === 'done') state.phase = 'offseason';
 }

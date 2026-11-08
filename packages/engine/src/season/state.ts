@@ -88,6 +88,11 @@ export interface DraftSlotState {
 
 export interface GameRecord {
   turn: number;
+  /**
+   * Giorno della stagione (giorni dall'apertura), per chi mostra le partite: il motore usa i giorni del calendario e
+   * del tabellone, non questo. Lo scrive il motore per le partite che gioca.
+   */
+  day?: number;
   phase: 'regular' | 'play-in' | 'playoffs';
   homeId: string;
   awayId: string;
@@ -123,8 +128,16 @@ export interface LeagueState {
   seed: string;
   config: SeasonConfig;
   phase: LeaguePhase;
-  /** Turno di regular season da giocare (0-81). */
+  /**
+   * Turno di regular season da giocare: l'indice del giorno con partite nel calendario (da 0). In post-season e
+   * offseason resta al numero dei turni di regular season.
+   */
   turn: number;
+  /**
+   * Giorno della stagione del turno da giocare (giorni dall'apertura): in regular season quello del calendario, in
+   * post-season il prossimo giorno con partite, in offseason l'ultimo giocato. Decide la trade deadline.
+   */
+  day: number;
   teams: TeamState[];
   players: PlayerState[];
   contracts: Contract[];

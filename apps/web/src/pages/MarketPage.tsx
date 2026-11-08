@@ -2,7 +2,7 @@
 // rinnovi nel loro turno, bilancio). Svincolati con offerte a busta chiusa, scambi (proposte ricevute e inviate, nuova
 // proposta con giocatori, scelte protette, swap e l'anteprima prima → dopo), giocatori sul mercato e bilancio. Tutto
 // si esegue alla chiusura del turno.
-import { MAX_PROTECTION, overall, TRADE_DEADLINE_TURN, type SeasonConfig } from '@nbbgm/engine';
+import { MAX_PROTECTION, overall, type SeasonConfig } from '@nbbgm/engine';
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { Link, useParams, useSearchParams } from 'react-router';
 import {
@@ -260,8 +260,8 @@ export function MarketPage() {
       <FinanceSummary data={data} />
       {!regular && !offseason && tab !== 'bilancio' && (
         <p className="text-sm text-stampa-600 italic dark:text-stampa-300">
-          Durante play-in e playoff il mercato è chiuso (gli scambi si fermano dopo la giornata{' '}
-          {TRADE_DEADLINE_TURN + 1} e riaprono nell’offseason).
+          Durante play-in e playoff il mercato è chiuso (gli scambi si fermano alla trade deadline, il primo
+          giovedì di febbraio, e riaprono nell’offseason).
         </p>
       )}
       {tab === 'svincolati' && !signing && (

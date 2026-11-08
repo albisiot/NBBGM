@@ -3,7 +3,7 @@
 // market_write. Fatto quando: uno scambio che sfora i limiti o arriva dopo la deadline viene rifiutato dal
 // server anche chiamando l'API a mano, e il saldo di fine stagione coincide con la somma dei movimenti.
 import type { PGlite } from '@electric-sql/pglite';
-import { TRADE_DEADLINE_TURN } from '@nbbgm/engine';
+import { LAST_REGULAR_DAY, tradeDeadlineDay } from '@nbbgm/engine';
 import { randomUUID } from 'node:crypto';
 import { beforeAll, describe, expect, it } from 'vitest';
 import { checkMarketAction, type MarketAction } from '../../supabase/functions/_shared/market.ts';
@@ -486,15 +486,17 @@ describe('proposte con elementi ripetuti o di forma sbagliata (terza analisi)', 
 describe('stagione intera', () => {
   it('con le proposte dei bot, il saldo di fine stagione è la somma dei movimenti', async () => {
     let proposals = 0;
-    for (let i = 0; i < 90; i++) {
+    let deadlineChecked = false;
+    for (let i = 0; i < 200; i++) {
       const round = (
-        await q<{ number: number; kind: string }>(
-          `select r.number, r.kind from public.leagues l join public.rounds r on r.id = l.current_round_id where l.id = $1`,
+        await q<{ number: number; kind: string; day: number | null }>(
+          `select r.number, r.kind, r.day from public.leagues l join public.rounds r on r.id = l.current_round_id where l.id = $1`,
           [LEAGUE],
         )
       )[0]!;
       if (round.kind !== 'regular') break;
-      if (round.number === TRADE_DEADLINE_TURN + 1) {
+      if (!deadlineChecked && round.day !== null && round.day > tradeDeadlineDay(2026)) {
+        deadlineChecked = true;
         // Dopo la deadline uno scambio è rifiutato subito
         const [a] = await standard(BOS);
         const [b] = await standard(LAL);
@@ -541,6 +543,6 @@ describe('stagione intera', () => {
     await expect(
       act(ANNA, { kind: 'propose_trade', to_team_id: LAL, players_from: [a!.id], players_to: [b!.id] }),
     ).rejects.toThrow(/deadline/);
-    expect(TRADE_DEADLINE_TURN).toBeLessThan(81);
+    expect(tradeDeadlineDay(2026)).toBeLessThan(LAST_REGULAR_DAY);
   });
 });

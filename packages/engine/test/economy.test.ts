@@ -31,6 +31,7 @@ function league(seed = 'economia'): LeagueState {
 
 const win = (homeId: string, awayId: string, turn: number): GameRecord => ({
   turn,
+  day: turn,
   phase: 'regular',
   homeId,
   awayId,

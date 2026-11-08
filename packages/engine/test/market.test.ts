@@ -19,7 +19,8 @@ import {
 import { startNewSeason } from '../src/season/offseason.ts';
 import { createLeagueState } from '../src/season/season.ts';
 import type { LeagueState } from '../src/season/state.ts';
-import { TRADE_DEADLINE_TURN, validateTrade, type Trade } from '../src/season/trades.ts';
+import { tradeDeadlineDay } from '../src/season/calendar.ts';
+import { validateTrade, type Trade } from '../src/season/trades.ts';
 
 function league(): LeagueState {
   const data = generateLeague(new Rng('mercato'), ARCHETYPE_PROFILES);
@@ -156,7 +157,7 @@ describe('scambi', () => {
     expect(out.trades[0]?.status).toBe('executed');
     expect(s.picks.find((k) => k.id === firsts[0]!.id)).toMatchObject({ ownerId: 'LAL', protection: 10 });
 
-    s.turn = TRADE_DEADLINE_TURN + 1;
+    s.day = tradeDeadlineDay(s.config.year) + 1;
     expect(validateTrade(s, pickTrade([firsts[2]!.id])).join(' ')).toMatch(/deadline/);
   });
 
@@ -406,10 +407,10 @@ describe('proposte dei bot', () => {
     const rng = new Rng('proposte');
     let got = 0;
     const last = new Map<string, number>();
-    for (let turn = 0; turn < 40; turn++) {
+    for (let turn = 0; turn < 160; turn++) {
       s.turn = turn;
       for (const p of botProposals(s, rng, last, turn)) {
-        expect(last.get(p.toId) === undefined || turn - (last.get(p.toId) as number) >= 5).toBe(true);
+        expect(last.get(p.toId) === undefined || turn - (last.get(p.toId) as number) >= 10).toBe(true);
         expect(s.teams.find((t) => t.id === p.fromId)?.human).toBe(false);
         expect(validateTrade(s, p.trade)).toEqual([]);
         last.set(p.toId, turn);

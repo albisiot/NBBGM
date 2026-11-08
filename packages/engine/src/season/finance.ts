@@ -100,10 +100,15 @@ export function canSign(
   return { ok: true };
 }
 
-/** Ricavi e stipendi di un turno di regular season (1/82 della stagione). */
-export function chargeTurn(state: LeagueState): void {
+/**
+ * Ricavi e stipendi di una partita di regular season (1/82 della stagione), per le squadre che giocano nel turno:
+ * con il calendario a giorni non tutte giocano ogni giorno, e ognuna conta 82 movimenti a stagione.
+ */
+export function chargeGames(state: LeagueState, teamIds: Iterable<string>): void {
   const c = state.config;
+  const ids = new Set(teamIds);
   for (const team of state.teams) {
+    if (!ids.has(team.id)) continue;
     const twoWays = twoWayRoster(state, team.id).length * twoWaySalary(c);
     team.balance += (c.revenue - payroll(state, team.id) - twoWays) / 82;
   }

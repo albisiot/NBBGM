@@ -34,7 +34,7 @@ import {
   type Offer,
 } from './freeAgency.ts';
 import { drawLottery, newPick, PICK_YEARS, resolveDraft } from './picks.ts';
-import { generateSchedule } from './schedule.ts';
+import { generateSchedule, turnDay } from './schedule.ts';
 import {
   enforceRosterLimits,
   playPostseasonTurn,
@@ -395,6 +395,7 @@ export function startNewSeason(state: LeagueState): void {
   state.postseason = null;
   state.offseason = null;
   state.turn = 0;
+  state.day = turnDay(state.schedule, 0) ?? 0;
   state.phase = 'regular';
   // Stagione nuova: chi è stato tagliato si può rifirmare
   state.releases = [];

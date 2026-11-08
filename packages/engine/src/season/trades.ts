@@ -8,11 +8,9 @@ import {
   standardRoster,
   twoWayRoster,
 } from './finance.ts';
+import { tradeDeadlineDay } from './calendar.ts';
 import { deferralYears, ownPick, pickInSwap, stepienGaps, swapLive, swapTouches } from './picks.ts';
 import type { DraftPick, DraftSwap, LeagueState } from './state.ts';
-
-/** Trade deadline: dopo questo turno (circa 2/3 di regular season) gli scambi sono bloccati fino alla fine dei playoff. */
-export const TRADE_DEADLINE_TURN = 55;
 
 export interface Trade {
   teamA: string;
@@ -38,9 +36,13 @@ export function pickName(
   return `${k.round === 1 ? 'prima' : 'seconda'} scelta ${k.draftYear} di ${k.originalTeamId}${k.protection ? ` (top ${k.protection})` : ''}`;
 }
 
-export function tradeWindowOpen(state: LeagueState): boolean {
+/**
+ * Gli scambi si fanno fino alla trade deadline (il primo giovedì di febbraio, tradeDeadlineDay) compresa, poi sono
+ * bloccati fino alla fine dei playoff.
+ */
+export function tradeWindowOpen(state: Pick<LeagueState, 'phase' | 'day' | 'config'>): boolean {
   if (state.phase === 'postseason') return false;
-  if (state.phase === 'regular') return state.turn <= TRADE_DEADLINE_TURN;
+  if (state.phase === 'regular') return state.day <= tradeDeadlineDay(state.config.year);
   return true;
 }
 

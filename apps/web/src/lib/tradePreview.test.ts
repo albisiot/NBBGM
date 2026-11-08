@@ -6,6 +6,7 @@ import {
   luxuryTax,
   payroll,
   Rng,
+  tradeDeadlineDay,
   validateTrade,
   type LeagueState,
   type Trade,
@@ -60,6 +61,7 @@ const input = (state: LeagueState, sel: Partial<TradeSelection>): PreviewInput =
   config: state.config,
   roundKind: state.phase === 'offseason' ? 'offseason' : 'regular',
   roundNumber: state.turn,
+  roundDay: state.day,
   me: teamOf(state, 'BOS', true),
   partner: teamOf(state, 'LAL', false),
   picks: picksOf(state),
@@ -196,7 +198,8 @@ describe('anteprima dello scambio', () => {
 
   it('dopo la trade deadline il motore blocca gli scambi', () => {
     const state = structuredClone(base);
-    state.turn = 70;
+    // Il giorno dopo la trade deadline (il primo giovedì di febbraio)
+    state.day = tradeDeadlineDay(state.config.year) + 1;
     const preview = tradePreview(input(state, { give: [standard(state, 'BOS')[0]!.id] }));
     expect(preview.problems[0]).toBe('Scambi bloccati dalla trade deadline');
   });

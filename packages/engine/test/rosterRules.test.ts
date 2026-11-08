@@ -121,15 +121,17 @@ describe('two-way', () => {
 });
 
 describe('svincolati infortunati', () => {
-  it('guariscono un turno alla volta anche senza squadra', () => {
+  it('guariscono anche senza squadra, al ritmo di una squadra: una partita ogni 2 giorni', () => {
     const s = league();
     const fa = s.players.find((p) => p.teamId === null)!;
     injure(fa, 2);
     const setup = (t: string) => autoSetup(t, roster(s, t));
     const played = new Map([['BOS', { won: true, result: quickGame(setup('BOS'), setup('LAL'), 'x') }]]);
-    endTurn(s, played);
+    endTurn(s, played, 0, 1);
+    expect(fa.injury?.gamesRemaining).toBe(2);
+    endTurn(s, played, 1, 1);
     expect(fa.injury?.gamesRemaining).toBe(1);
-    endTurn(s, played);
+    endTurn(s, played, 2, 2);
     expect(fa.injury).toBeNull();
   });
 });

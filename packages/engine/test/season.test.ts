@@ -26,6 +26,7 @@ import { simulateSeason } from '../src/season/offseason.ts';
 import { createLeagueState } from '../src/season/season.ts';
 import { rankTeams, records } from '../src/season/standings.ts';
 import type { DraftSwap, GameRecord } from '../src/season/state.ts';
+import { tradeDeadlineDay } from '../src/season/calendar.ts';
 import { validateTrade } from '../src/season/trades.ts';
 import { TEAMS } from '../src/teams.ts';
 import { validateLeague } from '../src/validate.ts';
@@ -34,6 +35,7 @@ import { quickGame } from './helpers.ts';
 const ids = TEAMS.map((t) => t.id);
 const game = (homeId: string, awayId: string, homeScore: number, awayScore: number): GameRecord => ({
   turn: 0,
+  day: 0,
   phase: 'regular',
   homeId,
   awayId,
@@ -65,20 +67,31 @@ describe('play-in e playoff', () => {
   const better = (a: string, b: string) => (ids.indexOf(a) < ids.indexOf(b) ? a : b);
 
   it('dal play-in alla finale, sempre con la meglio classificata in casa quando tocca', () => {
-    const ps = startPostseason(seeds);
+    const ps = startPostseason(seeds, 173);
     let turns = 0;
-    while (ps.stage !== 'done' && turns < 40) {
+    let lastDay = 173;
+    const played = new Map<string, number[]>();
+    while (ps.stage !== 'done' && turns < 60) {
       const games = postseasonGames(ps);
+      const day = games[0]!.day;
+      // Un turno è un giorno, e i giorni vanno avanti
+      expect(day).toBeGreaterThan(lastDay);
+      lastDay = day;
       for (const g of games) {
+        expect(g.day).toBe(day);
         if (g.phase === 'playoffs') {
           const s = ps.series.find((x) => x.id === g.ref)!;
           const n = s.winsHigh + s.winsLow;
           expect(g.homeId).toBe([0, 1, 4, 6].includes(n) ? s.highId : s.lowId);
+          played.set(g.ref, [...(played.get(g.ref) ?? []), day]);
         }
-        applyPostseasonResult(ps, g.ref, better(g.homeId, g.awayId), better);
+        applyPostseasonResult(ps, g.ref, better(g.homeId, g.awayId), better, day);
       }
       turns++;
     }
+    // Ogni serie gioca a giorni alterni
+    for (const days of played.values())
+      for (let i = 1; i < days.length; i++) expect(days[i]! - days[i - 1]!).toBe(2);
     expect(ps.stage).toBe('done');
     expect(ps.championId).toBe('BOS');
     expect(ps.series.filter((s) => s.round === 1)).toHaveLength(8);
@@ -91,7 +104,9 @@ describe('play-in e playoff', () => {
       [2, 7],
     ]);
     expect(east.find((s) => s.lowSeed === 8)!.lowId).toBe(ids[7]);
-    expect(turns).toBe(2 + 4 * 4);
+    // Play-in in 3 giorni (Est, Ovest, ottavo posto), poi 8 giorni per turno (due gruppi a giorni alterni,
+    // serie da 4 partite) e 4 per la finale
+    expect(turns).toBe(3 + 8 * 3 + 4);
   });
 });
 
@@ -321,7 +336,7 @@ describe('stagione completa', () => {
     });
     expect(problems).toContain('BOS: sotto 13 contratti standard');
     expect(problems).toContain('LAL: oltre 15 contratti standard');
-    state.turn = 60;
+    state.day = tradeDeadlineDay(state.config.year) + 1;
     const late = validateTrade(state, {
       teamA: 'BOS',
       teamB: 'LAL',

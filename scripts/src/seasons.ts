@@ -9,6 +9,7 @@ import {
   MAX_STANDARD,
   MIN_STANDARD,
   autoSetup,
+  backToBacks,
   createLeagueState,
   overall,
   playPostseasonTurn,
@@ -17,6 +18,7 @@ import {
   runOffseason,
   simulateGame,
   standardRoster,
+  teamDays,
   twoWayRoster,
   validateLeague,
   validateSchedule,
@@ -50,6 +52,12 @@ interface SeasonMetrics {
   rotationAge: number;
   injuriesSerious: number;
   energy3436: number;
+  /** Partite al giorno nel calendario (senza l'ultimo giorno, con tutte e 30) e back-to-back per squadra. */
+  perDayMin: number;
+  perDayMax: number;
+  b2bMin: number;
+  b2bMax: number;
+  b2bMean: number;
   negativeBalance: number;
   overTax: number;
   /** Monte stipendi mediano a fine regular season, rispetto al cap e alla soglia della tassa. */
@@ -105,21 +113,29 @@ function checkState(state: LeagueState): string[] {
   return problems;
 }
 
-/** Energia a inizio partita di un giocatore che gioca sempre gli stessi minuti, dopo 20 partite di fila. */
-function energyExperiment(state: LeagueState, minutes: number): { energy: number; minutes: number } {
+interface EnergyRun {
+  /** Energia media a inizio gara (partite dalla 11ª alla 30ª), e nella seconda sera dei back-to-back. */
+  energy: number;
+  backToBack: number;
+  minutes: number;
+}
+
+/**
+ * Energia a inizio partita di un giocatore che gioca sempre gli stessi minuti, nelle prime 30 partite del
+ * calendario vero della sua squadra: tra una partita e l'altra recupera per le notti fino alla prossima.
+ */
+function energyExperiment(state: LeagueState, minutes: number): EnergyRun {
   // Media su tutte le squadre, con la stella sempre alla Resistenza mediana della lega
   const runs = state.teams.map((_, i) => energyRun(state, minutes, i));
+  const avg = (f: (r: EnergyRun) => number) => runs.reduce((a, r) => a + f(r), 0) / runs.length;
   return {
-    energy: runs.reduce((a, r) => a + r.energy, 0) / runs.length,
-    minutes: runs.reduce((a, r) => a + r.minutes, 0) / runs.length,
+    energy: avg((r) => r.energy),
+    backToBack: avg((r) => r.backToBack),
+    minutes: avg((r) => r.minutes),
   };
 }
 
-function energyRun(
-  state: LeagueState,
-  minutes: number,
-  teamIndex: number,
-): { energy: number; minutes: number } {
+function energyRun(state: LeagueState, minutes: number, teamIndex: number): EnergyRun {
   const team = state.teams[teamIndex]!;
   const oppTeam = state.teams[(teamIndex + 1) % state.teams.length]!;
   const players = state.players
@@ -135,14 +151,17 @@ function energyRun(
   for (const p of others) mins[p.id] = ((base.minutes[p.id] ?? 0) * rest) / otherTotal;
   let energy = 100;
   const starts: number[] = [];
+  const b2b: number[] = [];
   const played: number[] = [];
+  const days = teamDays(state.schedule).get(team.id) ?? [];
   // Resistenza mediana della lega: il risultato non dipende da chi è la stella di quella squadra
   const staminas = state.players.map((x) => x.ratings.stamina).sort((x, y) => x - y);
   const stamina = staminas[Math.floor(staminas.length / 2)]!;
   const p = { ...players.find((x) => x.id === star)! };
   p.ratings = { ...p.ratings, stamina };
-  for (let g = 0; g < 20; g++) {
-    starts.push(energy);
+  for (let g = 0; g < 30; g++) {
+    if (g >= 10) starts.push(energy);
+    if (g >= 10 && g > 0 && days[g]! - days[g - 1]! === 1) b2b.push(energy);
     const setup: TeamSetup = {
       ...base,
       players: base.players.map((x) => (x.id === star ? { ...p, energy } : x)),
@@ -154,10 +173,10 @@ function energyRun(
     // regolamentari: "salvo falli", come dice l'obiettivo
     if (line && line.pf <= 3 && r.overtimes === 0 && !r.injuries.some((i) => i.playerId === star))
       played.push(line.seconds / 60);
-    energy = recoverEnergy(line ? r.finalEnergy[star]! : energy, p.ratings.stamina, true);
+    energy = recoverEnergy(line ? r.finalEnergy[star]! : energy, p.ratings.stamina, days[g + 1]! - days[g]!);
   }
-  const tail = (x: number[]) => x.slice(-10).reduce((a, b) => a + b, 0) / Math.max(1, Math.min(10, x.length));
-  return { energy: tail(starts), minutes: tail(played) };
+  const mean = (x: number[]) => x.reduce((a, b) => a + b, 0) / Math.max(1, x.length);
+  return { energy: mean(starts), backToBack: mean(b2b), minutes: mean(played.slice(-20)) };
 }
 
 function main() {
@@ -178,6 +197,13 @@ function main() {
     const start = performance.now();
     const year = state.config.year;
     const problems = checkState(state);
+    const perDay = new Map<number, number>();
+    for (const g of state.schedule) perDay.set(g.day, (perDay.get(g.day) ?? 0) + 1);
+    const dayCounts = [...perDay.entries()]
+      .sort((a, b) => a[0] - b[0])
+      .map(([, n]) => n)
+      .slice(0, -1);
+    const b2b = [...backToBacks(state.schedule).values()];
     let serious = 0;
     const energyStarts = new Map<string, { e: number; g: number; min: number }>();
     const play: PlayGame = (home, away, seed) => {
@@ -223,6 +249,11 @@ function main() {
       rotationAge: snap.rotationAge,
       injuriesSerious: serious / 30,
       energy3436: starters.reduce((a, x) => a + x.e / x.g, 0) / Math.max(1, starters.length),
+      perDayMin: Math.min(...dayCounts),
+      perDayMax: Math.max(...dayCounts),
+      b2bMin: Math.min(...b2b),
+      b2bMax: Math.max(...b2b),
+      b2bMean: b2b.reduce((a, b) => a + b, 0) / b2b.length,
       negativeBalance,
       overTax,
       payrollMedian,
@@ -238,6 +269,7 @@ function main() {
     const m = metrics.at(-1)!;
     console.log(
       `${year}-${(year + 1) % 100}: campione ${m.champion}, miglior record ${m.best}; primi 150 ${num(m.top150)}, 80+ ${m.stars80}; ` +
+        `partite al giorno ${m.perDayMin}-${m.perDayMax}, back-to-back ${m.b2bMin}-${m.b2bMax}; ` +
         `infortuni medi/gravi ${num(m.injuriesSerious)}; energia titolari ${num(m.energy3436)}; in rosso ${m.negativeBalance}, sopra la tassa ${m.overTax}, ` +
         `sotto il minimo ${m.underMinimum}, monte mediano ${mln(m.payrollMedian)} (cap ${mln(m.cap)}, tassa ${mln(m.taxLine)}); ` +
         `scambi ${m.trades}, firme ${m.signings}, ritiri ${m.retirements}; problemi ${m.problems.length} (${num(m.seconds, 0)} s)`,
@@ -318,7 +350,22 @@ function main() {
       num(avg((m) => m.injuriesSerious)),
       avg((m) => m.injuriesSerious) >= 2 && avg((m) => m.injuriesSerious) <= 4,
     ],
+    [
+      'Partite al giorno nel calendario (min e max, senza l’ultimo giorno)',
+      `${Math.min(...metrics.map((m) => m.perDayMin))}-${Math.max(...metrics.map((m) => m.perDayMax))}`,
+      metrics.every((m) => m.perDayMin >= 1 && m.perDayMax <= 13),
+    ],
+    [
+      'Back-to-back per squadra (min, max e media)',
+      `${Math.min(...metrics.map((m) => m.b2bMin))}-${Math.max(...metrics.map((m) => m.b2bMax))}, ${num(avg((m) => m.b2bMean))}`,
+      metrics.every((m) => m.b2bMin >= 10 && m.b2bMax <= 16),
+    ],
     ['Energia a inizio gara, titolare a 35 minuti', num(energy35.energy), energy35.energy > 85],
+    [
+      'Seconda sera di un back-to-back, titolare a 35 minuti',
+      num(energy35.backToBack),
+      energy35.backToBack < energy35.energy - 3,
+    ],
     ['Energia a inizio gara, giocatore a 42 minuti', num(energy42.energy), energy42.energy < 75],
     // Chi chiede 42 minuti li gioca, salvo falli e stanchezza estrema (partite con al massimo 3 falli)
     [

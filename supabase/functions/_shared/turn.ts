@@ -16,7 +16,8 @@ import {
   playPostseasonTurn,
   playRegularTurn,
   postseasonGames,
-  REGULAR_SEASON_TURNS,
+  postseasonTurn,
+  regularTurns,
   replayPostseason,
   Rng,
   botFreeAgencyOffers,
@@ -144,12 +145,7 @@ export function serverTurn(
     state.postseason = replayPostseason(state);
     scheduled = postseasonGames(state.postseason);
   }
-  const turn = regular
-    ? state.turn
-    : offseason
-      ? round.number
-      : REGULAR_SEASON_TURNS +
-        new Set(state.games.filter((g) => g.phase !== 'regular').map((g) => g.turn)).size;
+  const turn = regular ? state.turn : offseason ? round.number : postseasonTurn(state);
   if (!offseason && turn !== round.number)
     throw new Error(`Turno ${round.number} fuori sequenza (atteso ${turn})`);
   const before = clone(state);
@@ -289,7 +285,7 @@ export function serverTurn(
         : state.phase === 'offseason'
           ? { number: turn + 1, kind: 'offseason', stage: 'draft' }
           : {
-              number: seasonOver ? REGULAR_SEASON_TURNS : turn + 1,
+              number: seasonOver ? regularTurns(state.schedule) : turn + 1,
               kind: ps?.stage === 'playoffs' ? 'playoffs' : 'play-in',
             };
 
