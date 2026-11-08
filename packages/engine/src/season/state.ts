@@ -27,6 +27,12 @@ export interface SeasonStats {
   blk: number;
   tov: number;
   pf: number;
+  /**
+   * Partite di regular season della squadra in cui il giocatore era a disposizione (in rosa e sano), anche senza
+   * entrare in campo: con i secondi dice quanto ha giocato quando poteva (opzione del giocatore). Assente nelle
+   * statistiche salvate prima: allora vale g.
+   */
+  av?: number;
 }
 
 export interface PlayerState extends Player {
@@ -177,6 +183,14 @@ export interface LeagueState {
    */
   releases?: { playerId: string; teamId: string }[];
   /**
+   * Offseason: free agent con restrizioni (RFA). La squadra di prima ha fatto l'offerta di qualifica e può pareggiare le
+   * offerte delle altre; il giocatore è svincolato (teamId null), ma la qualifica pesa sul monte stipendi della sua
+   * squadra finché è aperta. A fine free agency chi non ha firmato firma la qualifica.
+   */
+  restricted?: RestrictedRights[];
+  /** Offerte che un RFA ha scelto da un'altra squadra, in attesa che la sua squadra decida se pareggiarle. */
+  offerSheets?: OfferSheet[];
+  /**
    * Allenatori della lega, in panchina e liberi (coaches.ts). Assenti nelle leghe create prima: allora i bot giocano
    * con il pulsante Auto e nessun allenatore cambia partite, crescita, morale o bilancio.
    */
@@ -185,6 +199,23 @@ export interface LeagueState {
   coachBuyouts?: CoachBuyout[];
   /** Luxury tax e monte stipendi minimo pagati all'ultima fine di regular season (per il bilancio del server). */
   lastSettlement?: { teamId: string; payroll: number; tax: number; shortfall: number }[];
+}
+
+export interface RestrictedRights {
+  playerId: string;
+  /** Squadra che ha i diritti (quella di prima). */
+  teamId: string;
+  /** Stipendio dell'offerta di qualifica: un anno. */
+  qualifyingOffer: number;
+}
+
+export interface OfferSheet {
+  playerId: string;
+  /** Squadra che ha fatto l'offerta scelta dal giocatore. */
+  teamId: string;
+  /** Squadra con i diritti, che può pareggiare. */
+  rightsTeamId: string;
+  salaries: number[];
 }
 
 export function emptyStats(): SeasonStats {
@@ -206,5 +237,6 @@ export function emptyStats(): SeasonStats {
     blk: 0,
     tov: 0,
     pf: 0,
+    av: 0,
   };
 }

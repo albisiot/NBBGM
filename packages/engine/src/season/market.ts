@@ -7,7 +7,19 @@ import { botAccepts, botProposeTrade } from './bots.ts';
 import { checkCoachHire, coachName, replaceCoach } from './coaches.ts';
 import { maxSalaryFor, nextConfig, type SeasonConfig } from './config.ts';
 import { canSign, contractOf, releasePlayer, salaryRun, typicalYears } from './finance.ts';
-import { askingSalaryFor, FREE_AGENCY_ROUNDS, resolveOffers, teamAppeal, type Offer } from './freeAgency.ts';
+import type { ContractOption } from '../types.ts';
+import {
+  askingSalaryFor,
+  faSigningRound,
+  FREE_AGENCY_ROUNDS,
+  offerStandings,
+  resolveOffers,
+  resolveOfferSheets,
+  teamAppeal,
+  type Offer,
+  type OfferSheetOutcome,
+  type OfferStanding,
+} from './freeAgency.ts';
 import { ownerOf } from './owners.ts';
 import { standingsSeed } from './season.ts';
 import { leagueStandings } from './standings.ts';
@@ -72,19 +84,23 @@ export function renewalMax(c: SeasonConfig, p: Pick<PlayerState, 'yearsInLeague'
   return maxSalaryFor(nextConfig(c), p.yearsInLeague === null ? null : p.yearsInLeague + 1);
 }
 
-/** Rinnovo: il contratto si allunga con gli stipendi concordati, dalla stagione successiva. */
+/**
+ * Rinnovo: il contratto si allunga con gli stipendi concordati (e le opzioni, allineate agli stipendi), dalla stagione
+ * successiva.
+ */
 export function applyRenewal(
   state: LeagueState,
   playerId: string,
   salaries: readonly number[],
   turn: number | null,
+  options?: readonly ContractOption[],
 ): boolean {
   const p = state.players.find((x) => x.id === playerId);
   const c = contractOf(state, playerId);
   if (!p || !c || c.type === 'two-way' || c.salaries.length !== 1 || p.teamId !== c.teamId) return false;
   if (!salaries.length || (salaries[0] as number) > renewalMax(state.config, p)) return false;
   c.salaries = [c.salaries[0] as number, ...salaries];
-  c.options = [c.options[0] ?? null, ...salaries.map(() => null)];
+  c.options = [c.options[0] ?? null, ...salaries.map((_, i) => options?.[i] ?? null)];
   if (c.type !== 'standard') c.type = 'standard';
   c.guaranteed = null;
   state.transactions.push({
@@ -112,10 +128,19 @@ export interface TradeRequest {
 export interface MarketRequests {
   trades: TradeRequest[];
   releases: { id: string; teamId: string; playerId: string }[];
-  renewals: { id: string; teamId: string; playerId: string; salaries: number[] }[];
+  renewals: {
+    id: string;
+    teamId: string;
+    playerId: string;
+    salaries: number[];
+    /** Opzioni concordate, allineate agli stipendi (di solito solo sull'ultimo anno). */
+    options?: ContractOption[];
+  }[];
   bids: { id: string; teamId: string; playerId: string; salaries: number[] }[];
   /** Cambi di allenatore: la squadra esonera il suo e assume uno libero alla sua richiesta. */
   coaches?: { id: string; teamId: string; coachId: string }[];
+  /** RFA: la squadra con i diritti pareggia (match) o no l'offerta che il giocatore ha scelto da un'altra squadra. */
+  matches?: { id: string; teamId: string; playerId: string; match: boolean }[];
 }
 
 /** Messaggio per una squadra, da mostrare come avviso informativo. */
@@ -127,29 +152,44 @@ export interface MarketNote {
 export interface MarketOutcome {
   trades: { id: string; status: 'executed' | 'void' | 'rejected' | 'expired' }[];
   requests: { id: string; status: 'done' | 'invalid' }[];
-  bids: { id: string; status: 'won' | 'lost' | 'invalid' }[];
+  /** pending: l'offerta resta sul tavolo per il turno dopo (free agency dell'offseason). */
+  bids: { id: string; status: 'won' | 'lost' | 'invalid' | 'pending' }[];
+  /** Offerte degli RFA decise in questo turno (pareggiate o no). */
+  sheets: OfferSheetOutcome[];
   notes: MarketNote[];
 }
 
+/** Come sta un'offerta, per la nota al manager. */
+const STANDING_TEXT: Record<OfferStanding, string> = {
+  best: 'per ora è la migliore che ha ricevuto',
+  behind: 'ha ricevuto offerte migliori',
+  below: 'è sotto la sua richiesta',
+  invalid: 'adesso non potresti firmarlo',
+};
+
 /**
  * Esegue il mercato del turno: scambi (gli accettati nell'ordine in cui sono stati accettati; quelli verso un bot
- * li decide il bot, con il suo margine del 10%; quelli senza risposta sono rifiutati), tagli, rinnovi e offerte
- * agli svincolati (in stagione gli svincolati chiedono quanto a fine free agency). Uno scambio che non vale più,
- * per esempio perché un giocatore è già andato in un altro scambio, decade.
+ * li decide il bot, con il suo margine del 10%; quelli senza risposta sono rifiutati), cambi di allenatore, tagli,
+ * rinnovi, pareggi degli RFA e offerte agli svincolati (in stagione gli svincolati chiedono quanto a fine free
+ * agency). Uno scambio che non vale più, per esempio perché un giocatore è già andato in un altro scambio, decade.
+ * Nella free agency dell'offseason (keepBids) le offerte che non firmano restano sul tavolo per il turno dopo, e a
+ * chi le ha fatte il giocatore dice come stanno.
  */
 export function runMarket(
   state: LeagueState,
   req: MarketRequests,
   turn: number | null,
   opts: {
-    /** Turno di free agency dell'offseason (0-3): le richieste scendono di turno in turno. In stagione l'ultimo. */
+    /** Turno di free agency dell'offseason (0-14): le richieste scendono di turno in turno. In stagione l'ultimo. */
     askRound?: number;
     /** Offerte dei bot da mettere insieme a quelle dei manager (free agency dell'offseason). */
     extraOffers?: () => Offer[];
+    /** Le offerte che non firmano restano aperte (tutti i turni di free agency tranne l'ultimo). */
+    keepBids?: boolean;
   } = {},
 ): MarketOutcome {
   const askRound = opts.askRound ?? IN_SEASON_ASK_ROUND;
-  const out: MarketOutcome = { trades: [], requests: [], bids: [], notes: [] };
+  const out: MarketOutcome = { trades: [], requests: [], bids: [], sheets: [], notes: [] };
   const note = (teamId: string, text: string) => out.notes.push({ teamId, text });
 
   // 1. Scambi
@@ -239,7 +279,10 @@ export function runMarket(
   // 4. Rinnovi
   for (const r of req.renewals) {
     const p = state.players.find((x) => x.id === r.playerId);
-    const ok = p !== undefined && p.teamId === r.teamId && applyRenewal(state, r.playerId, r.salaries, turn);
+    const ok =
+      p !== undefined &&
+      p.teamId === r.teamId &&
+      applyRenewal(state, r.playerId, r.salaries, turn, r.options);
     out.requests.push({ id: r.id, status: ok ? 'done' : 'invalid' });
     if (p)
       note(
@@ -250,10 +293,41 @@ export function runMarket(
       );
   }
 
-  // 5. Offerte agli svincolati, a busta chiusa
+  // 5. RFA: le offerte scelte da un'altra squadra nel turno prima, pareggiate o no da chi ha i diritti
+  if (state.offerSheets?.length) {
+    const asked = new Map((req.matches ?? []).map((m) => [m.playerId, m]));
+    out.sheets = resolveOfferSheets(state, new Map([...asked].map(([id, m]) => [id, m.match])), turn);
+    for (const sh of out.sheets) {
+      const p = state.players.find((x) => x.id === sh.playerId);
+      const name = p ? fullName(p) : 'Il giocatore';
+      if (sh.outcome === 'matched') {
+        note(sh.rightsTeamId, `Hai pareggiato l'offerta di ${sh.teamId}: ${name} resta con te.`);
+        note(sh.teamId, `${sh.rightsTeamId} ha pareggiato la tua offerta: ${name} resta con loro.`);
+      } else if (sh.outcome === 'left') {
+        note(sh.rightsTeamId, `Non hai pareggiato: ${name} va a ${sh.teamId}.`);
+        note(sh.teamId, `${sh.rightsTeamId} non ha pareggiato: ${name} firma con te.`);
+      } else {
+        note(sh.teamId, `L'offerta per ${name} non vale più: resta free agent con restrizioni.`);
+      }
+    }
+  }
+  for (const m of req.matches ?? [])
+    out.requests.push({
+      id: m.id,
+      status: out.sheets.some((x) => x.playerId === m.playerId && x.rightsTeamId === m.teamId)
+        ? 'done'
+        : 'invalid',
+    });
+
+  // 6. Offerte agli svincolati, a busta chiusa
   const valid: typeof req.bids = [];
   for (const b of req.bids) {
     const p = state.players.find((x) => x.id === b.playerId);
+    // Firmato dopo il turno di pareggio di un RFA (la sua squadra non ha pareggiato)
+    if (p && p.teamId === b.teamId) {
+      out.bids.push({ id: b.id, status: 'won' });
+      continue;
+    }
     if (!p || p.teamId !== null) {
       out.bids.push({ id: b.id, status: 'lost' });
       if (p) note(b.teamId, `${fullName(p)} non è più svincolato.`);
@@ -273,7 +347,7 @@ export function runMarket(
     playerId: b.playerId,
     salaries: b.salaries,
   }));
-  // Prima di risolvere: chi non potrebbe firmare nemmeno da solo (cap, rosa, bilancio) ha un'offerta non valida
+  // Prima di risolvere: chi non potrebbe firmare nemmeno da solo (tassa, rosa, bilancio) ha un'offerta non valida
   const reasons = new Map(
     valid.map((b) => {
       const p = state.players.find((x) => x.id === b.playerId) as PlayerState;
@@ -281,10 +355,17 @@ export function runMarket(
       return [b.id, check.ok ? null : (check.reason ?? 'non si può firmare')];
     }),
   );
-  resolveOffers(state, [...offers, ...(opts.extraOffers?.() ?? [])], askRound, worstFirst, turn);
-  for (const b of valid) {
+  const all = [...offers, ...(opts.extraOffers?.() ?? [])];
+  // Nei turni di sole offerte il giocatore dice a chi gliel'ha fatta come sta (prima delle firme, che non ci sono)
+  const standings =
+    opts.keepBids && !faSigningRound(askRound) ? offerStandings(state, all, askRound, worstFirst) : null;
+  resolveOffers(state, all, askRound, worstFirst, turn);
+  const sheetOf = new Map((state.offerSheets ?? []).map((x) => [x.playerId, x]));
+  const waiting = new Map<string, string[]>();
+  valid.forEach((b, i) => {
     const p = state.players.find((x) => x.id === b.playerId) as PlayerState;
     const ask = askingSalaryFor(state.config, p, askRound);
+    const sheet = sheetOf.get(p.id);
     if (p.teamId === b.teamId) {
       out.bids.push({ id: b.id, status: 'won' });
       note(
@@ -294,19 +375,44 @@ export function runMarket(
     } else if (p.teamId !== null) {
       out.bids.push({ id: b.id, status: 'lost' });
       note(b.teamId, `${fullName(p)} ha scelto l'offerta di ${p.teamId}.`);
+    } else if (sheet?.teamId === b.teamId) {
+      out.bids.push({ id: b.id, status: 'pending' });
+      note(
+        b.teamId,
+        `${fullName(p)} ha scelto la tua offerta: è un RFA e ${sheet.rightsTeamId} ha un turno per pareggiarla.`,
+      );
+    } else if (sheet) {
+      out.bids.push({ id: b.id, status: 'lost' });
+      note(b.teamId, `${fullName(p)} ha scelto l'offerta di ${sheet.teamId}.`);
     } else if (reasons.get(b.id)) {
       out.bids.push({ id: b.id, status: 'invalid' });
       note(b.teamId, `L'offerta per ${fullName(p)} non è valida: ${reasons.get(b.id)}.`);
+    } else if (opts.keepBids) {
+      // Resta sul tavolo: nei turni di sole offerte con com'è messa, poi solo se è sotto la richiesta
+      out.bids.push({ id: b.id, status: 'pending' });
+      const standing: OfferStanding =
+        standings?.[i] ??
+        ((b.salaries[0] ?? 0) < ask
+          ? 'below'
+          : canSign(state, b.teamId, p, b.salaries[0] ?? 0).ok
+            ? 'behind'
+            : 'invalid');
+      const text =
+        standing === 'below'
+          ? `${fullName(p)} (${STANDING_TEXT.below}: ${millions(ask)})`
+          : `${fullName(p)} (${STANDING_TEXT[standing]})`;
+      waiting.set(b.teamId, [...(waiting.get(b.teamId) ?? []), text]);
     } else {
       out.bids.push({ id: b.id, status: 'lost' });
       note(
         b.teamId,
         (b.salaries[0] ?? 0) < ask
           ? `${fullName(p)} ha rifiutato: chiede almeno ${millions(ask)}.`
-          : `${fullName(p)} non ha firmato: con le altre firme del turno l'offerta non stava più nel cap o nella rosa.`,
+          : `${fullName(p)} non ha firmato: con le altre firme del turno l'offerta non stava più nella tassa o nella rosa.`,
       );
     }
-  }
+  });
+  for (const [teamId, list] of waiting) note(teamId, `Offerte ancora sul tavolo: ${list.join('; ')}.`);
   return out;
 }
 

@@ -184,18 +184,23 @@ describe('economia', () => {
     expect(n.salaryCap).toBe(Math.round(c.salaryCap * 1.07));
   });
 
-  it('sopra il cap solo minimi; con saldo negativo solo minimi per restare a 13', () => {
+  it('si firma fino alla soglia della tassa, oltre solo minimi; con saldo negativo solo minimi per restare a 13', () => {
     const league = generateLeague(new Rng('economia'), ARCHETYPE_PROFILES);
     const state = createLeagueState(league, 'economia', { potentialOnOverallScale: true });
     const team = state.teams[0]!;
     const fa = state.players.find((p) => p.teamId === null)!;
-    // Monte stipendi oltre il cap
-    for (const ct of state.contracts.filter((x) => x.teamId === team.id)) ct.salaries[0] = 12_000_000;
     // Rosa a 14 per avere un posto libero
     const out = standardRoster(state, team.id)[0]!;
     out.teamId = null;
     state.contracts = state.contracts.filter((x) => x.playerId !== out.id);
-    expect(canSign(state, team.id, fa, 10_000_000).ok).toBe(false);
+    // Monte stipendi oltre il cap (14 per 12 milioni, 168): sotto la tassa si firma ancora
+    for (const ct of state.contracts.filter((x) => x.teamId === team.id)) ct.salaries[0] = 12_000_000;
+    expect(canSign(state, team.id, fa, 10_000_000).ok).toBe(true);
+    expect(canSign(state, team.id, fa, 40_000_000).ok).toBe(false);
+    // 14 per 14 milioni, 196: 10 milioni porterebbero oltre la tassa (200,4), 3 no
+    for (const ct of state.contracts.filter((x) => x.teamId === team.id)) ct.salaries[0] = 14_000_000;
+    expect(canSign(state, team.id, fa, 10_000_000).reason).toMatch(/tassa/);
+    expect(canSign(state, team.id, fa, 3_000_000).ok).toBe(true);
     expect(canSign(state, team.id, fa, c.minimumSalary[0]!).ok).toBe(true);
     team.balance = -1;
     expect(canSign(state, team.id, fa, c.minimumSalary[0]!).ok).toBe(false);

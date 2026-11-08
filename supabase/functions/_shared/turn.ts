@@ -46,6 +46,7 @@ import type {
   OffseasonStage,
   PostseasonGame,
   PostseasonState,
+  RenewalDecision,
   TeamSetup,
   Trade,
 } from '../../../packages/engine/src/index.ts';
@@ -270,11 +271,17 @@ export function serverTurn(
     scaleContracts(state);
   } else if (stage === 'renewals') {
     const asked = new Map(requests.filter((q) => q.kind === 'renew').map((q) => [q.player_id, q.id]));
-    const decisions = new Map<string, 'renew' | 'release' | 'bot'>();
+    const agreed = new Map(
+      requests
+        .filter((q) => q.kind === 'renew')
+        .map((q) => [q.player_id, (q.payload.salaries ?? []).map(Number)] as const),
+    );
+    const decisions = new Map<string, RenewalDecision>();
     for (const p of expiringPlayers(state)) {
       const team = state.teams.find((t) => t.id === p.teamId);
       if (!team?.human) continue;
-      if (asked.has(p.id)) decisions.set(p.id, 'renew');
+      const salaries = agreed.get(p.id);
+      if (salaries?.length) decisions.set(p.id, { salaries });
       else {
         // Senza risposta: con l'allenatore decide la logica del bot, altrimenti il giocatore se ne va
         const open = alerts.some(
@@ -823,7 +830,8 @@ export function serverTurn(
         player_id: p.id,
         team_id: p.teamId === null ? null : uuid(p.teamId),
         rookie: p.yearsInLeague === null ? null : p.yearsInLeague === 0,
-        stats: p.stats,
+        // Le partite a disposizione (av) servono solo all'opzione del giocatore: nello storico restano i box score
+        stats: { ...p.stats, av: undefined },
       }));
   if (newAlerts.length) payload.alerts = newAlerts;
   if (closed.size) payload.alerts_closed = [...closed].map(([id, s]) => ({ id, status: s }));

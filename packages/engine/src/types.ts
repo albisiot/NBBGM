@@ -83,6 +83,11 @@ export interface Contract {
   /** Opzione sulla stagione con lo stesso indice di salaries. */
   options: ContractOption[];
   guaranteed: number | null;
+  /**
+   * Offseason: stipendio dell'ultima stagione di un contratto in scadenza (salaries vuoto) o con l'opzione della
+   * squadra ancora da decidere. Serve per l'offerta di qualifica degli RFA.
+   */
+  lastSalary?: number;
 }
 
 /** Stipendio residuo di un giocatore tagliato, a carico della squadra che lo ha tagliato. */

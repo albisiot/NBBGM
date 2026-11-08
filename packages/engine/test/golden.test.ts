@@ -138,17 +138,19 @@ const EXPECTED = {
   // turni, strategie e offerte dei bot. Partite e impostazioni automatiche restano identiche
   bots: 'd1c171628477964e',
   // Un turno è un giorno (calendario NBA a giorni, recupero per notti, playoff a giorni): cambiano turni e
-  // stagione; partite, impostazioni automatiche e bot restano identici
-  turns: 'cfcaea4cdfd29286',
-  // Il draft annuale scrive anno, giro e scelta dei prospetti (Player.draft): cambia solo la stagione, e senza il
-  // campo draft l'impronta è quella di prima (c233ef3918019d69)
-  season: 'da8a2f580f8fc0e0',
+  // stagione; partite, impostazioni automatiche e bot restano identici. Offseason nuova: le statistiche contano anche
+  // le partite a disposizione (stats.av); senza av l'impronta dei turni è quella di prima (cfcaea4cdfd29286)
+  turns: '9ec96490948577bf',
+  // Offseason nuova (draft a tappe, opzioni, rinnovi e qualifiche, 15 turni di free agency, firme fino alla tassa):
+  // cambia la stagione
+  season: '1d49c123420cfcf2',
 };
 // Senza allenatori e proprietari (leghe create prima): le impronte di sempre
 const EXPECTED_BASE = { bots: EXPECTED.bots, turns: EXPECTED.turns, season: EXPECTED.season };
 // Con allenatori e proprietari dei bot: i bot giocano con l'idea del loro allenatore e decidono con l'obiettivo del
 // proprietario; partite e impostazioni automatiche senza allenatore restano identiche
-const EXPECTED_STAFF = { bots: '6b312eed7e8451ae', turns: '65061d4f7594276d', season: 'cd1aacfe392350cc' };
+// (offseason nuova: turni come sopra, prima 65061d4f7594276d; stagione, prima cd1aacfe392350cc)
+const EXPECTED_STAFF = { bots: '6b312eed7e8451ae', turns: '5f09453eaaf98eec', season: '8e3576903fb4c037' };
 
 describe('golden: il motore gioca sempre le stesse partite', () => {
   it('partite complete', () => {

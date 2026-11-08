@@ -36,6 +36,12 @@ export function gamesAfterOffseason(gamesRemaining: number): number {
 /** Applica a giocatori e statistiche il risultato di una partita. */
 export function applyGameToPlayers(state: LeagueState, result: GameResult, regular: boolean): void {
   const byId = new Map(state.players.map((p) => [p.id, p]));
+  // A disposizione: in rosa e sano prima della partita (gli infortuni di questa partita arrivano dopo)
+  if (regular) {
+    const teams = new Set([result.home.teamId, result.away.teamId]);
+    for (const p of state.players)
+      if (p.teamId !== null && teams.has(p.teamId) && !p.injury) p.stats.av = (p.stats.av ?? 0) + 1;
+  }
   for (const side of [result.home, result.away]) {
     for (const line of side.box) {
       const p = byId.get(line.playerId);

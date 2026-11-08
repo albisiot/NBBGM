@@ -67,7 +67,8 @@ describe('storico delle stagioni', () => {
     expect(rows.length).toBeGreaterThanOrEqual(240);
     expect(rows.map((x) => x.player_id)).toEqual(players.map((p) => p.id));
     for (const [i, p] of players.entries()) {
-      expect(rows[i]!.stats).toEqual(p.season_stats);
+      // Le partite a disposizione (av) restano solo nei giocatori: servono all'opzione del giocatore
+      expect(rows[i]!.stats).toEqual({ ...p.season_stats, av: undefined });
       expect(rows[i]!.team_id).toBe(p.team_id);
       expect(rows[i]!.rookie).toBe(p.years_in_league === null ? null : p.years_in_league === 0);
     }

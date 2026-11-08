@@ -29,6 +29,7 @@ export * from './season/owners.ts';
 export * from './season/freeAgency.ts';
 export * from './season/picks.ts';
 export * from './season/postseason.ts';
+export * from './season/renewals.ts';
 export * from './season/schedule.ts';
 export * from './season/season.ts';
 export * from './season/standings.ts';

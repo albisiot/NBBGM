@@ -110,6 +110,11 @@ export interface OwnerStyle {
   pickWeight: number;
   /** Quota dello spazio sotto il cap che spende in free agency (il monte stipendi minimo lo raggiunge comunque). */
   spendShare: number;
+  /**
+   * Fin dove spende in free agency, tra il cap (0) e la soglia della tassa (1): le regole permettono di firmare fino
+   * alla tassa, ma oltre i ricavi (a metà strada) la squadra perde soldi.
+   */
+  spendAboveCap: number;
   /** Rilancio massimo sopra la richiesta di uno svincolato (a caso tra 0 e questo). */
   overAsk: number;
   /** Rinnova se la richiesta non supera il valore di mercato per tanto (1,15: il 15% in più). */
@@ -140,6 +145,7 @@ export const OWNER_STYLE: Record<OwnerGoal, OwnerStyle> = {
     taxWeight: 1,
     pickWeight: 1,
     spendShare: 1,
+    spendAboveCap: 0.1,
     overAsk: 0.08,
     renewalRatio: 1.15,
     youngFA: 1,
@@ -159,6 +165,7 @@ export const OWNER_STYLE: Record<OwnerGoal, OwnerStyle> = {
     taxWeight: 0.5,
     pickWeight: 0.8,
     spendShare: 1,
+    spendAboveCap: 0.6,
     overAsk: 0.12,
     renewalRatio: 1.3,
     youngFA: 0.9,
@@ -178,6 +185,7 @@ export const OWNER_STYLE: Record<OwnerGoal, OwnerStyle> = {
     taxWeight: 1.3,
     pickWeight: 1.25,
     spendShare: 0.9,
+    spendAboveCap: 0.05,
     overAsk: 0.05,
     renewalRatio: 1.1,
     youngFA: 1.15,
@@ -197,6 +205,7 @@ export const OWNER_STYLE: Record<OwnerGoal, OwnerStyle> = {
     taxWeight: 2,
     pickWeight: 1.1,
     spendShare: 0.75,
+    spendAboveCap: 0,
     overAsk: 0.03,
     renewalRatio: 1.05,
     youngFA: 1,
@@ -216,6 +225,7 @@ export const OWNER_STYLE: Record<OwnerGoal, OwnerStyle> = {
     taxWeight: 0.75,
     pickWeight: 0.9,
     spendShare: 1,
+    spendAboveCap: 0.3,
     overAsk: 0.15,
     renewalRatio: 1.2,
     youngFA: 1,

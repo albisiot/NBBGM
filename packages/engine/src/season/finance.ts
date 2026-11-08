@@ -27,15 +27,23 @@ export function twoWayRoster(state: LeagueState, teamId: string): PlayerState[] 
 }
 
 /**
- * Monte stipendi della stagione corrente: contratti standard più residui dei tagliati. I two-way sono fuori. Con
- * season 1, quello della stagione dopo (il secondo anno dei contratti).
+ * Monte stipendi della stagione corrente: contratti standard più residui dei tagliati. I two-way sono fuori. In
+ * offseason conta anche l'offerta di qualifica degli RFA della squadra, finché è aperta. Con season 1, quello della
+ * stagione dopo (il secondo anno dei contratti).
  */
 export function payroll(state: LeagueState, teamId: string, season = 0): number {
   let total = 0;
   for (const c of state.contracts)
     if (c.teamId === teamId && c.type !== 'two-way') total += c.salaries[season] ?? 0;
   for (const d of state.deadMoney) if (d.teamId === teamId) total += d.salaries[season] ?? 0;
+  if (season === 0)
+    for (const r of state.restricted ?? []) if (r.teamId === teamId) total += r.qualifyingOffer;
   return total;
+}
+
+/** Diritti di una squadra su un RFA (offerta di qualifica aperta), se ci sono. */
+export function rightsOf(state: LeagueState, playerId: string) {
+  return state.restricted?.find((r) => r.playerId === playerId);
 }
 
 export function isRepeater(taxHistory: readonly boolean[]): boolean {
@@ -53,10 +61,11 @@ export function releasedBy(state: LeagueState, teamId: string, playerId: string)
 }
 
 /**
- * Regole NBA semplificate per firmare uno svincolato: sotto il cap fino a esaurire lo spazio, sopra il cap
- * solo al minimo. Con saldo negativo si firma solo fino al monte stipendi minimo (la differenza si pagherebbe
- * comunque a fine regular season), oltre solo al minimo e solo per restare a 13. Chi la squadra ha tagliato in
- * questa stagione non si rifirma fino alla prossima.
+ * Regole per firmare uno svincolato (NBA semplificato): si firma finché il monte stipendi resta sotto la soglia della
+ * luxury tax (il cap si può superare), sopra la soglia solo al minimo. Con saldo negativo si firma solo fino al monte
+ * stipendi minimo (la differenza si pagherebbe comunque a fine regular season), oltre solo al minimo e solo per
+ * restare a 13. Chi la squadra ha tagliato in questa stagione non si rifirma fino alla prossima. Un proprio RFA si
+ * rifirma come un rinnovo: senza limiti di tassa e di saldo (la sua qualifica esce dal monte stipendi).
  */
 export function canSign(
   state: LeagueState,
@@ -83,6 +92,7 @@ export function canSign(
   const minimum = minimumSalaryFor(c, player.yearsInLeague);
   const isMinimum = salary <= minimum;
   if (salary > maxSalaryFor(c, player.yearsInLeague)) return { ok: false, reason: 'sopra il massimo' };
+  if (rightsOf(state, player.id)?.teamId === teamId) return { ok: true };
   const team = state.teams.find((t) => t.id === teamId);
   if (
     team &&
@@ -96,8 +106,8 @@ export function canSign(
     };
   }
   if (isMinimum) return { ok: true };
-  if (payroll(state, teamId) + salary > c.salaryCap)
-    return { ok: false, reason: 'sopra il cap: solo minimi' };
+  if (payroll(state, teamId) + salary > c.luxuryTax)
+    return { ok: false, reason: 'sopra la soglia della tassa: solo minimi' };
   return { ok: true };
 }
 
